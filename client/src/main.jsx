@@ -1123,22 +1123,27 @@ function PptView() {
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.json_to_sheet(rows);
 
-      // Auto-fit column widths
+      // Auto-fit column widths matching standard Media Buzz template
       ws['!cols'] = [
         { wch: 8 },  // SR NO
-        { wch: 18 }, // AREA
-        { wch: 45 }, // LOCATION
-        { wch: 12 }, // MEDIA
-        { wch: 8 },  // LIGHT
-        { wch: 6 },  // W
-        { wch: 6 },  // H
-        { wch: 8 },  // SQ FT
-        { wch: 16 }, // AVAILABLITY
-        { wch: 16 }, // Selling Amount
-        { wch: 26 }  // Latitude Longitude
+        { wch: 20 }, // AREA
+        { wch: 55 }, // LOCATION
+        { wch: 14 }, // MEDIA
+        { wch: 10 }, // LIGHT
+        { wch: 8 },  // W
+        { wch: 8 },  // H
+        { wch: 10 }, // SQ FT
+        { wch: 18 }, // AVAILABLITY
+        { wch: 18 }, // Selling Amount
+        { wch: 28 }  // Latitude Longitude
       ];
 
-      XLSX.utils.book_append_sheet(wb, ws, 'PPT Sites');
+      // Enable Excel Auto-Filter dropdowns on Header Row
+      if (rows.length > 0) {
+        ws['!autofilter'] = { ref: `A1:K${rows.length + 1}` };
+      }
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Sites');
       XLSX.writeFile(wb, 'MediaBuzz_PPT_Inventory.xlsx');
     } catch (e) {
       alert('Export Excel failed: ' + e.message);
@@ -1957,20 +1962,25 @@ function DataToolsView() {
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.json_to_sheet(rows);
 
-      // Auto-fit column widths
+      // Auto-fit column widths matching standard Media Buzz template
       ws['!cols'] = [
         { wch: 8 },  // SR NO
-        { wch: 18 }, // AREA
-        { wch: 45 }, // LOCATION
-        { wch: 12 }, // MEDIA
-        { wch: 8 },  // LIGHT
-        { wch: 6 },  // W
-        { wch: 6 },  // H
-        { wch: 8 },  // SQ FT
-        { wch: 16 }, // AVAILABLITY
-        { wch: 16 }, // Selling Amount
-        { wch: 26 }  // Latitude Longitude
+        { wch: 20 }, // AREA
+        { wch: 55 }, // LOCATION
+        { wch: 14 }, // MEDIA
+        { wch: 10 }, // LIGHT
+        { wch: 8 },  // W
+        { wch: 8 },  // H
+        { wch: 10 }, // SQ FT
+        { wch: 18 }, // AVAILABLITY
+        { wch: 18 }, // Selling Amount
+        { wch: 28 }  // Latitude Longitude
       ];
+
+      // Enable Excel Auto-Filter dropdowns on Header Row
+      if (rows.length > 0) {
+        ws['!autofilter'] = { ref: `A1:K${rows.length + 1}` };
+      }
 
       XLSX.utils.book_append_sheet(wb, ws, 'Sites');
       XLSX.writeFile(wb, 'MediaBuzz_Sites.xlsx');
