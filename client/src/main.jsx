@@ -1839,52 +1839,438 @@ function ReportsView() {
 
 function SettingsView() {
   const [s, setS] = useState(defaultSettings || {});
+  const [activeTab, setActiveTab] = useState('general');
   const [saved, setSaved] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [userModal, setUserModal] = useState(null);
+  const [userLoading, setUserLoading] = useState(false);
 
   useEffect(() => {
     api.get('/settings').then(r => {
       if (r.data && Object.keys(r.data).length > 0) setS(r.data);
     }).catch(() => {});
+    loadUsers();
   }, []);
 
-  async function save(e) {
+  async function loadUsers() {
+    try {
+      const { data } = await api.get('/users');
+      if (Array.isArray(data)) setUsers(data);
+    } catch (e) {
+      console.warn('Error loading users', e);
+    }
+  }
+
+  async function saveSettings(e) {
+    if (e) e.preventDefault();
+    try {
+      await api.put('/settings', s);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      alert('Error saving settings: ' + (e.response?.data?.message || e.message));
+    }
+  }
+
+  async function saveUser(e) {
     e.preventDefault();
+    setUserLoading(true);
     const data = Object.fromEntries(new FormData(e.currentTarget));
-    await api.put('/settings', data);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    try {
+      if (userModal?.id) {
+        await api.put(`/users/${userModal.id}`, data);
+      } else {
+        await api.post('/users', data);
+      }
+      setUserModal(null);
+      await loadUsers();
+    } catch (e) {
+      alert('Failed to save user: ' + (e.response?.data?.message || e.message));
+    } finally {
+      setUserLoading(false);
+    }
+  }
+
+  async function deleteUser(id) {
+    if (confirm('Delete this user account?')) {
+      try {
+        await api.delete(`/users/${id}`);
+        await loadUsers();
+      } catch (e) {
+        alert('Failed to delete user: ' + (e.response?.data?.message || e.message));
+      }
+    }
   }
 
   return (
     <>
-      <PageHead title="Settings & Parameters" desc="Configure company details, default GST tax rates, reminder thresholds, and terms." />
-      <form className="scooh-panel" onSubmit={save}>
-        {saved && <div className="scooh-banner" style={{ display: 'block' }}>Settings saved successfully!</div>}
-        <div className="scooh-grid2">
-          {[
-            ['company_name', 'Company Name'],
-            ['currency', 'Currency (e.g. INR)'],
-            ['default_city', 'Default City'],
-            ['validation_interval', 'Validation Interval (Days)'],
-            ['mounting_grace_days', 'Mounting Grace Days'],
-            ['electricity_due_soon_days', 'Electricity Due Warning (Days)'],
-            ['campaign_ending_warning_days', 'Campaign End Warning (Days)'],
-            ['notification_emails', 'Notification Recipient Emails'],
-            ['proposal_validity', 'Proposal Default Validity (Days)'],
-            ['proposal_tax', 'Default Proposal Tax / GST %']
-          ].map(([k, lbl]) => (
-            <div className="scooh-field" key={k}>
-              <label>{lbl}</label>
-              <input name={k} defaultValue={s[k] ?? ''} />
+      <PageHead
+        title="Settings"
+        desc="Manage company defaults, operational rules, notifications, proposal preferences and data retention."
+        actions={
+          activeTab !== 'users' ? (
+            <button type="button" className="scooh-btn purple-btn" onClick={() => saveSettings()}>
+              Save Changes
+            </button>
+          ) : (
+            <button type="button" className="scooh-btn purple-btn" onClick={() => setUserModal({})}>
+              + Add User
+            </button>
+          )
+        }
+      />
+
+      {saved && <div className="scooh-banner" style={{ display: 'block' }}>Settings saved successfully!</div>}
+
+      <div className="scooh-settings-shell">
+        {/* Left Vertical Tabs */}
+        <aside className="scooh-settings-nav" aria-label="Settings sections">
+          <button
+            type="button"
+            className={activeTab === 'general' ? 'active' : ''}
+            onClick={() => setActiveTab('general')}
+          >
+            General
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'campaign' ? 'active' : ''}
+            onClick={() => setActiveTab('campaign')}
+          >
+            Campaign Rules
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'alerts' ? 'active' : ''}
+            onClick={() => setActiveTab('alerts')}
+          >
+            Alerts & Email
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'proposal' ? 'active' : ''}
+            onClick={() => setActiveTab('proposal')}
+          >
+            Proposal
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'data' ? 'active' : ''}
+            onClick={() => setActiveTab('data')}
+          >
+            Data & Retention
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'users' ? 'active' : ''}
+            onClick={() => setActiveTab('users')}
+          >
+            User Management
+          </button>
+        </aside>
+
+        {/* Right Tab Content */}
+        <div className="scooh-settings-content">
+          {/* General Tab */}
+          <section className={`scooh-settings-section ${activeTab === 'general' ? 'active' : ''}`}>
+            <div className="scooh-settings-brand">
+              <img src="/assets/media-buzz-logo.png" alt="Media Buzz" />
             </div>
-          ))}
-          <div className="scooh-field" style={{ gridColumn: '1 / -1' }}>
-            <label>Default Proposal Terms & Conditions</label>
-            <textarea name="proposal_terms" defaultValue={s.proposal_terms ?? ''} />
+            <h3>General settings</h3>
+            <p className="scooh-footnote" style={{ color: '#828f9e', fontSize: '11px', margin: '0 0 16px' }}>
+              Core workspace identity and default operational values.
+            </p>
+            <div className="scooh-settings-grid">
+              <div className="scooh-field">
+                <label>COMPANY NAME</label>
+                <input
+                  value={s.company_name ?? 'Media Buzz'}
+                  onChange={e => setS({ ...s, company_name: e.target.value })}
+                  placeholder="Media Buzz"
+                />
+              </div>
+              <div className="scooh-field">
+                <label>DEFAULT CITY</label>
+                <input
+                  value={s.default_city ?? 'Ahmedabad'}
+                  onChange={e => setS({ ...s, default_city: e.target.value })}
+                  placeholder="Ahmedabad"
+                />
+              </div>
+              <div className="scooh-field">
+                <label>CURRENCY</label>
+                <input
+                  value={s.currency ?? 'INR'}
+                  onChange={e => setS({ ...s, currency: e.target.value })}
+                  placeholder="INR"
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* Campaign Rules Tab */}
+          <section className={`scooh-settings-section ${activeTab === 'campaign' ? 'active' : ''}`}>
+            <h3>Campaign rules</h3>
+            <p className="scooh-footnote" style={{ color: '#828f9e', fontSize: '11px', margin: '0 0 16px' }}>
+              Control validation timing and campaign action thresholds.
+            </p>
+            <div className="scooh-settings-grid">
+              <div className="scooh-field">
+                <label>VALIDATION INTERVAL (DAYS)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={s.validation_interval ?? 15}
+                  onChange={e => setS({ ...s, validation_interval: e.target.value })}
+                />
+              </div>
+              <div className="scooh-field">
+                <label>MOUNTING GRACE PERIOD (DAYS)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={s.mounting_grace_days ?? 3}
+                  onChange={e => setS({ ...s, mounting_grace_days: e.target.value })}
+                />
+              </div>
+              <div className="scooh-field">
+                <label>CAMPAIGN ENDING WARNING (DAYS)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={s.campaign_ending_warning_days ?? 7}
+                  onChange={e => setS({ ...s, campaign_ending_warning_days: e.target.value })}
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* Alerts & Email Tab */}
+          <section className={`scooh-settings-section ${activeTab === 'alerts' ? 'active' : ''}`}>
+            <h3>Alerts & email</h3>
+            <p className="scooh-footnote" style={{ color: '#828f9e', fontSize: '11px', margin: '0 0 16px' }}>
+              Choose when due items become visible and where reminder emails are sent.
+            </p>
+            <div className="scooh-settings-grid">
+              <div className="scooh-field">
+                <label>ELECTRICITY DUE-SOON DAYS</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={s.electricity_due_soon_days ?? 5}
+                  onChange={e => setS({ ...s, electricity_due_soon_days: e.target.value })}
+                />
+              </div>
+              <div className="scooh-field">
+                <label>NOTIFICATION EMAILS (COMMA SEPARATED)</label>
+                <input
+                  type="text"
+                  value={s.notification_emails ?? ''}
+                  onChange={e => setS({ ...s, notification_emails: e.target.value })}
+                  placeholder="admin@domain.com, ops@domain.com"
+                />
+              </div>
+            </div>
+            <label className="scooh-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '16px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!!Number(s.email_notifications)}
+                onChange={e => setS({ ...s, email_notifications: e.target.checked ? 1 : 0 })}
+              />
+              <span>
+                <b style={{ color: '#e2e8f0' }}>Enable operational email notifications</b>
+                <div style={{ fontSize: '11px', color: '#7e8b99' }}>Send automated campaign alerts and electricity overdue notices.</div>
+              </span>
+            </label>
+          </section>
+
+          {/* Proposal Tab */}
+          <section className={`scooh-settings-section ${activeTab === 'proposal' ? 'active' : ''}`}>
+            <h3>Proposal defaults</h3>
+            <p className="scooh-footnote" style={{ color: '#828f9e', fontSize: '11px', margin: '0 0 16px' }}>
+              Defaults used when generating a commercial client proposal.
+            </p>
+            <div className="scooh-settings-grid">
+              <div className="scooh-field">
+                <label>PROPOSAL DEFAULT VALIDITY (DAYS)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={s.proposal_validity ?? 7}
+                  onChange={e => setS({ ...s, proposal_validity: e.target.value })}
+                />
+              </div>
+              <div className="scooh-field">
+                <label>DEFAULT GST TAX %</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={s.proposal_tax ?? 18}
+                  onChange={e => setS({ ...s, proposal_tax: e.target.value })}
+                />
+              </div>
+              <div className="scooh-field" style={{ gridColumn: '1 / -1' }}>
+                <label>DEFAULT PROPOSAL TERMS & CONDITIONS</label>
+                <textarea
+                  rows="4"
+                  value={s.proposal_terms ?? 'Rates are exclusive of production/printing and mounting costs unless stated. 50% advance on confirmation, balance before mounting. Site availability is subject to final confirmation in writing.'}
+                  onChange={e => setS({ ...s, proposal_terms: e.target.value })}
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* Data & Retention Tab */}
+          <section className={`scooh-settings-section ${activeTab === 'data' ? 'active' : ''}`}>
+            <h3>Data & retention</h3>
+            <p className="scooh-footnote" style={{ color: '#828f9e', fontSize: '11px', margin: '0 0 16px' }}>
+              Control workspace database backups and operational retention policies.
+            </p>
+            <label className="scooh-checkbox" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '16px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!!Number(s.delete_on_uninstall)}
+                onChange={e => setS({ ...s, delete_on_uninstall: e.target.checked ? 1 : 0 })}
+              />
+              <span>
+                <b style={{ color: '#e2e8f0' }}>Purge temporary audit cache after 180 days</b>
+                <div style={{ fontSize: '11px', color: '#7e8b99' }}>Keep core inventory and historical client invoices intact while purging old activity traces.</div>
+              </span>
+            </label>
+          </section>
+
+          {/* User Management Tab */}
+          <section className={`scooh-settings-section ${activeTab === 'users' ? 'active' : ''}`}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <div>
+                <h3>Users & Role Permissions</h3>
+                <p className="scooh-footnote" style={{ color: '#828f9e', fontSize: '11px', margin: '4px 0 0' }}>
+                  Create workspace staff accounts and assign granular security roles.
+                </p>
+              </div>
+              <button type="button" className="scooh-btn purple-btn" onClick={() => setUserModal({})}>
+                + Add User
+              </button>
+            </div>
+
+            <div className="scooh-tablewrap">
+              <table className="scooh-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Email Address</th>
+                    <th>Role Assigned</th>
+                    <th>Status</th>
+                    <th>Joined</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.length === 0 ? (
+                    <tr><td colSpan="6" className="scooh-empty">No users configured</td></tr>
+                  ) : (
+                    users.map(u => (
+                      <tr key={u.id}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="scooh-user-avatar" style={{ width: '28px', height: '28px', fontSize: '11px' }}>
+                              {(u.name || u.email || 'U').slice(0, 1).toUpperCase()}
+                            </span>
+                            <strong>{u.name || 'User'}</strong>
+                          </div>
+                        </td>
+                        <td>{u.email}</td>
+                        <td>
+                          <span
+                            className="scooh-badgechip"
+                            style={{
+                              background: u.role === 'admin' ? 'rgba(139,92,246,0.18)' : u.role === 'manager' ? 'rgba(72,199,154,0.18)' : 'rgba(255,255,255,0.06)',
+                              color: u.role === 'admin' ? '#c4b5fd' : u.role === 'manager' ? '#48c79a' : '#d0d7de',
+                              textTransform: 'uppercase',
+                              fontWeight: 800,
+                              fontSize: '10px'
+                            }}
+                          >
+                            {u.role || 'staff'}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`scooh-pill ${u.status === 'active' ? 'active' : 'vacant'}`}>
+                            {u.status || 'active'}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '11px', color: '#8995a1' }}>{formatDate(u.created_at)}</td>
+                        <td>
+                          <div className="scooh-rowactions">
+                            <button className="scooh-iconbtn scooh-text-action" onClick={() => setUserModal(u)}>Edit</button>
+                            <button className="scooh-iconbtn danger-icon" onClick={() => deleteUser(u.id)}>×</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      {/* Add / Edit User Modal */}
+      {userModal && (
+        <div className="scooh-modal-overlay">
+          <div className="scooh-modal" style={{ maxWidth: '520px' }}>
+            <div className="scooh-modalhead">
+              <div>
+                <h2>{userModal.id ? 'Edit User Account' : 'Add New Workspace User'}</h2>
+                <span className="scooh-modal-subtitle">Assign role permissions and credentials</span>
+              </div>
+              <button type="button" className="scooh-modal-close" onClick={() => setUserModal(null)}>×</button>
+            </div>
+            <form onSubmit={saveUser}>
+              <div className="scooh-modalbody">
+                <div className="scooh-field">
+                  <label>Full Name</label>
+                  <input name="name" defaultValue={userModal.name ?? ''} placeholder="e.g. Rahul Sharma" required />
+                </div>
+                <div className="scooh-field">
+                  <label>Email Address</label>
+                  <input name="email" type="email" defaultValue={userModal.email ?? ''} placeholder="rahul@domain.com" required />
+                </div>
+                <div className="scooh-field">
+                  <label>{userModal.id ? 'New Password (leave blank to keep current)' : 'Login Password'}</label>
+                  <input name="password" type="password" placeholder="••••••••" required={!userModal.id} />
+                </div>
+                <div className="scooh-grid2">
+                  <div className="scooh-field">
+                    <label>Role</label>
+                    <select name="role" defaultValue={userModal.role ?? 'staff'}>
+                      <option value="admin">Admin (Full Access & Settings)</option>
+                      <option value="manager">Manager (Sites, Campaigns, Proposals)</option>
+                      <option value="staff">Staff (Field Ops, Mounting & Meters)</option>
+                      <option value="viewer">Viewer (Read-Only Access)</option>
+                    </select>
+                  </div>
+                  <div className="scooh-field">
+                    <label>Status</label>
+                    <select name="status" defaultValue={userModal.status ?? 'active'}>
+                      <option value="active">Active</option>
+                      <option value="disabled">Disabled</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div className="scooh-modalfoot">
+                <button type="button" className="scooh-btn ghost" onClick={() => setUserModal(null)}>Cancel</button>
+                <button className="scooh-btn purple-btn" disabled={userLoading}>
+                  {userLoading ? 'Saving…' : userModal.id ? 'Update User' : 'Create User'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-        <button className="scooh-btn primary" style={{ marginTop: '16px' }}>Save Settings</button>
-      </form>
+      )}
     </>
   );
 }

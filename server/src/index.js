@@ -145,6 +145,66 @@ app.delete('/api/ppt-pages/:key', auth, async (req, res) => {
   }
 });
 
+// User Management
+app.get('/api/users', auth, async (req, res) => {
+  try {
+    const rows = await q('SELECT id, name, email, role, status, created_at, updated_at FROM users ORDER BY id ASC');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/users', auth, admin, async (req, res) => {
+  try {
+    const { name, email, password, role = 'staff', status = 'active' } = req.body || {};
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email, and password are required' });
+    }
+    const exists = await q('SELECT id FROM users WHERE email=? LIMIT 1', [email]);
+    if (exists.length > 0) {
+      return res.status(400).json({ message: 'A user with this email already exists' });
+    }
+    const hash = await bcrypt.hash(password, 10);
+    const result = await q(
+      'INSERT INTO users (name, email, password_hash, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
+      [name, email, hash, role, status]
+    );
+    res.json({ id: result.insertId, name, email, role, status });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.put('/api/users/:id', auth, admin, async (req, res) => {
+  try {
+    const { name, email, password, role, status } = req.body || {};
+    const userId = req.params.id;
+    if (password && String(password).trim()) {
+      const hash = await bcrypt.hash(password, 10);
+      await q('UPDATE users SET name=?, email=?, password_hash=?, role=?, status=?, updated_at=NOW() WHERE id=?', [name, email, hash, role, status, userId]);
+    } else {
+      await q('UPDATE users SET name=?, email=?, role=?, status=?, updated_at=NOW() WHERE id=?', [name, email, role, status, userId]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.delete('/api/users/:id', auth, admin, async (req, res) => {
+  try {
+    const userId = req.params.id;
+    if (String(req.user.id) === String(userId)) {
+      return res.status(400).json({ message: 'You cannot delete your own account' });
+    }
+    await q('DELETE FROM users WHERE id=?', [userId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Settings
 app.get('/api/settings', auth, async (req, res) => {
   try {
