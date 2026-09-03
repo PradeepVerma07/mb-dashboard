@@ -1521,57 +1521,75 @@ function ProposalsView() {
                       <small>{s.size} · {s.media_type ? s.media_type.toUpperCase() : 'HOARDING'}</small>
                     </span>
                   </div>
-                  <div className="scooh-proposal-rates" onClick={e => e.stopPropagation()}>
-                    <label>
-                      Media Rate
+                  <div
+                    className="scooh-proposal-rates"
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                      gap: '8px',
+                      width: '100%',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '9.5px', fontWeight: 800, textTransform: 'uppercase', minWidth: 0 }}>
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Media Rate</span>
                       <input
                         type="number"
                         min="0"
                         step="0.01"
+                        placeholder="0"
                         value={r.mediaRate ?? s.monthly_rate ?? 0}
                         onChange={e => setSelectedSites({
                           ...selectedSites,
                           [key]: { ...r, checked: true, mediaRate: Number(e.target.value) }
                         })}
+                        style={{ width: '100%', minHeight: '36px', padding: '6px 8px', fontSize: '12px', fontWeight: 800, boxSizing: 'border-box' }}
                       />
                     </label>
-                    <label>
-                      Vendor Rate
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '9.5px', fontWeight: 800, textTransform: 'uppercase', minWidth: 0 }}>
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Vendor Rate</span>
                       <input
                         type="number"
                         min="0"
                         step="0.01"
+                        placeholder="0"
                         value={r.vendorRate ?? 0}
                         onChange={e => setSelectedSites({
                           ...selectedSites,
                           [key]: { ...r, checked: true, vendorRate: Number(e.target.value) }
                         })}
+                        style={{ width: '100%', minHeight: '36px', padding: '6px 8px', fontSize: '12px', fontWeight: 800, boxSizing: 'border-box' }}
                       />
                     </label>
-                    <label>
-                      Printing Rate
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '9.5px', fontWeight: 800, textTransform: 'uppercase', minWidth: 0 }}>
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Printing Rate</span>
                       <input
                         type="number"
                         min="0"
                         step="0.01"
+                        placeholder="0"
                         value={r.printingRate ?? 0}
                         onChange={e => setSelectedSites({
                           ...selectedSites,
                           [key]: { ...r, checked: true, printingRate: Number(e.target.value) }
                         })}
+                        style={{ width: '100%', minHeight: '36px', padding: '6px 8px', fontSize: '12px', fontWeight: 800, boxSizing: 'border-box' }}
                       />
                     </label>
-                    <label>
-                      Mounting Rate
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '9.5px', fontWeight: 800, textTransform: 'uppercase', minWidth: 0 }}>
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Mounting Rate</span>
                       <input
                         type="number"
                         min="0"
                         step="0.01"
+                        placeholder="0"
                         value={r.mountingRate ?? 0}
                         onChange={e => setSelectedSites({
                           ...selectedSites,
                           [key]: { ...r, checked: true, mountingRate: Number(e.target.value) }
                         })}
+                        style={{ width: '100%', minHeight: '36px', padding: '6px 8px', fontSize: '12px', fontWeight: 800, boxSizing: 'border-box' }}
                       />
                     </label>
                   </div>
