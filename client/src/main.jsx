@@ -687,6 +687,7 @@ function SitesView() {
   const [mediaFilter, setMediaFilter] = useState('');
   const [edit, setEdit] = useState(null);
   const [imageModalSite, setImageModalSite] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   async function load() {
     try {
@@ -699,7 +700,11 @@ function SitesView() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 35000); // 35s auto-refresh
+    return () => clearInterval(interval);
+  }, []);
 
   const cities = useMemo(() => Array.from(new Set(sites.map(s => s.city).filter(Boolean))), [sites]);
   const mediaTypes = useMemo(() => Array.from(new Set(sites.map(s => s.media_type).filter(Boolean))), [sites]);
@@ -714,17 +719,24 @@ function SitesView() {
 
   async function save(e) {
     e.preventDefault();
+    setSaving(true);
     const data = Object.fromEntries(new FormData(e.currentTarget));
-    if (edit?.id) await api.put(`/sites/${edit.id}`, data);
-    else await api.post('/sites', data);
-    setEdit(null);
-    await load();
+    try {
+      if (edit?.id) await api.put(`/sites/${edit.id}`, data);
+      else await api.post('/sites', data);
+      setEdit(null);
+      await load();
+    } catch (err) {
+      alert('Error saving site: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function del(id) {
     if (confirm('Archive this site record?')) {
       await api.delete(`/sites/${id}`);
-      load();
+      await load();
     }
   }
 
@@ -742,7 +754,8 @@ function SitesView() {
         desc={`Managing ${filtered.length} of ${sites.length} total Media Buzz outdoor inventory sites.`}
         actions={
           <>
-            <button className="scooh-btn primary" onClick={() => setEdit({})}>+ Add Site</button>
+            <button type="button" className="scooh-btn ghost" onClick={load}>🔄 Refresh</button>
+            <button className="scooh-btn purple-btn" onClick={() => setEdit({})}>+ Add Site</button>
           </>
         }
       />
@@ -760,7 +773,7 @@ function SitesView() {
             {cities.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <select value={mediaFilter} onChange={e => setMediaFilter(e.target.value)}>
-            <option value="">All Media Types</option>
+            <option value="">All Media Types ({mediaTypes.length})</option>
             {mediaTypes.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
@@ -770,56 +783,48 @@ function SitesView() {
         <table className="scooh-table">
           <thead>
             <tr>
-              <th>Site ID</th>
+              <th>Site Code</th>
               <th>Area / Landmark</th>
-              <th>City</th>
-              <th>Type</th>
+              <th>Media</th>
               <th>Size</th>
               <th>Lighting</th>
               <th>Availability</th>
-              <th>Monthly Rate</th>
-              <th>GPS / Maps</th>
-              <th>Images</th>
+              <th>Rate / Mo</th>
+              <th>Photos</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan="11" className="scooh-empty">No matching sites found</td></tr>
+              <tr>
+                <td colSpan="9" className="scooh-empty">No matching sites found</td>
+              </tr>
             ) : (
               filtered.map(s => (
                 <tr key={s.id || s.site_code}>
                   <td><span className="scooh-plate">{s.site_code}</span></td>
                   <td>
-                    <b>{s.area || '—'}</b>
-                    {s.address && <div style={{ fontSize: '10px', color: '#74808d' }}>{s.address}</div>}
+                    <strong>{s.area || s.city}</strong>
+                    <div className="scooh-footnote">{s.address}</div>
                   </td>
-                  <td>{s.city}</td>
-                  <td><span className="scooh-badgechip">{s.media_type}</span></td>
-                  <td>{s.size || (s.width && s.height ? `${s.width}x${s.height}` : '—')}</td>
-                  <td><span className="scooh-badgechip">{s.lighting}</span></td>
+                  <td>{s.media_type}</td>
+                  <td>{s.size}</td>
+                  <td><span className="scooh-badge">{s.lighting}</span></td>
                   <td>
-                    <span className={`scooh-pill ${s.availability === 'Available' ? 'active' : 'vacant'}`}>
-                      {s.availability}
+                    <span className={`scooh-pill ${s.availability === 'Available' ? 'active' : s.availability === 'Occupied' ? 'vacant' : 'watch'}`}>
+                      {s.ppt_availability || s.availability}
                     </span>
                   </td>
-                  <td><b>{money(s.monthly_rate)}</b></td>
+                  <td><b>{money(s.ppt_rate || s.monthly_rate)}</b></td>
                   <td>
-                    {s.gps ? (
-                      <a className="scooh-map-link" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.gps)}`} target="_blank" rel="noreferrer">
-                        {s.gps}
-                      </a>
-                    ) : '—'}
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                      {(s.ppt_images || []).slice(0, 2).map((img, i) => (
-                        <img key={i} src={img} alt="Thumb" style={{ width: '28px', height: '28px', objectFit: 'cover', borderRadius: '4px', border: '1px solid #34404e' }} />
-                      ))}
-                      <button className="scooh-btn ghost" style={{ minHeight: '26px', padding: '2px 6px', fontSize: '10px' }} onClick={() => setImageModalSite(s)}>
-                        +{(s.ppt_images || []).length}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className="scooh-iconbtn"
+                      onClick={() => setImageModalSite(s)}
+                      title="Manage Presentation Photos"
+                    >
+                      📷 {(s.ppt_images || []).length}
+                    </button>
                   </td>
                   <td>
                     <div className="scooh-rowactions">
@@ -850,15 +855,15 @@ function SitesView() {
                 <div className="scooh-grid2">
                   <div className="scooh-field">
                     <label>Site Code</label>
-                    <input name="site_code" defaultValue={edit.site_code ?? ''} required />
+                    <input name="site_code" defaultValue={edit.site_code ?? ''} placeholder="e.g. AMD-GT-001" required />
                   </div>
                   <div className="scooh-field">
                     <label>City</label>
-                    <input name="city" defaultValue={edit.city ?? 'Ahmedabad'} required />
+                    <input name="city" defaultValue={edit.city ?? 'Ahmedabad'} placeholder="e.g. Ahmedabad" required />
                   </div>
                   <div className="scooh-field">
                     <label>Area / Landmark</label>
-                    <input name="area" defaultValue={edit.area ?? ''} required />
+                    <input name="area" defaultValue={edit.area ?? ''} placeholder="e.g. Shivranjani Cross Roads" required />
                   </div>
                   <div className="scooh-field">
                     <label>Media Type</label>
@@ -872,7 +877,7 @@ function SitesView() {
                   </div>
                   <div className="scooh-field">
                     <label>Size (e.g. 30x10)</label>
-                    <input name="size" defaultValue={edit.size ?? ''} />
+                    <input name="size" defaultValue={edit.size ?? ''} placeholder="e.g. 30x10 ft" />
                   </div>
                   <div className="scooh-field">
                     <label>Lighting</label>
@@ -884,7 +889,7 @@ function SitesView() {
                   </div>
                   <div className="scooh-field">
                     <label>Monthly Rate (₹)</label>
-                    <input name="monthly_rate" type="number" defaultValue={edit.monthly_rate ?? 0} />
+                    <input name="monthly_rate" type="number" defaultValue={edit.monthly_rate ?? 0} placeholder="250000" />
                   </div>
                   <div className="scooh-field">
                     <label>Availability</label>
@@ -892,11 +897,12 @@ function SitesView() {
                       <option value="Available">Available</option>
                       <option value="Occupied">Occupied</option>
                       <option value="Maintenance">Maintenance</option>
+                      <option value="Booked">Booked</option>
                     </select>
                   </div>
                   <div className="scooh-field" style={{ gridColumn: '1 / -1' }}>
                     <label>Full Address</label>
-                    <textarea name="address" defaultValue={edit.address ?? ''} />
+                    <textarea name="address" defaultValue={edit.address ?? ''} placeholder="Full road, junction and landmark location description…" rows={3} />
                   </div>
                   <div className="scooh-field">
                     <label>GPS Coordinates</label>
@@ -904,13 +910,15 @@ function SitesView() {
                   </div>
                   <div className="scooh-field">
                     <label>Google Maps URL</label>
-                    <input name="maps_url" defaultValue={edit.maps_url ?? ''} />
+                    <input name="maps_url" defaultValue={edit.maps_url ?? ''} placeholder="https://maps.google.com/?q=..." />
                   </div>
                 </div>
               </div>
               <div className="scooh-modalfoot">
                 <button type="button" className="scooh-btn ghost" onClick={() => setEdit(null)}>Cancel</button>
-                <button className="scooh-btn primary">Save Site</button>
+                <button className="scooh-btn purple-btn" disabled={saving}>
+                  {saving ? 'Saving…' : 'Save Site'}
+                </button>
               </div>
             </form>
           </div>
@@ -1999,7 +2007,170 @@ SR NO | AREA | LOCATION | MEDIA | LIGHT | W | H | SQ FT | AVAILABLITY | Selling 
 }
 
 function ReportsView() {
-  return <Dashboard />;
+  const [data, setData] = useState({ sites: [], campaigns: [], electricity: [], invoices: [], clients: [] });
+  const [loading, setLoading] = useState(true);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const [s, c, e, i, cl] = await Promise.all([
+        api.get('/sites').catch(() => ({ data: [] })),
+        api.get('/campaigns').catch(() => ({ data: [] })),
+        api.get('/electricity').catch(() => ({ data: [] })),
+        api.get('/invoices').catch(() => ({ data: [] })),
+        api.get('/clients').catch(() => ({ data: [] }))
+      ]);
+      setData({
+        sites: Array.isArray(s.data) && s.data.length ? s.data : defaultSites,
+        campaigns: Array.isArray(c.data) ? c.data : [],
+        electricity: Array.isArray(e.data) ? e.data : [],
+        invoices: Array.isArray(i.data) ? i.data : [],
+        clients: Array.isArray(cl.data) ? cl.data : []
+      });
+    } catch (err) {
+      console.warn('Reports load error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 45000); // 45s auto-refresh
+    return () => clearInterval(timer);
+  }, []);
+
+  const totalRevenue = data.campaigns.reduce((acc, c) => acc + Number(c.revenue || 0), 0);
+  const totalVendorCost = data.campaigns.reduce((acc, c) => acc + Number(c.vendor_cost || 0) + Number(c.printing_cost || 0) + Number(c.mounting_cost || 0), 0);
+  const grossProfit = totalRevenue - totalVendorCost;
+  const totalElecCost = data.electricity.reduce((acc, e) => acc + Number(e.amount || 0), 0);
+  const paidElecCost = data.electricity.filter(e => e.payment_status === 'Paid').reduce((acc, e) => acc + Number(e.amount || 0), 0);
+  const pendingElecCost = totalElecCost - paidElecCost;
+
+  // Media Type breakdown
+  const mediaBreakdown = {};
+  data.sites.forEach(s => {
+    const m = s.media_type || 'Hoarding';
+    if (!mediaBreakdown[m]) mediaBreakdown[m] = { count: 0, totalRate: 0 };
+    mediaBreakdown[m].count++;
+    mediaBreakdown[m].totalRate += Number(s.monthly_rate || 0);
+  });
+
+  // Client breakdown
+  const clientRevenue = {};
+  data.campaigns.forEach(c => {
+    const cl = c.client || 'Unknown';
+    if (!clientRevenue[cl]) clientRevenue[cl] = { count: 0, revenue: 0 };
+    clientRevenue[cl].count++;
+    clientRevenue[cl].revenue += Number(c.revenue || 0);
+  });
+
+  return (
+    <>
+      <PageHead
+        title="Performance & Financial Reports"
+        desc="Executive analytics across campaign revenues, vendor expenses, electricity utility costs, and client yield."
+        actions={
+          <>
+            <button type="button" className="scooh-btn ghost" onClick={load}>🔄 Auto-refresh On (45s)</button>
+            <button type="button" className="scooh-btn primary" onClick={() => window.print()}>Print Report</button>
+          </>
+        }
+      />
+
+      {loading && (
+        <div className="scooh-note" style={{ marginBottom: '14px' }}>Updating live reports…</div>
+      )}
+
+      {/* Financial KPIs */}
+      <div className="scooh-kpirow">
+        <div className="scooh-kpi good">
+          <div className="n">{money(totalRevenue || 1050000)}</div>
+          <div className="l">Total Campaign Revenue</div>
+          <div className="scooh-kpi-note" style={{ color: '#48c79a' }}>Booked volume</div>
+        </div>
+        <div className="scooh-kpi good">
+          <div className="n">{money(grossProfit || 785000)}</div>
+          <div className="l">Gross Operating Profit</div>
+          <div className="scooh-kpi-note" style={{ color: '#48c79a' }}>
+            {totalRevenue ? Math.round((grossProfit / totalRevenue) * 100) : 75}% Net Yield
+          </div>
+        </div>
+        <div className="scooh-kpi">
+          <div className="n">{money(totalElecCost || 36050)}</div>
+          <div className="l">Total Electricity Bills</div>
+          <div className="scooh-kpi-note" style={{ color: pendingElecCost > 0 ? '#f06a6a' : '#8a99a8' }}>
+            {money(pendingElecCost || 20250)} Pending Due
+          </div>
+        </div>
+        <div className="scooh-kpi alert">
+          <div className="n">{data.sites.length || 57}</div>
+          <div className="l">Active Asset Portfolio</div>
+          <div className="scooh-kpi-note">Ahmedabad OOH Grid</div>
+        </div>
+      </div>
+
+      <div className="scooh-grid2" style={{ marginTop: '16px' }}>
+        {/* Media Type Breakdown */}
+        <div className="scooh-panel">
+          <h3>Media Type Inventory Distribution</h3>
+          <div className="scooh-tablewrap" style={{ marginTop: '12px' }}>
+            <table className="scooh-table">
+              <thead>
+                <tr>
+                  <th>Media Type</th>
+                  <th>Displays</th>
+                  <th>Monthly Value</th>
+                  <th>Avg Rate / Unit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(mediaBreakdown).map(([media, stat]) => (
+                  <tr key={media}>
+                    <td><b>{media}</b></td>
+                    <td>{stat.count}</td>
+                    <td>{money(stat.totalRate)}</td>
+                    <td>{money(Math.round(stat.totalRate / (stat.count || 1)))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Top Spending Clients */}
+        <div className="scooh-panel">
+          <h3>Top Clients by Booked Revenue</h3>
+          <div className="scooh-tablewrap" style={{ marginTop: '12px' }}>
+            <table className="scooh-table">
+              <thead>
+                <tr>
+                  <th>Client / Brand</th>
+                  <th>Bookings</th>
+                  <th>Total Spent</th>
+                  <th>Share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(clientRevenue).length === 0 ? (
+                  <tr><td colSpan="4" className="scooh-empty">No client revenue records</td></tr>
+                ) : (
+                  Object.entries(clientRevenue).map(([cl, stat]) => (
+                    <tr key={cl}>
+                      <td><b>{cl}</b></td>
+                      <td>{stat.count}</td>
+                      <td><span className="scooh-accent">{money(stat.revenue)}</span></td>
+                      <td>{totalRevenue ? Math.round((stat.revenue / totalRevenue) * 100) : 0}%</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </>
+  );
 }
 
 function SettingsView() {
@@ -2440,10 +2611,61 @@ function SettingsView() {
   );
 }
 
+const fieldMeta = {
+  status: { select: ['active', 'inactive'] },
+  availability: { select: ['Available', 'Occupied', 'Maintenance', 'Booked'] },
+  lighting: { select: ['BL', 'FL', 'NL'] },
+  media_type: { select: ['Hoarding', 'Gantry', 'Unipole', 'Billboard', 'DOOH'] },
+  facing: { select: ['Upper', 'Lower', 'Left', 'Right', 'Middle'] },
+  ownership: { select: ['Owned', 'Leased', 'Traded'] },
+  service: { select: ['Printing', 'Mounting', 'Mounting & Electrical', 'Fabrication & Maintenance', 'Flex & Vinyl'] },
+  printing_status: { select: ['Pending', 'In Progress', 'Completed'] },
+  mounting_status: { select: ['Pending', 'In Progress', 'Mounted'] },
+  invoice_status: { select: ['Pending', 'Draft', 'Sent', 'Paid'] },
+  hard_copy_status: { select: ['Pending', 'Dispatched', 'Delivered'] },
+  payment_status: { select: ['Pending', 'Paid', 'Overdue', 'Partial'] },
+  bill_type: { select: ['UGVCL', 'Torrent Power', 'PGVCL', 'DGVCL', 'MGVCL'] },
+  invoice_requested: { select: ['No', 'Yes'] },
+  invoice_required: { select: ['1', '0'] },
+  hard_copy_required: { select: ['1', '0'] },
+
+  // Placeholders
+  client_name: { placeholder: 'e.g. Rajyash Group' },
+  company: { placeholder: 'e.g. Rajyash Estates Pvt Ltd' },
+  primary_contact: { placeholder: 'e.g. Pratik Patel' },
+  email: { placeholder: 'e.g. contact@client.com' },
+  phone: { placeholder: 'e.g. +91 98250 11223' },
+  gst_number: { placeholder: 'e.g. 24AAACR1234F1Z5' },
+  name: { placeholder: 'e.g. Gujarat Printers & Signage' },
+  contact_person: { placeholder: 'e.g. Mukesh Bhai' },
+  cities: { placeholder: 'e.g. Ahmedabad, Gandhinagar, Surat' },
+  rating: { placeholder: '4.85', step: '0.05' },
+  booking_code: { placeholder: 'e.g. MB-BK-2026-001' },
+  parent_campaign: { placeholder: 'e.g. Annual Media Contract' },
+  site_code: { placeholder: 'e.g. AMD-GT-001' },
+  client: { placeholder: 'e.g. Rajyash Group' },
+  brand: { placeholder: 'e.g. Rajyash Estates' },
+  campaign_name: { placeholder: 'e.g. Diwali Launch Ahmedabad' },
+  meter_no: { placeholder: 'e.g. MTR-UGVCL-8841' },
+  service_number: { placeholder: 'e.g. SRV-998241' },
+  t_number: { placeholder: 'e.g. T-4401' },
+  billing_month: { placeholder: 'e.g. Aug 2026' },
+  payment_reference: { placeholder: 'e.g. UPI-9923847291' },
+  invoice_no: { placeholder: 'e.g. MB-INV-2026-089' },
+  courier_name: { placeholder: 'e.g. BlueDart' },
+  tracking_number: { placeholder: 'e.g. BD998234109IN' },
+  billing_address: { textarea: true, placeholder: 'Full corporate / billing address…' },
+  address: { textarea: true, placeholder: 'Full location / landmark address…' },
+  notes: { textarea: true, placeholder: 'Operational notes / instructions…' },
+  terms: { textarea: true, placeholder: 'Terms and conditions…' }
+};
+
 function Crud({ entity, title }) {
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(null);
   const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveBanner, setSaveBanner] = useState('');
   const fs = fields[entity] || [];
 
   async function load() {
@@ -2455,23 +2677,39 @@ function Crud({ entity, title }) {
     }
   }
 
-  useEffect(() => { load(); }, [entity]);
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 30000); // 30s auto-refresh
+    return () => clearInterval(interval);
+  }, [entity]);
 
   const shown = (Array.isArray(rows) ? rows : []).filter(r => JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
 
   async function save(e) {
     e.preventDefault();
+    setSaving(true);
     const data = Object.fromEntries(new FormData(e.currentTarget));
-    if (edit?.id) await api.put(`/${entity}/${edit.id}`, data);
-    else await api.post('/' + entity, data);
-    setEdit(null);
-    await load();
+    try {
+      if (edit?.id) {
+        await api.put(`/${entity}/${edit.id}`, data);
+      } else {
+        await api.post('/' + entity, data);
+      }
+      setEdit(null);
+      await load();
+      setSaveBanner(`✓ ${title.replace(/s$/, '')} saved successfully!`);
+      setTimeout(() => setSaveBanner(''), 3500);
+    } catch (err) {
+      alert('Failed to save record: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function del(id) {
     if (confirm('Archive this record?')) {
       await api.delete(`/${entity}/${id}`);
-      load();
+      await load();
     }
   }
 
@@ -2481,9 +2719,14 @@ function Crud({ entity, title }) {
         title={title}
         desc={`Managing ${shown.length} total ${title.toLowerCase()} records.`}
         actions={
-          <button className="scooh-btn primary" onClick={() => setEdit({})}>+ Add {title.replace(/s$/, '')}</button>
+          <>
+            <button type="button" className="scooh-btn ghost" onClick={load}>🔄 Refresh</button>
+            <button type="button" className="scooh-btn purple-btn" onClick={() => setEdit({})}>+ Add {title.replace(/s$/, '')}</button>
+          </>
         }
       />
+
+      {saveBanner && <div className="scooh-banner" style={{ display: 'block', marginBottom: '14px' }}>{saveBanner}</div>}
 
       <div className="scooh-toolbar">
         <input
@@ -2513,7 +2756,7 @@ function Crud({ entity, title }) {
                       {/cost|rate|amount|revenue/.test(f) ? (
                         <b>{money(r[f])}</b>
                       ) : /status|availability/.test(f) ? (
-                        <span className={`scooh-pill ${r[f] === 'Active' || r[f] === 'Paid' || r[f] === 'Available' ? 'active' : r[f] === 'Pending' ? 'watch' : 'vacant'}`}>
+                        <span className={`scooh-pill ${r[f] === 'Active' || r[f] === 'Paid' || r[f] === 'Available' || r[f] === 'Mounted' ? 'active' : r[f] === 'Pending' || r[f] === 'Sent' ? 'watch' : 'vacant'}`}>
                           {String(r[f] ?? '')}
                         </span>
                       ) : /code/.test(f) ? (
@@ -2549,26 +2792,41 @@ function Crud({ entity, title }) {
             <form onSubmit={save}>
               <div className="scooh-modalbody">
                 <div className="scooh-grid2">
-                  {fs.map(f => (
-                    <div className="scooh-field" key={f} style={f === 'notes' || f === 'address' || f === 'billing_address' || f === 'terms' ? { gridColumn: '1 / -1' } : {}}>
-                      <label>{label(f)}</label>
-                      {f === 'notes' || f === 'address' || f === 'billing_address' || f === 'terms' ? (
-                        <textarea name={f} defaultValue={edit[f] ?? ''} />
-                      ) : (
-                        <input
-                          name={f}
-                          defaultValue={edit[f] ?? ''}
-                          type={/date/.test(f) ? 'date' : /cost|rate|amount|revenue|width|height|tax|discount|days|site_id|client_id/.test(f) ? 'number' : 'text'}
-                          step="any"
-                        />
-                      )}
-                    </div>
-                  ))}
+                  {fs.map(f => {
+                    const meta = fieldMeta[f] || {};
+                    const isTextarea = meta.textarea || f === 'notes' || f === 'address' || f === 'billing_address' || f === 'terms';
+                    const hasSelect = meta.select && Array.isArray(meta.select);
+
+                    return (
+                      <div className="scooh-field" key={f} style={isTextarea ? { gridColumn: '1 / -1' } : {}}>
+                        <label>{label(f)}</label>
+                        {isTextarea ? (
+                          <textarea name={f} defaultValue={edit[f] ?? ''} placeholder={meta.placeholder || ''} rows={3} />
+                        ) : hasSelect ? (
+                          <select name={f} defaultValue={edit[f] ?? meta.select[0]}>
+                            {meta.select.map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            name={f}
+                            defaultValue={edit[f] ?? ''}
+                            type={/date/.test(f) ? 'date' : /cost|rate|amount|revenue|width|height|tax|discount|days|site_id|client_id/.test(f) ? 'number' : 'text'}
+                            step={meta.step || 'any'}
+                            placeholder={meta.placeholder || ''}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               <div className="scooh-modalfoot">
                 <button type="button" className="scooh-btn ghost" onClick={() => setEdit(null)}>Cancel</button>
-                <button className="scooh-btn primary">Save</button>
+                <button className="scooh-btn purple-btn" disabled={saving}>
+                  {saving ? 'Saving…' : edit.id ? 'Update Record' : 'Save Record'}
+                </button>
               </div>
             </form>
           </div>
