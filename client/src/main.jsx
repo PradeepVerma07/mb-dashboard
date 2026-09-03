@@ -1752,57 +1752,98 @@ function DataToolsView() {
   }
 
   async function exportExcel() {
-    const { data } = await api.get('/sites');
-    const source = (Array.isArray(data) && data.length > 0) ? data : defaultSites;
-    const rows = source.map(unpackSite).map(x => ({
-      'Site ID': x.site_code,
-      'City': x.city,
-      'Area / Landmark': x.area,
-      'Full Address': x.address,
-      'Size': x.size,
-      'Width (ft)': x.width,
-      'Height (ft)': x.height,
-      'Media Type': x.media_type,
-      'Lighting': x.lighting,
-      'Availability': x.availability,
-      'Selling Amount (₹)': x.monthly_rate,
-      'PPT Availability': x.ppt_availability,
-      'PPT Rate Per Month (₹)': x.ppt_rate,
-      'Latitude': x.latitude,
-      'Longitude': x.longitude,
-      'Google Maps': x.maps_url,
-      'Notes': x.notes
-    }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Sites');
-    XLSX.writeFile(wb, 'MediaBuzz-Sites-Inventory.xlsx');
+    try {
+      const { data } = await api.get('/sites');
+      const source = (Array.isArray(data) && data.length > 0) ? data : defaultSites;
+      const rows = source.map(unpackSite).map((x, idx) => {
+        let w = x.width || '', h = x.height || '';
+        if ((!w || !h) && x.size) {
+          const parts = String(x.size).replace(/[^0-9xX.]/g, '').split(/[xX]/);
+          if (parts.length === 2) { w = parts[0]; h = parts[1]; }
+        }
+        const sqft = (Number(w || 0) && Number(h || 0)) ? Number(w) * Number(h) : (x.sq_ft || '');
+        const coords = x.gps || ([x.latitude, x.longitude].filter(Boolean).join(', ')) || '';
+
+        return {
+          'SR NO': idx + 1,
+          'AREA': x.area || x.city || '',
+          'LOCATION': x.address || '',
+          'MEDIA': x.media_type || 'Hoarding',
+          'LIGHT': x.lighting || 'BL',
+          'W': w || '',
+          'H': h || '',
+          'SQ FT': sqft,
+          'AVAILABLITY': x.ppt_availability || x.availability || 'Available',
+          'Selling Amount': Number(x.ppt_rate || x.monthly_rate || 0),
+          'Latitude Longitude': coords
+        };
+      });
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(rows);
+
+      // Auto-fit column widths
+      ws['!cols'] = [
+        { wch: 8 },  // SR NO
+        { wch: 18 }, // AREA
+        { wch: 45 }, // LOCATION
+        { wch: 12 }, // MEDIA
+        { wch: 8 },  // LIGHT
+        { wch: 6 },  // W
+        { wch: 6 },  // H
+        { wch: 8 },  // SQ FT
+        { wch: 16 }, // AVAILABLITY
+        { wch: 16 }, // Selling Amount
+        { wch: 26 }  // Latitude Longitude
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Sites');
+      XLSX.writeFile(wb, 'MediaBuzz_Sites.xlsx');
+    } catch (e) {
+      alert('Export failed: ' + e.message);
+    }
   }
 
   async function exportCsv() {
-    const { data } = await api.get('/sites');
-    const source = (Array.isArray(data) && data.length > 0) ? data : defaultSites;
-    const rows = source.map(unpackSite).map(x => ({
-      'Site ID': x.site_code,
-      'City': x.city,
-      'Area': x.area,
-      'Address': x.address,
-      'Size': x.size,
-      'Media Type': x.media_type,
-      'Lighting': x.lighting,
-      'Availability': x.availability,
-      'Monthly Rate': x.monthly_rate,
-      'Latitude': x.latitude,
-      'Longitude': x.longitude
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const csv = XLSX.utils.sheet_to_csv(ws);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const u = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = u;
-    a.download = 'MediaBuzz-Sites.csv';
-    a.click();
-    URL.revokeObjectURL(u);
+    try {
+      const { data } = await api.get('/sites');
+      const source = (Array.isArray(data) && data.length > 0) ? data : defaultSites;
+      const rows = source.map(unpackSite).map((x, idx) => {
+        let w = x.width || '', h = x.height || '';
+        if ((!w || !h) && x.size) {
+          const parts = String(x.size).replace(/[^0-9xX.]/g, '').split(/[xX]/);
+          if (parts.length === 2) { w = parts[0]; h = parts[1]; }
+        }
+        const sqft = (Number(w || 0) && Number(h || 0)) ? Number(w) * Number(h) : '';
+        const coords = x.gps || ([x.latitude, x.longitude].filter(Boolean).join(', ')) || '';
+
+        return {
+          'SR NO': idx + 1,
+          'AREA': x.area || x.city || '',
+          'LOCATION': x.address || '',
+          'MEDIA': x.media_type || 'Hoarding',
+          'LIGHT': x.lighting || 'BL',
+          'W': w || '',
+          'H': h || '',
+          'SQ FT': sqft,
+          'AVAILABLITY': x.ppt_availability || x.availability || 'Available',
+          'Selling Amount': Number(x.ppt_rate || x.monthly_rate || 0),
+          'Latitude Longitude': coords
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const csv = XLSX.utils.sheet_to_csv(ws);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const u = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = u;
+      a.download = 'MediaBuzz_Sites.csv';
+      a.click();
+      URL.revokeObjectURL(u);
+    } catch (e) {
+      alert('Export CSV failed: ' + e.message);
+    }
   }
 
   async function exportJson() {

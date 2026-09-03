@@ -376,29 +376,144 @@ app.get('/api/export/json', auth, async (req, res) => {
   }
 });
 
-app.post('/api/import/xlsx', auth, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ message: 'No workbook' });
-  try {
-    const wb = XLSX.readFile(req.file.path), sheet = wb.Sheets[wb.SheetNames[0]], rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-    let count = 0;
-    for (const r of rows) {
-      const code = String(r['Site ID'] || r['site_code'] || r['SITE ID'] || '').trim();
-      if (!code) continue;
-      const flags = { ppt_availability: r['PPT Availability'] || r['AVAILABLITY'] || r['Availability'] || '', ppt_rate: r['PPT Rate Per Month (₹)'] || r['Selling Amount (₹)'] || r['Selling Amount'] || 0, ppt_images: [] };
-      const data = { site_code: code, city: r.City || r.CITY || '', area: r['Area / Landmark'] || r.AREA || '', address: r['Full Address'] || r.LOCATION || '', size: r.Size || '', width: Number(r['Width (ft)'] || r.W || 0) || null, height: Number(r['Height (ft)'] || r.H || 0) || null, media_type: r['Media Type'] || r.MEDIA || 'Billboard', lighting: r.Lighting || r.LIGHT || 'FL', availability: r.Availability || 'Available', monthly_rate: Number(String(r['Selling Amount (₹)'] || r['Selling Amount'] || 0).replace(/[^0-9.]/g, '')) || 0, latitude: Number(r.Latitude) || null, longitude: Number(r.Longitude) || null, flags: JSON.stringify(flags) };
-      const ex = (await q('SELECT id,flags FROM sites WHERE site_code=?', [code]))[0];
-      if (ex) {
-        let old = {};
-        try { old = JSON.parse(ex.flags || '{}') || {}; } catch {};
-        data.flags = JSON.stringify({ ...old, ...flags, ppt_images: old.ppt_images || [] });
-        await q('UPDATE sites SET city=?,area=?,address=?,size=?,width=?,height=?,media_type=?,lighting=?,availability=?,monthly_rate=?,latitude=?,longitude=?,flags=?,updated_at=NOW() WHERE id=?', [data.city, data.area, data.address, data.size, data.width, data.height, data.media_type, data.lighting, data.availability, data.monthly_rate, data.latitude, data.longitude, data.flags, ex.id]);
-      } else {
-        await q('INSERT INTO sites(site_code,city,area,address,size,width,height,media_type,lighting,availability,monthly_rate,latitude,longitude,flags,record_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?, "active",NOW(),NOW())', [data.site_code, data.city, data.area, data.address, data.size, data.width, data.height, data.media_type, data.lighting, data.availability, data.monthly_rate, data.latitude, data.longitude, data.flags]);
-      }
-      count++;
+function parseGps(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return { gps: '', latitude: null, longitude: null };
+  const pair = raw.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (pair) return { gps: `${parseFloat(pair[1])}, ${parseFloat(pair[2])}`, latitude: parseFloat(pair[1]), longitude: parseFloat(pair[2]) };
+  const dms = /(\d+(?:\.\d+)?)\s*[°]\s*(\d+(?:\.\d+)?)?\s*['′]?\s*(\d+(?:\.\d+)?)?\s*["″]?\s*([NS]).*?(\d+(?:\.\d+)?)\s*[°]\s*(\d+(?:\.\d+)?)?\s*['′]?\s*(\d+(?:\.\d+)?)?\s*["″]?\s*([EW])/i.exec(raw);
+  if (dms) {
+    const cv = (d, m, s) => Number(d || 0) + Number(m || 0) / 60 + Number(s || 0) / 3600;
+    const lat = cv(dms[1], dms[2], dms[3]) * (dms[4].toUpperCase() === 'S' ? -1 : 1);
+    const lng = cv(dms[5], dms[6], dms[7]) * (dms[8].toUpperCase() === 'W' ? -1 : 1);
+    return { gps: `${lat.toFixed(6)}, ${lng.toFixed(6)}`, latitude: lat, longitude: lng };
+  }
+  return { gps: raw, latitude: null, longitude: null };
+}
+
+function normalizeKey(str) {
+  return String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getRowValue(row, keys, fallback = '') {
+  const map = {};
+  for (const k of Object.keys(row || {})) {
+    map[normalizeKey(k)] = row[k];
+  }
+  for (const k of keys) {
+    const nk = normalizeKey(k);
+    if (map[nk] !== undefined && String(map[nk]).trim() !== '') {
+      return map[nk];
     }
-    res.json({ success: true, rows: count });
+  }
+  return fallback;
+}
+
+app.post('/api/import/xlsx', auth, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No workbook provided' });
+  try {
+    const wb = XLSX.readFile(req.file.path, { cellDates: true }), sheet = wb.Sheets[wb.SheetNames[0]], rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
+    let updatedCount = 0, newCount = 0;
+
+    // Load existing sites for matching
+    const existingSites = await q('SELECT id, site_code, area, address, media_type, flags FROM sites WHERE record_status="active"');
+    
+    // Count existing by prefix for automatic code generation
+    const prefixCounts = {};
+    for (const st of existingSites) {
+      const match = String(st.site_code || '').match(/^(AMD-[A-Z]{2})-(\d+)$/);
+      if (match) {
+        const p = match[1], num = parseInt(match[2], 10);
+        prefixCounts[p] = Math.max(prefixCounts[p] || 0, num);
+      }
+    }
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const area = String(getRowValue(r, ['AREA', 'Area', 'Area / Landmark'])).trim();
+      const location = String(getRowValue(r, ['LOCATION', 'Location', 'Full Address', 'Address'])).trim();
+      if (!area && !location) continue;
+
+      const mediaType = String(getRowValue(r, ['MEDIA', 'Media', 'Media Type'], 'Hoarding')).trim() || 'Hoarding';
+      const lighting = String(getRowValue(r, ['LIGHT', 'Lighting', 'Light'], 'BL')).trim() || 'BL';
+      const w = parseFloat(getRowValue(r, ['W', 'Width', 'Width (ft)'], '0')) || null;
+      const h = parseFloat(getRowValue(r, ['H', 'Height', 'Height (ft)'], '0')) || null;
+      const sqFt = parseFloat(getRowValue(r, ['SQ FT', 'SQFT', 'Sq Ft', 'Area (Sq Ft)'], '0')) || (w && h ? w * h : null);
+      const sizeStr = (w && h) ? `${w}x${h} ft` : (String(getRowValue(r, ['Size'], '')).trim() || (sqFt ? `${sqFt} sq ft` : ''));
+
+      let availability = getRowValue(r, ['AVAILABLITY', 'AVAILABILITY', 'Availability'], 'Available');
+      if (availability instanceof Date && !isNaN(availability)) {
+        const dd = String(availability.getDate()).padStart(2, '0');
+        const mm = String(availability.getMonth() + 1).padStart(2, '0');
+        availability = `${dd}.${mm}.${availability.getFullYear()}`;
+      } else if (typeof availability === 'number' && availability > 20000) {
+        const d = XLSX.SSF.parse_date_code(availability);
+        if (d) availability = `${String(d.d).padStart(2, '0')}.${String(d.m).padStart(2, '0')}.${d.y}`;
+      }
+      availability = String(availability).trim().replace(/\.$/, '') || 'Available';
+
+      const rawSelling = getRowValue(r, ['Selling Amount', 'SellingAmount', 'Selling Amount (₹)', 'Monthly Rate', 'Rate Per Month'], '0');
+      const monthlyRate = Number(String(rawSelling).replace(/[^0-9.]/g, '')) || 0;
+
+      const rawGps = getRowValue(r, ['Latitude Longitude', 'LatitudeLongitude', 'GPS', 'Coordinates', 'Latitude, Longitude'], '');
+      const gpsObj = parseGps(rawGps);
+      const lat = gpsObj.latitude || parseFloat(getRowValue(r, ['Latitude'], '')) || null;
+      const lng = gpsObj.longitude || parseFloat(getRowValue(r, ['Longitude'], '')) || null;
+      const formattedGps = gpsObj.gps || (lat && lng ? `${lat}, ${lng}` : '');
+
+      const codeInRow = String(getRowValue(r, ['Site ID', 'site_code', 'SITE ID', 'Code'], '')).trim();
+
+      // Find matching existing site
+      let matched = null;
+      if (codeInRow && !/^\d+$/.test(codeInRow)) {
+        matched = existingSites.find(s => s.site_code.toLowerCase() === codeInRow.toLowerCase());
+      }
+      if (!matched && location) {
+        matched = existingSites.find(s => s.address && s.address.toLowerCase().trim() === location.toLowerCase());
+      }
+      if (!matched && area && location) {
+        matched = existingSites.find(s => s.area && s.area.toLowerCase() === area.toLowerCase() && s.address && s.address.toLowerCase().includes(location.slice(0, 15).toLowerCase()));
+      }
+
+      const flags = { ppt_availability: availability, ppt_rate: monthlyRate, ppt_images: [] };
+
+      if (matched) {
+        let oldFlags = {};
+        try { oldFlags = JSON.parse(matched.flags || '{}') || {}; } catch {};
+        if (Array.isArray(oldFlags)) oldFlags = { ppt_images: oldFlags };
+        const mergedFlags = JSON.stringify({ ...oldFlags, ppt_availability: availability, ppt_rate: monthlyRate, ppt_images: oldFlags.ppt_images || [] });
+
+        await q(`UPDATE sites SET
+          area=?, address=?, media_type=?, lighting=?, size=?, width=?, height=?,
+          availability=?, monthly_rate=?, latitude=?, longitude=?, gps=?, flags=?, updated_at=NOW()
+          WHERE id=?`, [
+          area, location, mediaType, lighting, sizeStr, w, h,
+          availability, monthlyRate, lat, lng, formattedGps, mergedFlags, matched.id
+        ]);
+        updatedCount++;
+      } else {
+        // Generate automatic site code (e.g. AMD-GT-001, AMD-HD-008)
+        const mediaCodeMap = { Gantry: 'GT', Unipole: 'UP', Hoarding: 'HD', Billboard: 'BB', DOOH: 'DH' };
+        const mCode = mediaCodeMap[mediaType] || 'HD';
+        const prefix = `AMD-${mCode}`;
+        const nextNum = (prefixCounts[prefix] || 0) + 1;
+        prefixCounts[prefix] = nextNum;
+        const siteCode = codeInRow && !/^\d+$/.test(codeInRow) ? codeInRow : `${prefix}-${String(nextNum).padStart(3, '0')}`;
+
+        await q(`INSERT INTO sites (
+          site_code, city, area, address, media_type, lighting, size, width, height,
+          availability, monthly_cost, monthly_rate, latitude, longitude, gps, flags, record_status, created_at, updated_at
+        ) VALUES (?, 'Ahmedabad', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
+          siteCode, area, location, mediaType, lighting, sizeStr, w, h,
+          availability, monthlyRate, monthlyRate, lat, lng, formattedGps, JSON.stringify(flags)
+        ]);
+        newCount++;
+      }
+    }
+
+    res.json({ success: true, updated: updatedCount, created: newCount, rows: updatedCount + newCount });
   } catch (err) {
+    console.error('Import XLSX error:', err);
     res.status(500).json({ message: 'Excel import error: ' + err.message });
   }
 });
