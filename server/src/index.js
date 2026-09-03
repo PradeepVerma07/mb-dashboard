@@ -28,7 +28,33 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 app.get('/api/auth/me',auth,(req,res)=>res.json(req.user));
-app.get('/api/dashboard',auth,async(req,res)=>{const [[s],[c],[e],[i]]=await Promise.all([q("SELECT COUNT(*) total, SUM(availability='Available') available FROM sites WHERE record_status='active'"),q("SELECT COUNT(*) total, SUM(CURDATE() BETWEEN start_date AND end_date) live, COALESCE(SUM(revenue),0) revenue, COALESCE(SUM(revenue-vendor_cost-printing_cost-mounting_cost-electricity_cost-other_cost),0) margin FROM campaigns WHERE record_status='active'"),q("SELECT COUNT(*) total, SUM(payment_status<>'Paid' AND due_date<CURDATE()) overdue, COALESCE(SUM(CASE WHEN payment_status<>'Paid' THEN amount ELSE 0 END),0) unpaid FROM electricity WHERE record_status='active'"),q("SELECT COUNT(*) total, SUM(status NOT IN ('Paid','Sent')) pending FROM invoices WHERE record_status='active'")]);const alerts=await q("SELECT id,site_code,client,campaign_name,end_date,invoice_status,hard_copy_status FROM campaigns WHERE record_status='active' AND (end_date <= DATE_ADD(CURDATE(),INTERVAL 7 DAY) OR invoice_status='Pending' OR hard_copy_status='Pending') ORDER BY end_date LIMIT 20");res.json({kpis:{total_sites:s.total||0,available_sites:s.available||0,active_campaigns:c.live||0,campaign_revenue:c.revenue||0,gross_margin:c.margin||0,electricity_overdue:e.overdue||0,unpaid_electricity:e.unpaid||0,invoice_actions:i.pending||0},alerts})});
+app.get('/api/dashboard', auth, async (req, res) => {
+  try {
+    const [[s], [c], [e], [i]] = await Promise.all([
+      q("SELECT COUNT(*) total, COALESCE(SUM(availability='Available'),0) available FROM sites WHERE record_status='active'"),
+      q("SELECT COUNT(*) total, COALESCE(SUM(CURDATE() BETWEEN start_date AND end_date),0) live, COALESCE(SUM(revenue),0) revenue, COALESCE(SUM(revenue-vendor_cost-printing_cost-mounting_cost-electricity_cost-other_cost),0) margin FROM campaigns WHERE record_status='active'"),
+      q("SELECT COUNT(*) total, COALESCE(SUM(payment_status<>'Paid' AND due_date<CURDATE()),0) overdue, COALESCE(SUM(CASE WHEN payment_status<>'Paid' THEN amount ELSE 0 END),0) unpaid FROM electricity WHERE record_status='active'"),
+      q("SELECT COUNT(*) total, COALESCE(SUM(invoice_status NOT IN ('Paid','Sent')),0) pending FROM invoices WHERE record_status='active'")
+    ]);
+    const alerts = await q("SELECT id,site_code,client,campaign_name,end_date,invoice_status,hard_copy_status FROM campaigns WHERE record_status='active' AND (end_date <= DATE_ADD(CURDATE(),INTERVAL 7 DAY) OR invoice_status='Pending' OR hard_copy_status='Pending') ORDER BY end_date LIMIT 20");
+    res.json({
+      kpis: {
+        total_sites: Number(s?.total || 0),
+        available_sites: Number(s?.available || 0),
+        active_campaigns: Number(c?.live || 0),
+        campaign_revenue: Number(c?.revenue || 0),
+        gross_margin: Number(c?.margin || 0),
+        electricity_overdue: Number(e?.overdue || 0),
+        unpaid_electricity: Number(e?.unpaid || 0),
+        invoice_actions: Number(i?.pending || 0)
+      },
+      alerts: alerts || []
+    });
+  } catch (err) {
+    console.error('Dashboard error:', err.message);
+    res.status(500).json({message: 'Dashboard data error: ' + err.message});
+  }
+});
 app.get('/api/:entity',auth,async(req,res)=>{const e=safeEntity(req,res);if(!e)return;const limit=Math.min(Number(req.query.limit||1000),5000);const rows=await q(`SELECT * FROM \`${e.table}\` ORDER BY ${e.order} LIMIT ${limit}`);for(const r of rows){for(const k of ['flags','images_json'])if(typeof r[k]==='string'){try{r[k]=JSON.parse(r[k])}catch{}}}res.json(rows)});
 app.get('/api/:entity/:id',auth,async(req,res)=>{const e=safeEntity(req,res);if(!e)return;const rows=await q(`SELECT * FROM \`${e.table}\` WHERE id=? LIMIT 1`,[req.params.id]);if(!rows[0])return res.status(404).json({message:'Record not found'});res.json(rows[0])});
 app.post('/api/:entity',auth,async(req,res)=>{const e=safeEntity(req,res);if(!e)return;const data=await cleanData(e.table,req.body);const keys=Object.keys(data);if(!keys.length)return res.status(400).json({message:'No valid fields'});const sql=`INSERT INTO \`${e.table}\` (${keys.map(k=>'`'+k+'`').join(',')},created_at,updated_at) VALUES (${keys.map(()=>'?').join(',')},NOW(),NOW())`;const result=await q(sql,keys.map(k=>data[k]));await audit(req.user,'Created',req.params.entity,result.insertId,null,data);const rows=await q(`SELECT * FROM \`${e.table}\` WHERE id=?`,[result.insertId]);res.status(201).json(rows[0])});
