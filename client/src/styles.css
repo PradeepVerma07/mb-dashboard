@@ -624,14 +624,17 @@ body {
 .scooh-proposal-controls{max-height:calc(100vh - 112px);padding:24px;border-radius:20px;background:var(--mb-surface);border:1px solid var(--mb-border);box-shadow:0 18px 45px rgba(0,0,0,.12)}
 .scooh-proposal-controls h3{font-size:16px!important;color:var(--mb-text)!important}
 .scooh-proposal-step{margin-top:24px;padding-bottom:18px}
-.scooh-picklist{max-height:500px;border-radius:15px;background:var(--mb-bg-2);border:1px solid var(--mb-border);overflow-y:auto}
-.scooh-pickrow{grid-template-columns:22px 86px minmax(150px,1fr);gap:14px;padding:15px 16px;align-items:start;border-bottom:1px solid var(--mb-border)}
-.scooh-pickrow .scooh-plate{margin-top:4px}
-.scooh-pickmeta{padding-top:3px;font-size:11px}
-.scooh-pickmeta strong{display:block;margin-bottom:5px;font-size:11px;color:var(--mb-text)}
-.scooh-proposal-rates{grid-column:2 / -1;display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:12px;margin-top:6px;padding:12px;border:1px solid var(--mb-border);border-radius:12px;background:var(--mb-surface)}
-.scooh-proposal-rates label{display:flex;flex-direction:column;gap:5px;color:var(--mb-muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
-.scooh-proposal-rates input{width:100%;min-height:40px;padding:8px 11px;border:1px solid var(--mb-border-2);border-radius:9px;background:var(--mb-input)!important;color:var(--mb-text)!important;font-size:13px;font-weight:800}
+.scooh-picklist{max-height:540px;border-radius:15px;background:var(--mb-bg-2);border:1px solid var(--mb-border);overflow-y:auto;overflow-x:hidden;padding:10px;display:flex;flex-direction:column;gap:10px}
+.scooh-pickrow{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border-radius:12px;border:1px solid var(--mb-border);background:var(--mb-surface);cursor:pointer;transition:all .16s ease;box-sizing:border-box;width:100%}
+.scooh-pickrow:hover{border-color:var(--mb-accent);box-shadow:0 4px 14px rgba(0,0,0,.06)}
+.scooh-pickrow-header{display:flex;align-items:center;gap:12px;width:100%}
+.scooh-pickrow .scooh-plate{margin:0;flex-shrink:0}
+.scooh-pickmeta{padding:0;font-size:11px;min-width:0;flex:1}
+.scooh-pickmeta strong{display:block;margin-bottom:3px;font-size:11.5px;color:var(--mb-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scooh-pickmeta small{display:block;color:var(--mb-muted);font-size:10.5px}
+.scooh-proposal-rates{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;width:100%;margin:0;padding:10px 12px;border:1px solid var(--mb-border);border-radius:10px;background:var(--mb-surface-2);box-sizing:border-box}
+.scooh-proposal-rates label{display:flex;flex-direction:column;gap:4px;color:var(--mb-muted);font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;min-width:0}
+.scooh-proposal-rates input{width:100%;min-height:36px;padding:6px 8px;border:1px solid var(--mb-border-2);border-radius:8px;background:var(--mb-input)!important;color:var(--mb-text)!important;font-size:12px;font-weight:800;box-sizing:border-box}
 .scooh-proposal-actions{position:sticky;bottom:-24px;margin:20px -24px -24px;padding:15px 24px;background:var(--mb-surface);border-top:1px solid var(--mb-border);backdrop-filter:blur(10px)}
 
 /* Automated PPT optional output controls */

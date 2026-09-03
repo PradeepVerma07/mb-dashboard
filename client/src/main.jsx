@@ -1355,12 +1355,14 @@ function ProposalsView() {
     const mediaRate = Number(rates.mediaRate ?? s.monthly_rate ?? 0);
     const vendorRate = Number(rates.vendorRate ?? 0);
     const printingRate = Number(rates.printingRate ?? 0);
+    const mountingRate = Number(rates.mountingRate ?? 0);
     return {
       ...s,
       mediaRate,
       vendorRate,
       printingRate,
-      totalRate: mediaRate + vendorRate + printingRate
+      mountingRate,
+      totalRate: mediaRate + vendorRate + printingRate + mountingRate
     };
   });
 
@@ -1475,29 +1477,53 @@ function ProposalsView() {
               const isChecked = !!r.checked;
 
               return (
-                <label key={key} className="scooh-pickrow">
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={e => setSelectedSites({
+                <div
+                  key={key}
+                  className="scooh-pickrow"
+                  onClick={() => {
+                    const nextChecked = !isChecked;
+                    setSelectedSites({
                       ...selectedSites,
                       [key]: {
                         ...r,
-                        checked: e.target.checked,
+                        checked: nextChecked,
                         mediaRate: r.mediaRate ?? s.monthly_rate ?? 0,
                         vendorRate: r.vendorRate ?? 0,
-                        printingRate: r.printingRate ?? 0
+                        printingRate: r.printingRate ?? 0,
+                        mountingRate: r.mountingRate ?? 0
                       }
-                    })}
-                  />
-                  <span className="scooh-plate">{s.site_code}</span>
-                  <span className="scooh-pickmeta">
-                    <strong>{(s.area || s.city).toUpperCase()}</strong>
-                    <small>{s.size} · {s.media_type ? s.media_type.toUpperCase() : 'HOARDING'}</small>
-                  </span>
+                    });
+                  }}
+                >
+                  <div className="scooh-pickrow-header">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={e => {
+                        e.stopPropagation();
+                        setSelectedSites({
+                          ...selectedSites,
+                          [key]: {
+                            ...r,
+                            checked: e.target.checked,
+                            mediaRate: r.mediaRate ?? s.monthly_rate ?? 0,
+                            vendorRate: r.vendorRate ?? 0,
+                            printingRate: r.printingRate ?? 0,
+                            mountingRate: r.mountingRate ?? 0
+                          }
+                        });
+                      }}
+                      style={{ margin: 0, cursor: 'pointer' }}
+                    />
+                    <span className="scooh-plate">{s.site_code}</span>
+                    <span className="scooh-pickmeta">
+                      <strong>{(s.area || s.city).toUpperCase()}</strong>
+                      <small>{s.size} · {s.media_type ? s.media_type.toUpperCase() : 'HOARDING'}</small>
+                    </span>
+                  </div>
                   <div className="scooh-proposal-rates" onClick={e => e.stopPropagation()}>
                     <label>
-                      Media rate
+                      Media Rate
                       <input
                         type="number"
                         min="0"
@@ -1510,7 +1536,7 @@ function ProposalsView() {
                       />
                     </label>
                     <label>
-                      Vendor rate
+                      Vendor Rate
                       <input
                         type="number"
                         min="0"
@@ -1523,7 +1549,7 @@ function ProposalsView() {
                       />
                     </label>
                     <label>
-                      Printing rate
+                      Printing Rate
                       <input
                         type="number"
                         min="0"
@@ -1535,8 +1561,21 @@ function ProposalsView() {
                         })}
                       />
                     </label>
+                    <label>
+                      Mounting Rate
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={r.mountingRate ?? 0}
+                        onChange={e => setSelectedSites({
+                          ...selectedSites,
+                          [key]: { ...r, checked: true, mountingRate: Number(e.target.value) }
+                        })}
+                      />
+                    </label>
                   </div>
-                </label>
+                </div>
               );
             })}
           </div>
@@ -1617,9 +1656,13 @@ function ProposalsView() {
                         <td>{[s.size, s.lighting, s.facing].filter(Boolean).join(' · ') || '—'}</td>
                         <td className="scooh-doc-rate">
                           <strong>Media: {money(s.mediaRate)}</strong>
-                          {(s.vendorRate > 0 || s.printingRate > 0) && (
+                          {(s.vendorRate > 0 || s.printingRate > 0 || s.mountingRate > 0) && (
                             <span className="scooh-doc-muted">
-                              Vendor: {money(s.vendorRate)} · Printing: {money(s.printingRate)}
+                              {[
+                                s.vendorRate > 0 ? `Vendor: ${money(s.vendorRate)}` : null,
+                                s.printingRate > 0 ? `Printing: ${money(s.printingRate)}` : null,
+                                s.mountingRate > 0 ? `Mounting: ${money(s.mountingRate)}` : null
+                              ].filter(Boolean).join(' · ')}
                             </span>
                           )}
                           <strong className="scooh-doc-line-total">Total: {money(s.totalRate)}</strong>
