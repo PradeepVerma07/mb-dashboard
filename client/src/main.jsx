@@ -1090,6 +1090,61 @@ function PptView() {
     setSel(newSel);
   }
 
+  function downloadExcel() {
+    try {
+      const selectedList = sites.filter(s => sel[s.id || s.site_code]?.checked);
+      const targetSites = selectedList.length > 0 ? selectedList : (filtered.length > 0 ? filtered : sites);
+
+      const rows = targetSites.map((x, idx) => {
+        const v = sel[x.id || x.site_code] || {};
+        let w = x.width || '', h = x.height || '';
+        if ((!w || !h) && x.size) {
+          const parts = String(x.size).toLowerCase().split('x');
+          if (parts.length === 2) { w = parts[0].trim(); h = parts[1].trim(); }
+        }
+        const sqft = (Number(w || 0) && Number(h || 0)) ? Number(w) * Number(h) : (x.sq_ft || '');
+        const coords = x.gps || ([x.latitude, x.longitude].filter(Boolean).join(', ')) || '';
+
+        return {
+          'SR NO': idx + 1,
+          'AREA': x.area || x.city || '',
+          'LOCATION': x.address || '',
+          'MEDIA': x.media_type || 'Hoarding',
+          'LIGHT': x.lighting || 'BL',
+          'W': w || '',
+          'H': h || '',
+          'SQ FT': sqft,
+          'AVAILABLITY': v.availability ?? x.ppt_availability ?? x.availability ?? 'Available',
+          'Selling Amount': Number(v.rate ?? x.ppt_rate ?? x.monthly_rate ?? 0),
+          'Latitude Longitude': coords
+        };
+      });
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(rows);
+
+      // Auto-fit column widths
+      ws['!cols'] = [
+        { wch: 8 },  // SR NO
+        { wch: 18 }, // AREA
+        { wch: 45 }, // LOCATION
+        { wch: 12 }, // MEDIA
+        { wch: 8 },  // LIGHT
+        { wch: 6 },  // W
+        { wch: 6 },  // H
+        { wch: 8 },  // SQ FT
+        { wch: 16 }, // AVAILABLITY
+        { wch: 16 }, // Selling Amount
+        { wch: 26 }  // Latitude Longitude
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, 'PPT Sites');
+      XLSX.writeFile(wb, 'MediaBuzz_PPT_Inventory.xlsx');
+    } catch (e) {
+      alert('Export Excel failed: ' + e.message);
+    }
+  }
+
   async function generate() {
     const chosen = sites
       .filter(s => sel[s.id || s.site_code]?.checked)
@@ -1123,7 +1178,9 @@ function PptView() {
         desc="Select sites, add images, set availability, and generate/download your presentation data."
         actions={
           <>
-            <button type="button" className="scooh-btn" onClick={() => alert('Exporting Excel data…')}>Download Excel</button>
+            <button type="button" className="scooh-btn ghost" onClick={downloadExcel}>
+              Download Excel (.xlsx)
+            </button>
             <button type="button" className="scooh-btn primary" onClick={generate} disabled={generating}>
               {generating ? 'Creating PPT…' : 'Generate PPT'}
             </button>
