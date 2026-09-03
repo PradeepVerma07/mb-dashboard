@@ -55,7 +55,66 @@ app.get('/api/dashboard', auth, async (req, res) => {
     res.status(500).json({message: 'Dashboard data error: ' + err.message});
   }
 });
-app.get('/api/:entity',auth,async(req,res)=>{const e=safeEntity(req,res);if(!e)return;const limit=Math.min(Number(req.query.limit||1000),5000);const rows=await q(`SELECT * FROM \`${e.table}\` ORDER BY ${e.order} LIMIT ${limit}`);for(const r of rows){for(const k of ['flags','images_json'])if(typeof r[k]==='string'){try{r[k]=JSON.parse(r[k])}catch{}}}res.json(rows)});
+app.get('/api/:entity', auth, async (req, res) => {
+  try {
+    const e = safeEntity(req, res);
+    if (!e) return;
+    const limit = Math.min(Number(req.query.limit || 1000), 5000);
+    let rows = await q(`SELECT * FROM \`${e.table}\` ORDER BY ${e.order} LIMIT ${limit}`);
+    
+    // If sites table is queried and empty, auto-seed immediately
+    if (e.table === 'sites' && (!rows || rows.length === 0)) {
+      const seedCandidates = [
+        path.resolve(__dirname, 'data/all-embedded-data.json'),
+        path.resolve(__dirname, '../data/all-embedded-data.json'),
+        path.resolve(process.cwd(), 'server/src/data/all-embedded-data.json'),
+        path.resolve(process.cwd(), 'sql/all-embedded-data.json')
+      ];
+      const seedPath = seedCandidates.find(p => fs.existsSync(p));
+      if (seedPath) {
+        try {
+          const raw = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+          if (Array.isArray(raw.sites)) {
+            for (const s of raw.sites) {
+              const code = String(s.site_code || '').trim();
+              if (!code) continue;
+              const parts = (s.gps || '').split(',').map(x => parseFloat(x.trim()));
+              const lat = isNaN(parts[0]) ? null : parts[0];
+              const lng = isNaN(parts[1]) ? null : parts[1];
+              const flags = typeof s.flags === 'string' ? s.flags : JSON.stringify(s.flags || {});
+              await q(`INSERT INTO sites (
+                site_code, city, area, address, size, media_type, lighting, facing,
+                ownership, availability, vendor_name, meter_no, monthly_cost, monthly_rate,
+                latitude, longitude, gps, notes, flags, record_status, created_at, updated_at
+              ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'active', NOW(), NOW())
+              ON DUPLICATE KEY UPDATE site_code=VALUES(site_code)`, [
+                code, s.city || 'Ahmedabad', s.area || '', s.address || '', s.size || '',
+                s.media_type || 'Hoarding', s.lighting || 'BL', s.facing || '', s.ownership || 'Owned',
+                s.availability || 'Available', s.vendor_name || '', s.meter_no || '',
+                Number(s.monthly_cost || 0), Number(s.monthly_rate || 0), lat, lng, s.gps || '', s.notes || '', flags
+              ]);
+            }
+            rows = await q(`SELECT * FROM \`sites\` ORDER BY id DESC LIMIT ${limit}`);
+          }
+        } catch (seedErr) {
+          console.warn('Auto-seed in route notice:', seedErr.message);
+        }
+      }
+    }
+
+    for (const r of rows) {
+      for (const k of ['flags', 'images_json']) {
+        if (typeof r[k] === 'string') {
+          try { r[k] = JSON.parse(r[k]); } catch {}
+        }
+      }
+    }
+    res.json(rows);
+  } catch (err) {
+    console.error(`Error loading ${req.params.entity}:`, err.message);
+    res.status(500).json({ message: 'Database error: ' + err.message });
+  }
+});
 app.get('/api/:entity/:id',auth,async(req,res)=>{const e=safeEntity(req,res);if(!e)return;const rows=await q(`SELECT * FROM \`${e.table}\` WHERE id=? LIMIT 1`,[req.params.id]);if(!rows[0])return res.status(404).json({message:'Record not found'});res.json(rows[0])});
 app.post('/api/:entity',auth,async(req,res)=>{const e=safeEntity(req,res);if(!e)return;const data=await cleanData(e.table,req.body);const keys=Object.keys(data);if(!keys.length)return res.status(400).json({message:'No valid fields'});const sql=`INSERT INTO \`${e.table}\` (${keys.map(k=>'`'+k+'`').join(',')},created_at,updated_at) VALUES (${keys.map(()=>'?').join(',')},NOW(),NOW())`;const result=await q(sql,keys.map(k=>data[k]));await audit(req.user,'Created',req.params.entity,result.insertId,null,data);const rows=await q(`SELECT * FROM \`${e.table}\` WHERE id=?`,[result.insertId]);res.status(201).json(rows[0])});
 app.put('/api/:entity/:id',auth,async(req,res)=>{const e=safeEntity(req,res);if(!e)return;const before=(await q(`SELECT * FROM \`${e.table}\` WHERE id=?`,[req.params.id]))[0];if(!before)return res.status(404).json({message:'Record not found'});const data=await cleanData(e.table,req.body),keys=Object.keys(data);if(keys.length)await q(`UPDATE \`${e.table}\` SET ${keys.map(k=>'`'+k+'`=?').join(',')},updated_at=NOW() WHERE id=?`,[...keys.map(k=>data[k]),req.params.id]);const after=(await q(`SELECT * FROM \`${e.table}\` WHERE id=?`,[req.params.id]))[0];await audit(req.user,'Updated',req.params.entity,req.params.id,before,after);res.json(after)});

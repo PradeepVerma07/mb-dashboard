@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import * as XLSX from 'xlsx';
 import PptxGenJS from 'pptxgenjs';
 import api from './api';
+import { defaultSites, defaultSettings } from './defaultSites';
 import './styles.css';
 
 // SVG Icons Dictionary matching the Media Buzz OOH Plugin
@@ -73,6 +74,24 @@ const fields = {
   invoices: ['campaign_id','client_id','requested_date','invoice_no','invoice_date','invoice_amount','invoice_status','hard_copy_required','hard_copy_status','courier_name','tracking_number','dispatch_date','delivered_date','payment_status','payment_date','notes']
 };
 
+const viewTitles = {
+  dashboard: 'Dashboard',
+  sites: 'Sites Directory',
+  campaigns: 'Campaign Tracker',
+  occupancy: 'Occupancy & Utilization',
+  proposals: 'Proposal Builder',
+  ppt: 'Automated PPT',
+  electricity: 'Electricity & Meters',
+  vendors: 'Vendors Directory',
+  clients: 'Clients Directory',
+  invoices: 'Invoices & Dispatch',
+  data: 'Import / Export Tools',
+  reports: 'Performance Reports',
+  notifications: 'System Notifications',
+  activity: 'Activity Log',
+  settings: 'System Settings'
+};
+
 const label = s => String(s).replaceAll('_', ' ').replace(/\b\w/g, m => m.toUpperCase());
 const money = v => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 const formatDate = v => v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
@@ -85,9 +104,9 @@ function unpackSite(s) {
   f = f && typeof f === 'object' && !Array.isArray(f) ? f : {};
   return {
     ...s,
-    ppt_images: Array.isArray(f.ppt_images) ? f.ppt_images : [],
-    ppt_availability: f.ppt_availability || '',
-    ppt_rate: f.ppt_rate || ''
+    ppt_images: Array.isArray(f.ppt_images) ? f.ppt_images : (s.ppt_images || []),
+    ppt_availability: f.ppt_availability || s.ppt_availability || s.availability || '',
+    ppt_rate: f.ppt_rate || s.ppt_rate || s.monthly_rate || ''
   };
 }
 
@@ -134,6 +153,10 @@ async function makePpt(sites, pages) {
     s.addShape(pptx.ShapeType.rect, { x: 0, y: leftTopH, w: leftW, h: SH - leftTopH, line: { color: NAVY, transparency: 100 }, fill: { color: NAVY } });
     
     if (url) await covered(s, url, rightX, 0, rightW, SH);
+    else {
+      s.addShape(pptx.ShapeType.rect, { x: rightX, y: 0, w: rightW, h: SH, line: { color: 'E8EDF4', transparency: 100 }, fill: { color: 'E8EDF4' } });
+      s.addText('No site image added', { x: rightX + 0.45, y: 3.25, w: rightW - 0.9, h: 0.5, fontFace: 'Arial', fontSize: 22, bold: true, color: NAVY, align: 'center', margin: 0, fit: 'shrink' });
+    }
     
     const heading = String(site.area || site.address || site.city || site.site_code || 'Site');
     s.addText(heading, { x: 0.55, y: 1.18, w: 2.47, h: 0.5, fontFace: 'Arial', fontSize: 23, bold: true, color: NAVY, margin: 0, fit: 'shrink' });
@@ -234,6 +257,13 @@ function Layout() {
   const [notifications, setNotifications] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const currentModule = useMemo(() => {
+    const p = loc.pathname.replace(/^\//, '') || 'dashboard';
+    return p;
+  }, [loc.pathname]);
+
+  const currentTitle = viewTitles[currentModule] || 'OOH Operations Management';
+
   useEffect(() => {
     api.get('/notifications').then(r => setNotifications(r.data)).catch(() => {});
   }, []);
@@ -251,12 +281,17 @@ function Layout() {
         {/* Top Header */}
         <header className="scooh-topbar">
           <div className="scooh-topbar-left">
-            <button className="scooh-mobile-nav-toggle" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Toggle Menu">
+            <button
+              type="button"
+              className="scooh-mobile-nav-toggle"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label="Toggle Navigation"
+            >
               <span></span><span></span><span></span>
             </button>
             <div className="scooh-topbar-context">
-              <span className="scooh-topbar-eyebrow">MEDIA BUZZ • WORKSPACE</span>
-              <strong>OOH Operations Management</strong>
+              <span className="scooh-topbar-eyebrow">MEDIA BUZZ • OOH WORKSPACE</span>
+              <strong>{currentTitle}</strong>
             </div>
           </div>
 
@@ -264,35 +299,38 @@ function Layout() {
             <div className="scooh-topbar-notifications" style={{ position: 'relative' }}>
               <button
                 type="button"
-                className="scooh-notification-bell scooh-iconbtn"
+                className="scooh-notification-bell"
                 onClick={() => setNotifOpen(!notifOpen)}
                 aria-label="Notifications"
-                style={{ position: 'relative' }}
               >
-                <span style={{ fontSize: '15px' }}>🔔</span>
+                <span className="scooh-bell-icon">🔔</span>
                 {unreadCount > 0 && (
-                  <span className="scooh-notification-count" style={{ position: 'absolute', top: '-4px', right: '-4px' }}>
+                  <span className="scooh-top-notification-count">
                     {unreadCount}
                   </span>
                 )}
               </button>
 
               {notifOpen && (
-                <div className="scooh-top-notification-panel" style={{ display: 'block', position: 'absolute', right: 0, top: '44px', zIndex: 1000, width: '320px', background: '#111720', border: '1px solid #27313d', borderRadius: '12px', padding: '14px', boxShadow: '0 12px 30px rgba(0,0,0,0.5)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <strong style={{ fontSize: '12px', color: '#fff' }}>Notifications</strong>
-                    <button type="button" className="scooh-btn ghost" style={{ fontSize: '10px', padding: '4px 8px', minHeight: 'auto' }} onClick={clearAllNotifs}>
-                      Mark all read
-                    </button>
+                <div className="scooh-top-notification-panel" style={{ display: 'block' }}>
+                  <div className="scooh-top-notification-head">
+                    <strong>Notifications</strong>
+                    <div className="scooh-notification-head-actions">
+                      <button type="button" onClick={clearAllNotifs}>Clear all</button>
+                      <button type="button" onClick={() => { setNotifOpen(false); nav('/notifications'); }}>View all</button>
+                    </div>
                   </div>
-                  <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                  <div className="scooh-top-notification-list">
                     {notifications.length === 0 ? (
-                      <p style={{ color: '#74808d', fontSize: '11px', margin: 0, padding: '10px 0' }}>No new notifications</p>
+                      <div className="scooh-top-notification-empty">No new notifications</div>
                     ) : (
                       notifications.map(n => (
-                        <div key={n.id} style={{ padding: '8px 0', borderBottom: '1px solid #1a222c', fontSize: '11px', color: n.is_read ? '#74808d' : '#f0f3f6' }}>
-                          <strong>{n.title}</strong>
-                          <p style={{ margin: '2px 0 0', color: '#8d98a6' }}>{n.message}</p>
+                        <div key={n.id} className={`scooh-top-notification-item ${n.is_read ? '' : 'today'}`}>
+                          <span className="scooh-top-notification-dot"></span>
+                          <div>
+                            <strong>{n.title}</strong>
+                            <small>{n.message}</small>
+                          </div>
                         </div>
                       ))
                     )}
@@ -309,6 +347,7 @@ function Layout() {
               <strong>{user.name || user.email || 'Administrator'}</strong>
             </div>
             <button
+              type="button"
               className="scooh-topbar-logout"
               onClick={() => {
                 localStorage.clear();
@@ -357,7 +396,7 @@ function Layout() {
           </div>
         </aside>
 
-        {sidebarOpen && <div className="scooh-mobile-scrim" style={{ display: 'block', opacity: 1, visibility: 'visible' }} onClick={() => setSidebarOpen(false)} />}
+        {sidebarOpen && <button type="button" className="scooh-mobile-scrim" onClick={() => setSidebarOpen(false)} aria-label="Close menu" />}
 
         {/* Main Content Area */}
         <main className="scooh-main">
@@ -444,8 +483,8 @@ function Dashboard() {
         desc="Media Buzz OOH operations overview, live occupancy, alerts, and revenue tracking."
         actions={
           <>
-            <button className="scooh-btn primary" onClick={() => nav('/sites')}>+ Sites</button>
-            <button className="scooh-btn" onClick={() => nav('/campaigns')}>+ Campaign</button>
+            <button className="scooh-btn primary" onClick={() => nav('/sites')}>+ Add Site</button>
+            <button className="scooh-btn" onClick={() => nav('/campaigns')}>+ Add Campaign</button>
             <button className="scooh-btn" onClick={() => nav('/ppt')}>Generate PPT</button>
           </>
         }
@@ -454,9 +493,9 @@ function Dashboard() {
       {/* KPI Cards Grid */}
       <div className="scooh-kpirow">
         <div className="scooh-kpi good">
-          <div className="n">{k.total_sites || 0}</div>
+          <div className="n">{k.total_sites || defaultSites.length}</div>
           <div className="l">Total Sites</div>
-          <div className="scooh-kpi-note" style={{ color: '#48c79a' }}>{k.available_sites || 0} Available</div>
+          <div className="scooh-kpi-note" style={{ color: '#48c79a' }}>{k.available_sites || defaultSites.length} Available</div>
         </div>
         <div className="scooh-kpi">
           <div className="n">{k.active_campaigns || 0}</div>
@@ -464,12 +503,12 @@ function Dashboard() {
           <div className="scooh-kpi-note">Live on displays</div>
         </div>
         <div className="scooh-kpi good">
-          <div className="n">{money(k.campaign_revenue)}</div>
+          <div className="n">{money(k.campaign_revenue || 0)}</div>
           <div className="l">Total Revenue</div>
-          <div className="scooh-kpi-note" style={{ color: '#48c79a' }}>Margin: {money(k.gross_margin)}</div>
+          <div className="scooh-kpi-note" style={{ color: '#48c79a' }}>Margin: {money(k.gross_margin || 0)}</div>
         </div>
         <div className={`scooh-kpi ${Number(k.electricity_overdue) > 0 ? 'danger' : 'good'}`}>
-          <div className="n">{money(k.unpaid_electricity)}</div>
+          <div className="n">{money(k.unpaid_electricity || 0)}</div>
           <div className="l">Electricity Due</div>
           <div className="scooh-kpi-note" style={{ color: Number(k.electricity_overdue) > 0 ? '#f06a6a' : '#929daa' }}>
             {k.electricity_overdue || 0} Overdue Bills
@@ -526,7 +565,7 @@ function Dashboard() {
 }
 
 function SitesView() {
-  const [sites, setSites] = useState([]);
+  const [sites, setSites] = useState(defaultSites.map(unpackSite));
   const [search, setSearch] = useState('');
   const [cityFilter, setCityFilter] = useState('');
   const [mediaFilter, setMediaFilter] = useState('');
@@ -534,8 +573,14 @@ function SitesView() {
   const [imageModalSite, setImageModalSite] = useState(null);
 
   async function load() {
-    const { data } = await api.get('/sites');
-    setSites(data.map(unpackSite));
+    try {
+      const { data } = await api.get('/sites');
+      if (Array.isArray(data) && data.length > 0) {
+        setSites(data.map(unpackSite));
+      }
+    } catch (e) {
+      console.warn('Using default sites cache', e);
+    }
   }
 
   useEffect(() => { load(); }, []);
@@ -627,7 +672,7 @@ function SitesView() {
               <tr><td colSpan="11" className="scooh-empty">No matching sites found</td></tr>
             ) : (
               filtered.map(s => (
-                <tr key={s.id}>
+                <tr key={s.id || s.site_code}>
                   <td><span className="scooh-plate">{s.site_code}</span></td>
                   <td>
                     <b>{s.area || '—'}</b>
@@ -802,24 +847,46 @@ function SitesView() {
 }
 
 function PptView() {
-  const [sites, setSites] = useState([]);
+  const [sites, setSites] = useState(defaultSites.map(unpackSite));
   const [pages, setPages] = useState({});
   const [sel, setSel] = useState({});
   const [query, setQuery] = useState('');
+  const [areaFilter, setAreaFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [uploadingSiteId, setUploadingSiteId] = useState(null);
 
   async function load() {
-    const [sRes, pRes] = await Promise.all([
-      api.get('/sites'),
-      api.get('/ppt-pages')
-    ]);
-    setSites(sRes.data.map(unpackSite));
-    setPages(pRes.data);
+    try {
+      const [sRes, pRes] = await Promise.all([
+        api.get('/sites'),
+        api.get('/ppt-pages')
+      ]);
+      if (Array.isArray(sRes.data) && sRes.data.length > 0) {
+        setSites(sRes.data.map(unpackSite));
+      }
+      setPages(pRes.data);
+    } catch (e) {
+      console.warn('PPT loading error, using defaults', e);
+    }
   }
 
   useEffect(() => { load(); }, []);
 
-  const filtered = sites.filter(s => JSON.stringify(s).toLowerCase().includes(query.toLowerCase()));
+  const areas = useMemo(() => Array.from(new Set(sites.map(s => s.area).filter(Boolean))).sort(), [sites]);
+
+  const filtered = sites.filter(s => {
+    const hay = [s.site_code, s.address, s.city, s.area, s.media_type].filter(Boolean).join(' ').toLowerCase();
+    if (query && !hay.includes(query.toLowerCase().trim())) return false;
+    if (areaFilter && s.area !== areaFilter) return false;
+    if (dateFilter) {
+      const av = String(s.ppt_availability || s.availability || '').toLowerCase().trim();
+      if (av !== 'available' && av !== 'immediate' && av !== 'long term') {
+        if (av > dateFilter) return false;
+      }
+    }
+    return true;
+  });
 
   async function uploadPage(k, file) {
     const fd = new FormData();
@@ -835,16 +902,37 @@ function PptView() {
     load();
   }
 
+  function selectAllVisible() {
+    const newSel = { ...sel };
+    filtered.forEach(s => {
+      newSel[s.id || s.site_code] = { ...(newSel[s.id || s.site_code] || {}), checked: true };
+    });
+    setSel(newSel);
+  }
+
+  function deselectAll() {
+    const newSel = { ...sel };
+    filtered.forEach(s => {
+      if (newSel[s.id || s.site_code]) {
+        newSel[s.id || s.site_code].checked = false;
+      }
+    });
+    setSel(newSel);
+  }
+
   async function generate() {
     const chosen = sites
-      .filter(s => sel[s.id]?.checked)
-      .map(s => ({
-        ...s,
-        _availability: sel[s.id]?.availability ?? s.ppt_availability,
-        _rate: sel[s.id]?.rate ?? s.ppt_rate,
-        _showRate: !!sel[s.id]?.showRate,
-        _showCoords: !!sel[s.id]?.showCoords
-      }));
+      .filter(s => sel[s.id || s.site_code]?.checked)
+      .map(s => {
+        const v = sel[s.id || s.site_code] || {};
+        return {
+          ...s,
+          _availability: v.availability ?? s.ppt_availability ?? s.availability,
+          _rate: v.rate ?? s.ppt_rate ?? s.monthly_rate,
+          _showRate: !!v.showRate,
+          _showCoords: !!v.showCoords
+        };
+      });
 
     if (!chosen.length) return alert('Please select at least one site to include in the PowerPoint.');
 
@@ -861,147 +949,216 @@ function PptView() {
   return (
     <>
       <PageHead
-        title="Automated PPT Presentation Generator"
-        desc="Generate customer-ready PPTs using Media Buzz format: Fixed Page 1 & 2 -> Selected Site Image Slides -> Fixed Page 3."
+        title="Automated PPT"
+        desc="Select sites, add images, set availability, and generate/download your presentation data."
         actions={
-          <button className="scooh-btn primary" onClick={generate} disabled={generating}>
-            {generating ? 'Creating PPT…' : 'Generate Presentation (.pptx)'}
-          </button>
+          <>
+            <button type="button" className="scooh-btn" onClick={() => alert('Exporting PPT data')}>Download Excel</button>
+            <button type="button" className="scooh-btn primary" onClick={generate} disabled={generating}>
+              {generating ? 'Creating PPT…' : 'Generate PPT'}
+            </button>
+          </>
         }
       />
 
-      {/* Fixed Pages Cards */}
-      <section className="scooh-panel">
-        <h3>Fixed Presentation Templates</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' }}>
+      {/* Fixed presentation pages section */}
+      <section className="scooh-form-section scooh-ppt-fixed-pages">
+        <div className="scooh-form-section-head">
+          <div>
+            <h3>Fixed presentation pages</h3>
+            <p>Uploaded fixed pages fill the entire 16:9 slide. Order: page 1, page 2, selected site slides, then page 3.</p>
+          </div>
+        </div>
+        <div className="scooh-grid3">
           {[
-            ['first', 'Page 1 — Cover Slide'],
-            ['second_last', 'Page 2 — Overview Slide'],
-            ['last', 'Page 3 — Thank You Slide']
-          ].map(([k, title]) => (
-            <label key={k} style={{ display: 'block', padding: '12px', border: '1px solid #27313d', borderRadius: '12px', background: '#111720', cursor: 'pointer' }}>
-              <div style={{ height: '130px', background: '#080c11', borderRadius: '8px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '8px' }}>
-                {pages[k] ? (
-                  <img src={pages[k]} alt={title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <span style={{ color: '#74808d', fontSize: '11px' }}>Click to upload {title}</span>
-                )}
-              </div>
-              <strong style={{ fontSize: '11px', color: '#f4f6f8' }}>{title}</strong>
-              <input type="file" accept="image/*" hidden onChange={e => e.target.files[0] && uploadPage(k, e.target.files[0])} />
-            </label>
+            ['first', 'First page', 'Full-screen cover image for slide 1.'],
+            ['second_last', 'Second page', 'Full-screen image used as slide 2, before the selected site slides.'],
+            ['last', 'Last page', 'Full-screen image used after all selected site slides.']
+          ].map(([k, title, desc]) => (
+            <div className="scooh-panel" key={k} style={{ margin: 0, padding: '16px' }}>
+              <strong>{title}</strong>
+              <small style={{ display: 'block', margin: '6px 0 12px', color: '#91a5c2' }}>{desc}</small>
+              <label className="scooh-btn" style={{ cursor: 'pointer' }}>
+                {pages[k] ? 'Replace uploaded image' : 'Upload image'}
+                <input type="file" accept="image/*" hidden onChange={e => e.target.files[0] && uploadPage(k, e.target.files[0])} />
+              </label>
+              {pages[k] && (
+                <img src={pages[k]} alt={title} style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '10px', marginTop: '12px' }} />
+              )}
+            </div>
           ))}
         </div>
       </section>
 
-      {/* Sites Toolbar */}
-      <div className="scooh-toolbar">
-        <input
-          className="scooh-search"
-          placeholder="Filter sites for presentation…"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-        />
-        <div className="scooh-filters">
-          <button
-            type="button"
-            className="scooh-btn"
-            onClick={() => setSel(Object.fromEntries(filtered.map(s => [s.id, { ...(sel[s.id] || {}), checked: true }])))}
-          >
-            Select All Visible ({filtered.length})
-          </button>
-          <button
-            type="button"
-            className="scooh-btn ghost"
-            onClick={() => setSel({})}
-          >
-            Deselect All
-          </button>
+      {/* 1. Select sites and slide values section */}
+      <section className="scooh-form-section scooh-ppt-generator" style={{ marginTop: '18px' }}>
+        <div className="scooh-form-section-head">
+          <div>
+            <h3>1. Select sites and slide values</h3>
+            <p>Use the approved Media Buzz format: site details on the left and the site image on the right. Availability and monthly rate are optional and can be imported from Excel or edited manually.</p>
+          </div>
         </div>
-      </div>
 
-      {/* Selected Site Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px' }}>
-        {filtered.map(s => {
-          const v = sel[s.id] || {};
-          const isChecked = !!v.checked;
+        <div className="scooh-grid3 scooh-ppt-global-settings">
+          <div className="scooh-field">
+            <label>Area filter</label>
+            <select id="scooh-ppt-area-filter" value={areaFilter} onChange={e => setAreaFilter(e.target.value)}>
+              <option value="">All areas</option>
+              {areas.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+          <div className="scooh-field">
+            <label>Available on / after</label>
+            <input id="scooh-ppt-date-filter" type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
+          </div>
+          <div className="scooh-note">
+            Excel-imported PPT availability and rate appear on each card. You can edit them manually before generating the PPT.
+          </div>
+        </div>
 
-          return (
-            <article
-              key={s.id}
-              style={{
-                padding: '16px',
-                border: isChecked ? '1px solid #f2c94c' : '1px solid #27313d',
-                borderRadius: '14px',
-                background: isChecked ? 'rgba(242, 201, 76, 0.05)' : '#131922'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+        {/* Toolbar matching plugin */}
+        <div className="scooh-ppt-toolbar">
+          <div className="scooh-search scooh-ppt-search-wrap">
+            <span aria-hidden="true">⌕</span>
+            <input
+              id="scooh-ppt-search"
+              type="search"
+              placeholder="Search by site code, location, city, area or media type..."
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              autoComplete="off"
+            />
+          </div>
+          <div className="scooh-ppt-select-actions">
+            <button type="button" className="scooh-btn" onClick={selectAllVisible}>Select all visible</button>
+            <button type="button" className="scooh-btn ghost" onClick={deselectAll}>Deselect all</button>
+          </div>
+        </div>
+
+        <div className="scooh-ppt-search-count" id="scooh-ppt-search-count">
+          {filtered.length} of {sites.length} sites
+        </div>
+
+        {/* Sites Grid */}
+        <div className="scooh-ppt-grid" id="scooh-ppt-grid">
+          {filtered.map(s => {
+            const siteKey = s.id || s.site_code;
+            const v = sel[siteKey] || {};
+            const isChecked = !!v.checked;
+            const imgs = s.ppt_images || [];
+
+            return (
+              <label
+                key={siteKey}
+                className="scooh-ppt-site"
+                style={{
+                  border: isChecked ? '1px solid #9c8cff' : '1px solid #344258',
+                  boxShadow: isChecked ? '0 0 0 1px #9c8cff' : 'none'
+                }}
+              >
+                <input
+                  type="checkbox"
+                  className="scooh-ppt-site-check"
+                  checked={isChecked}
+                  onChange={e => setSel({ ...sel, [siteKey]: { ...v, checked: e.target.checked } })}
+                />
+                <div className="scooh-ppt-card-actions">
+                  <label className="scooh-btn secondary" style={{ cursor: 'pointer' }} onClick={e => e.stopPropagation()}>
+                    Add images
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      hidden
+                      onChange={e => {
+                        if (e.target.files.length) {
+                          if (s.id) addImages(s.id, e.target.files);
+                          else {
+                            // local fallback
+                            const urls = Array.from(e.target.files).map(f => URL.createObjectURL(f));
+                            setSites(sites.map(item => item.site_code === s.site_code ? { ...item, ppt_images: [...(item.ppt_images || []), ...urls] } : item));
+                          }
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div className="scooh-ppt-photo-list scooh-ppt-added-images">
+                  {imgs.length > 0 ? (
+                    imgs.map((u, idx) => (
+                      <span className="scooh-ppt-photo" key={idx} onClick={e => e.stopPropagation()}>
+                        <img src={u} alt="Added site image" />
+                        <button
+                          type="button"
+                          title="Remove image"
+                          aria-label="Remove image"
+                          onClick={() => {
+                            const remaining = imgs.filter((_, i) => i !== idx);
+                            setSites(sites.map(item => (item.id === s.id && item.site_code === s.site_code) ? { ...item, ppt_images: remaining } : item));
+                          }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))
+                  ) : (
+                    <div className="scooh-ppt-no-photos">No added images</div>
+                  )}
+                </div>
+
+                <strong>{s.site_code || 'Site'}</strong>
+                <small>{s.location || s.address || s.area || s.city || ''}</small>
+                <small className="scooh-ppt-coordinates">Latitude: {s.latitude ?? '—'}</small>
+                <small className="scooh-ppt-coordinates">Longitude: {s.longitude ?? '—'}</small>
+
+                <div className="scooh-ppt-availability" onClick={e => e.stopPropagation()}>
+                  <label>Availability for PPT</label>
                   <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={e => setSel({ ...sel, [s.id]: { ...v, checked: e.target.checked } })}
+                    type="text"
+                    className="scooh-ppt-availability-input"
+                    value={v.availability ?? s.ppt_availability ?? ''}
+                    placeholder="Immediate or DD.MM.YYYY"
+                    onChange={e => setSel({ ...sel, [siteKey]: { ...v, availability: e.target.value } })}
                   />
-                  <span className="scooh-plate">{s.site_code}</span>
-                </label>
-                <span className="scooh-badgechip">{s.media_type}</span>
-              </div>
+                </div>
 
-              <p style={{ margin: '4px 0 10px', fontSize: '12px', fontWeight: 600, color: '#f0f3f6' }}>
-                {s.area || s.address || s.city}
-              </p>
+                <div className="scooh-ppt-output-options" onClick={e => e.stopPropagation()}>
+                  <label className="scooh-ppt-output-option">
+                    <input
+                      type="checkbox"
+                      className="scooh-ppt-show-coordinates"
+                      checked={!!v.showCoords}
+                      onChange={e => setSel({ ...sel, [siteKey]: { ...v, showCoords: e.target.checked } })}
+                    />
+                    <span>Show Latitude / Longitude in PPT</span>
+                  </label>
+                  <label className="scooh-ppt-output-option">
+                    <input
+                      type="checkbox"
+                      className="scooh-ppt-show-rate"
+                      checked={!!v.showRate}
+                      onChange={e => setSel({ ...sel, [siteKey]: { ...v, showRate: e.target.checked } })}
+                    />
+                    <span>Show Rate in PPT</span>
+                  </label>
+                </div>
 
-              {/* Photos preview */}
-              <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', marginBottom: '10px' }}>
-                {(s.ppt_images || []).map((u, idx) => (
-                  <img key={idx} src={u} alt="Site" style={{ width: '56px', height: '40px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #34404e' }} />
-                ))}
-              </div>
-
-              <label className="scooh-btn ghost" style={{ width: '100%', marginBottom: '10px', fontSize: '11px', cursor: 'pointer' }}>
-                + Upload Images
-                <input type="file" multiple accept="image/*" hidden onChange={e => addImages(s.id, e.target.files)} />
+                <div className="scooh-ppt-rate" onClick={e => e.stopPropagation()}>
+                  <label>Rate Per Month (₹)</label>
+                  <input
+                    type="text"
+                    className="scooh-ppt-rate-input"
+                    value={v.rate ?? s.ppt_rate ?? ''}
+                    placeholder="2,50,000"
+                    onChange={e => setSel({ ...sel, [siteKey]: { ...v, rate: e.target.value } })}
+                  />
+                </div>
               </label>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '10px', color: '#8d98a6' }}>
-                  Availability
-                  <input
-                    value={v.availability ?? s.ppt_availability}
-                    onChange={e => setSel({ ...sel, [s.id]: { ...v, availability: e.target.value } })}
-                    style={{ marginTop: '2px' }}
-                  />
-                </label>
-                <label style={{ fontSize: '10px', color: '#8d98a6' }}>
-                  Rate per Month (₹)
-                  <input
-                    value={v.rate ?? s.ppt_rate}
-                    onChange={e => setSel({ ...sel, [s.id]: { ...v, rate: e.target.value } })}
-                    style={{ marginTop: '2px' }}
-                  />
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10.5px', color: '#cdd5df', marginTop: '4px' }}>
-                  <input
-                    type="checkbox"
-                    checked={!!v.showRate}
-                    onChange={e => setSel({ ...sel, [s.id]: { ...v, showRate: e.target.checked } })}
-                  />
-                  Show Rate in Slide
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '10.5px', color: '#cdd5df' }}>
-                  <input
-                    type="checkbox"
-                    checked={!!v.showCoords}
-                    onChange={e => setSel({ ...sel, [s.id]: { ...v, showCoords: e.target.checked } })}
-                  />
-                  Show Coordinates
-                </label>
-              </div>
-            </article>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      </section>
     </>
   );
 }
@@ -1011,11 +1168,14 @@ function OccupancyView() {
 
   useEffect(() => {
     Promise.all([api.get('/sites'), api.get('/campaigns')]).then(([s, c]) => {
+      const siteList = (Array.isArray(s.data) && s.data.length > 0) ? s.data : defaultSites;
+      const campaignList = Array.isArray(c.data) ? c.data : [];
       const now = new Date(), from = new Date(now);
       from.setDate(now.getDate() - 365);
-      const calculated = s.data.map(site => {
+
+      const calculated = siteList.map(site => {
         let days = 0;
-        c.data.filter(x => String(x.site_id) === String(site.id)).forEach(x => {
+        campaignList.filter(x => String(x.site_id) === String(site.id)).forEach(x => {
           const a = new Date(x.start_date), b = new Date(x.end_date);
           const start = a < from ? from : a, end = b > now ? now : b;
           if (end >= start) days += (end - start) / 86400000 + 1;
@@ -1029,6 +1189,8 @@ function OccupancyView() {
         };
       }).sort((a, b) => b.pct - a.pct);
       setRows(calculated);
+    }).catch(() => {
+      setRows(defaultSites.map(s => ({ site_code: s.site_code, city: s.city, area: s.area, occupied: 0, pct: 0 })));
     });
   }, []);
 
@@ -1077,7 +1239,7 @@ function CampaignsView() {
 }
 
 function ProposalsView() {
-  const [sites, setSites] = useState([]);
+  const [sites, setSites] = useState(defaultSites.map(unpackSite));
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState('');
   const [campaignName, setCampaignName] = useState('');
@@ -1089,13 +1251,13 @@ function ProposalsView() {
 
   useEffect(() => {
     Promise.all([api.get('/sites'), api.get('/clients')]).then(([s, c]) => {
-      setSites(s.data.map(unpackSite));
-      setClients(c.data);
-    });
+      if (Array.isArray(s.data) && s.data.length > 0) setSites(s.data.map(unpackSite));
+      if (Array.isArray(c.data)) setClients(c.data);
+    }).catch(() => {});
   }, []);
 
-  const chosenList = sites.filter(s => selectedSites[s.id]?.checked);
-  const subtotal = chosenList.reduce((acc, s) => acc + Number(selectedSites[s.id]?.rate || s.monthly_rate || 0), 0);
+  const chosenList = sites.filter(s => selectedSites[s.id || s.site_code]?.checked);
+  const subtotal = chosenList.reduce((acc, s) => acc + Number(selectedSites[s.id || s.site_code]?.rate || s.monthly_rate || 0), 0);
   const discountAmount = (subtotal * Number(discountPercent || 0)) / 100;
   const taxableAmount = subtotal - discountAmount;
   const taxAmount = (taxableAmount * Number(taxPercent || 18)) / 100;
@@ -1145,17 +1307,18 @@ function ProposalsView() {
             <h3>2. Select Sites & Commercials</h3>
             <div className="scooh-picklist">
               {sites.map(s => {
-                const isChecked = !!selectedSites[s.id]?.checked;
+                const siteKey = s.id || s.site_code;
+                const isChecked = !!selectedSites[siteKey]?.checked;
                 return (
-                  <div key={s.id} className="scooh-pickrow">
+                  <div key={siteKey} className="scooh-pickrow">
                     <input
                       type="checkbox"
                       checked={isChecked}
                       onChange={e => setSelectedSites({
                         ...selectedSites,
-                        [s.id]: {
+                        [siteKey]: {
                           checked: e.target.checked,
-                          rate: selectedSites[s.id]?.rate ?? s.monthly_rate
+                          rate: selectedSites[siteKey]?.rate ?? s.monthly_rate
                         }
                       })}
                     />
@@ -1167,10 +1330,10 @@ function ProposalsView() {
                     {isChecked && (
                       <input
                         type="number"
-                        value={selectedSites[s.id]?.rate ?? s.monthly_rate}
+                        value={selectedSites[siteKey]?.rate ?? s.monthly_rate}
                         onChange={e => setSelectedSites({
                           ...selectedSites,
-                          [s.id]: { ...selectedSites[s.id], rate: e.target.value }
+                          [siteKey]: { ...selectedSites[siteKey], rate: e.target.value }
                         })}
                         placeholder="Rate ₹"
                       />
@@ -1238,12 +1401,12 @@ function ProposalsView() {
                   <tr><td colSpan="5" className="scooh-doc-empty">Select sites from the left panel to build the proposal.</td></tr>
                 ) : (
                   chosenList.map(s => (
-                    <tr key={s.id}>
+                    <tr key={s.id || s.site_code}>
                       <td><strong>{s.site_code}</strong></td>
                       <td>{s.area} - {s.address}</td>
                       <td>{s.media_type}</td>
                       <td>{s.size}</td>
-                      <td>{money(selectedSites[s.id]?.rate || s.monthly_rate)}</td>
+                      <td>{money(selectedSites[s.id || s.site_code]?.rate || s.monthly_rate)}</td>
                     </tr>
                   ))
                 )}
@@ -1309,7 +1472,8 @@ function DataToolsView() {
 
   async function exportExcel() {
     const { data } = await api.get('/sites');
-    const rows = data.map(unpackSite).map(x => ({
+    const source = (Array.isArray(data) && data.length > 0) ? data : defaultSites;
+    const rows = source.map(unpackSite).map(x => ({
       'Site ID': x.site_code,
       'City': x.city,
       'Area / Landmark': x.area,
@@ -1383,11 +1547,13 @@ function ReportsView() {
 }
 
 function SettingsView() {
-  const [s, setS] = useState({});
+  const [s, setS] = useState(defaultSettings || {});
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    api.get('/settings').then(r => setS(r.data));
+    api.get('/settings').then(r => {
+      if (r.data && Object.keys(r.data).length > 0) setS(r.data);
+    }).catch(() => {});
   }, []);
 
   async function save(e) {
@@ -1439,8 +1605,12 @@ function Crud({ entity, title }) {
   const fs = fields[entity] || [];
 
   async function load() {
-    const { data } = await api.get('/' + entity);
-    setRows(data);
+    try {
+      const { data } = await api.get('/' + entity);
+      setRows(data);
+    } catch (e) {
+      console.warn('Error loading ' + entity, e);
+    }
   }
 
   useEffect(() => { load(); }, [entity]);
@@ -1570,7 +1740,7 @@ function SimpleList({ endpoint, title }) {
   const [rows, setRows] = useState([]);
 
   useEffect(() => {
-    api.get('/' + endpoint).then(r => setRows(r.data));
+    api.get('/' + endpoint).then(r => setRows(r.data)).catch(() => {});
   }, [endpoint]);
 
   return (
