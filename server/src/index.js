@@ -233,7 +233,56 @@ app.post('/api/import/xlsx', auth, upload.single('file'), async (req, res) => {
     }
     res.json({ success: true, rows: count });
   } catch (err) {
-    res.status(500).json({ message: 'Import error: ' + err.message });
+    res.status(500).json({ message: 'Excel import error: ' + err.message });
+  }
+});
+
+app.post('/api/import/json', auth, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No JSON file provided' });
+  try {
+    const raw = JSON.parse(fs.readFileSync(req.file.path, 'utf8'));
+    let totalImported = 0;
+    
+    // If it's a backup with table keys
+    if (raw.sites && Array.isArray(raw.sites)) {
+      for (const s of raw.sites) {
+        if (!s.site_code) continue;
+        const flags = typeof s.flags === 'string' ? s.flags : JSON.stringify(s.flags || {});
+        await q(`INSERT INTO sites (
+          site_code, city, area, address, size, media_type, lighting, facing,
+          ownership, availability, vendor_name, meter_no, monthly_cost, monthly_rate,
+          latitude, longitude, gps, notes, flags, record_status, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'active', NOW(), NOW())
+        ON DUPLICATE KEY UPDATE city=VALUES(city), area=VALUES(area), address=VALUES(address),
+        size=VALUES(size), media_type=VALUES(media_type), lighting=VALUES(lighting),
+        availability=VALUES(availability), monthly_rate=VALUES(monthly_rate),
+        latitude=VALUES(latitude), longitude=VALUES(longitude), flags=VALUES(flags)`, [
+          s.site_code, s.city || 'Ahmedabad', s.area || '', s.address || '', s.size || '',
+          s.media_type || 'Hoarding', s.lighting || 'BL', s.facing || '', s.ownership || 'Owned',
+          s.availability || 'Available', s.vendor_name || '', s.meter_no || '',
+          Number(s.monthly_cost || 0), Number(s.monthly_rate || 0), s.latitude || null, s.longitude || null,
+          s.gps || '', s.notes || '', flags
+        ]);
+        totalImported++;
+      }
+    }
+    
+    // Also restore clients, campaigns, electricity, vendors if present
+    for (const ent of ['clients', 'campaigns', 'electricity', 'vendors', 'invoices']) {
+      if (Array.isArray(raw[ent])) {
+        for (const item of raw[ent]) {
+          const keys = Object.keys(item).filter(k => k !== 'id');
+          if (!keys.length) continue;
+          const vals = keys.map(k => typeof item[k] === 'object' && item[k] !== null ? JSON.stringify(item[k]) : item[k]);
+          await q(`INSERT INTO \`${ent}\` (${keys.map(k => '`' + k + '`').join(',')}, created_at, updated_at) VALUES (${keys.map(() => '?').join(',')}, NOW(), NOW())`, vals);
+          totalImported++;
+        }
+      }
+    }
+
+    res.json({ success: true, count: totalImported });
+  } catch (err) {
+    res.status(500).json({ message: 'JSON import error: ' + err.message });
   }
 });
 

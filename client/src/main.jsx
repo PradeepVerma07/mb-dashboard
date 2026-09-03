@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -6,6 +6,43 @@ import PptxGenJS from 'pptxgenjs';
 import api from './api';
 import { defaultSites, defaultSettings } from './defaultSites';
 import './styles.css';
+
+// Class ErrorBoundary to prevent any white/black screens
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error('UI Runtime Catch:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: '100vh', background: '#0b0f14', color: '#f4f6f8', padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ maxWidth: '500px', background: '#111720', border: '1px solid #27313d', borderRadius: '16px', padding: '28px', textAlign: 'center' }}>
+            <img src="/assets/media-buzz-logo.png" alt="Media Buzz" style={{ width: '140px', marginBottom: '16px' }} />
+            <h2 style={{ margin: '0 0 10px', fontSize: '18px' }}>Workspace Recovery</h2>
+            <p style={{ fontSize: '12px', color: '#8d98a6', margin: '0 0 20px' }}>{this.state.error?.message || 'An unexpected display error occurred.'}</p>
+            <button
+              style={{ padding: '10px 20px', background: '#f2c94c', border: 0, borderRadius: '8px', color: '#16120a', fontWeight: 800, cursor: 'pointer' }}
+              onClick={() => {
+                localStorage.removeItem('sc_token');
+                window.location.href = '/login';
+              }}
+            >
+              Sign In Again
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // SVG Icons Dictionary matching the Media Buzz OOH Plugin
 const icons = {
@@ -104,7 +141,7 @@ function unpackSite(s) {
   f = f && typeof f === 'object' && !Array.isArray(f) ? f : {};
   return {
     ...s,
-    ppt_images: Array.isArray(f.ppt_images) ? f.ppt_images : (s.ppt_images || []),
+    ppt_images: Array.isArray(f.ppt_images) ? f.ppt_images : (Array.isArray(s.ppt_images) ? s.ppt_images : []),
     ppt_availability: f.ppt_availability || s.ppt_availability || s.availability || '',
     ppt_rate: f.ppt_rate || s.ppt_rate || s.monthly_rate || ''
   };
@@ -252,27 +289,30 @@ function Guard({ children }) {
 function Layout() {
   const loc = useLocation();
   const nav = useNavigate();
-  const user = JSON.parse(localStorage.getItem('sc_user') || '{}');
+  let user = {};
+  try { user = JSON.parse(localStorage.getItem('sc_user') || '{}'); } catch {}
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const currentModule = useMemo(() => {
-    const p = loc.pathname.replace(/^\//, '') || 'dashboard';
+    const p = loc.pathname.replace(/^\//, '').split('/')[0] || 'dashboard';
     return p;
   }, [loc.pathname]);
 
   const currentTitle = viewTitles[currentModule] || 'OOH Operations Management';
 
   useEffect(() => {
-    api.get('/notifications').then(r => setNotifications(r.data)).catch(() => {});
+    api.get('/notifications').then(r => {
+      if (Array.isArray(r.data)) setNotifications(r.data);
+    }).catch(() => {});
   }, []);
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const unreadCount = (Array.isArray(notifications) ? notifications : []).filter(n => !n.is_read).length;
 
   async function clearAllNotifs() {
     await api.post('/notifications/read', {});
-    setNotifications(notifications.map(n => ({ ...n, is_read: 1 })));
+    setNotifications((Array.isArray(notifications) ? notifications : []).map(n => ({ ...n, is_read: 1 })));
   }
 
   return (
@@ -321,7 +361,7 @@ function Layout() {
                     </div>
                   </div>
                   <div className="scooh-top-notification-list">
-                    {notifications.length === 0 ? (
+                    {(!notifications || notifications.length === 0) ? (
                       <div className="scooh-top-notification-empty">No new notifications</div>
                     ) : (
                       notifications.map(n => (
@@ -404,7 +444,7 @@ function Layout() {
             <Routes>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/sites" element={<SitesView />} />
-              <Route path="/campaigns" element={<CampaignsView />} />
+              <Route path="/campaigns" element={<Crud entity="campaigns" title="Campaign Tracker" />} />
               <Route path="/occupancy" element={<OccupancyView />} />
               <Route path="/proposals" element={<ProposalsView />} />
               <Route path="/ppt" element={<PptView />} />
@@ -1592,22 +1632,44 @@ function OccupancyView() {
   );
 }
 
-
-
 function DataToolsView() {
-  const [file, setFile] = useState(null);
+  const [xlsxFile, setXlsxFile] = useState(null);
+  const [jsonFile, setJsonFile] = useState(null);
+  const [xlsxStatus, setXlsxStatus] = useState('No Excel file selected.');
+  const [jsonStatus, setJsonStatus] = useState('No JSON file selected.');
   const [loading, setLoading] = useState(false);
 
-  async function imp() {
-    if (!file) return alert('Please choose an Excel file (.xlsx) first.');
+  async function importXlsx() {
+    if (!xlsxFile) return alert('Please choose an Excel file (.xlsx) first.');
     setLoading(true);
+    setXlsxStatus(`Importing ${xlsxFile.name}…`);
     try {
       const f = new FormData();
-      f.append('file', file);
+      f.append('file', xlsxFile);
       const r = await api.post('/import/xlsx', f, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setXlsxStatus(`✓ Successfully imported ${r.data.rows} sites from ${xlsxFile.name}!`);
       alert(`Success: ${r.data.rows} sites imported successfully.`);
     } catch (e) {
+      setXlsxStatus(`✕ Import failed: ${e.response?.data?.message || e.message}`);
       alert('Import failed: ' + (e.response?.data?.message || e.message));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function importJson() {
+    if (!jsonFile) return alert('Please choose a JSON backup file first.');
+    setLoading(true);
+    setJsonStatus(`Restoring ${jsonFile.name}…`);
+    try {
+      const f = new FormData();
+      f.append('file', jsonFile);
+      const r = await api.post('/import/json', f, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setJsonStatus(`✓ Successfully restored ${r.data.count} records from ${jsonFile.name}!`);
+      alert(`Success: ${r.data.count} records restored.`);
+    } catch (e) {
+      setJsonStatus(`✕ Restore failed: ${e.response?.data?.message || e.message}`);
+      alert('Restore failed: ' + (e.response?.data?.message || e.message));
     } finally {
       setLoading(false);
     }
@@ -1640,46 +1702,132 @@ function DataToolsView() {
     XLSX.writeFile(wb, 'MediaBuzz-Sites-Inventory.xlsx');
   }
 
-  async function exportJson() {
-    const { data } = await api.get('/export/json');
-    const b = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const u = URL.createObjectURL(b);
+  async function exportCsv() {
+    const { data } = await api.get('/sites');
+    const source = (Array.isArray(data) && data.length > 0) ? data : defaultSites;
+    const rows = source.map(unpackSite).map(x => ({
+      'Site ID': x.site_code,
+      'City': x.city,
+      'Area': x.area,
+      'Address': x.address,
+      'Size': x.size,
+      'Media Type': x.media_type,
+      'Lighting': x.lighting,
+      'Availability': x.availability,
+      'Monthly Rate': x.monthly_rate,
+      'Latitude': x.latitude,
+      'Longitude': x.longitude
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const csv = XLSX.utils.sheet_to_csv(ws);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const u = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = u;
-    a.download = 'mediabuzz-database-backup.json';
+    a.download = 'MediaBuzz-Sites.csv';
     a.click();
     URL.revokeObjectURL(u);
   }
 
+  async function exportJson() {
+    try {
+      const { data } = await api.get('/export/json');
+      const b = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const u = URL.createObjectURL(b);
+      const a = document.createElement('a');
+      a.href = u;
+      a.download = 'mediabuzz-database-backup.json';
+      a.click();
+      URL.revokeObjectURL(u);
+    } catch (e) {
+      alert('Export JSON failed: ' + e.message);
+    }
+  }
+
   return (
     <>
-      <PageHead title="Import & Export Tools" desc="Excel inventory migration, WordPress data import, and database backup downloads." />
-      <div className="scooh-data-grid">
-        <section className="scooh-data-panel">
-          <h3>Import Excel Inventory</h3>
-          <p className="scooh-data-copy">
-            Import Excel (.xlsx) files. Automatically maps Site ID, AREA, LOCATION, MEDIA, LIGHT, Width, Height, Selling Amount, PPT Availability, Latitude, and Longitude.
+      <PageHead
+        title="Import / Export"
+        desc="Import or update your OOH workbook, then export operational data as Excel, PowerPoint, JSON or CSV."
+        actions={
+          <button type="button" className="scooh-btn primary" onClick={exportExcel}>Export Data</button>
+        }
+      />
+
+      <div className="scooh-grid2 scooh-data-grid">
+        {/* Import from Excel */}
+        <div className="scooh-panel scooh-data-panel">
+          <h3>Import from Excel</h3>
+          <p className="scooh-footnote scooh-data-copy">
+            Select your Excel file first, then click <b>Import Data</b>. Existing sites are updated by Site ID when available, otherwise created automatically.
           </p>
           <div className="scooh-file-control">
-            <input type="file" accept=".xlsx,.xls" onChange={e => setFile(e.target.files[0])} />
-          </div>
-          <div className="scooh-data-actions">
-            <button className="scooh-btn primary" onClick={imp} disabled={loading}>
-              {loading ? 'Importing…' : 'Import Excel'}
+            <input
+              type="file"
+              id="import-xlsx"
+              accept=".xlsx,.xls"
+              onChange={e => {
+                const f = e.target.files?.[0];
+                setXlsxFile(f || null);
+                setXlsxStatus(f ? `Selected: ${f.name}. Click Import Data to apply.` : 'No Excel file selected.');
+              }}
+            />
+            <button type="button" className="scooh-btn primary" onClick={importXlsx} disabled={loading}>
+              Import Data
             </button>
           </div>
-        </section>
+          <div className="scooh-footnote scooh-import-status" style={{ marginTop: '10px' }}>{xlsxStatus}</div>
+        </div>
 
-        <section className="scooh-data-panel">
-          <h3>Export & Backup</h3>
-          <p className="scooh-data-copy">
-            Download your active sites database formatted for Excel, or export a complete JSON snapshot of all Media Buzz tables.
+        {/* Import from JSON Backup */}
+        <div className="scooh-panel scooh-data-panel">
+          <h3>Import from JSON backup</h3>
+          <p className="scooh-footnote scooh-data-copy">
+            Select a JSON database backup file, then click <b>Import Data</b> to restore operational records.
           </p>
-          <div className="scooh-data-actions">
-            <button className="scooh-btn" onClick={exportExcel}>Export Sites to Excel</button>
-            <button className="scooh-btn ghost" onClick={exportJson}>Download JSON Backup</button>
+          <div className="scooh-file-control">
+            <input
+              type="file"
+              id="import-json"
+              accept=".json,application/json"
+              onChange={e => {
+                const f = e.target.files?.[0];
+                setJsonFile(f || null);
+                setJsonStatus(f ? `Selected: ${f.name}. Click Import Data to restore.` : 'No JSON file selected.');
+              }}
+            />
+            <button type="button" className="scooh-btn primary" onClick={importJson} disabled={loading}>
+              Import Data
+            </button>
           </div>
-        </section>
+          <div className="scooh-footnote scooh-import-status" style={{ marginTop: '10px' }}>{jsonStatus}</div>
+        </div>
+
+        {/* Export Data Panel */}
+        <div className="scooh-panel scooh-data-panel" style={{ gridColumn: '1 / -1' }}>
+          <h3>Export Operational Data</h3>
+          <p className="scooh-footnote scooh-data-copy">
+            Export the latest live database data. Excel includes latitude, longitude, PPT availability and PPT rate so it can be edited and imported again.
+          </p>
+          <div className="scooh-data-actions" style={{ marginTop: '14px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button type="button" className="scooh-btn primary" onClick={exportExcel}>Export Excel (.xlsx)</button>
+            <button type="button" className="scooh-btn" onClick={exportCsv}>Export Sites CSV</button>
+            <button type="button" className="scooh-btn ghost" onClick={exportJson}>Export JSON Backup</button>
+          </div>
+          <div className="scooh-footnote scooh-data-copy" style={{ marginTop: '14px', color: '#94a4b8' }}>
+            Excel import updates the Automated PPT values directly. After importing, open Automated PPT and the imported availability/rate will already appear on each site card.
+          </div>
+        </div>
+      </div>
+
+      <div className="scooh-panel scooh-about-tool" style={{ marginTop: '18px' }}>
+        <div className="scooh-about-brand" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+          <img src="/assets/media-buzz-logo.png" alt="Media Buzz - Be Seen" style={{ width: '130px', height: 'auto' }} />
+        </div>
+        <h3>Import mapping</h3>
+        <p className="scooh-footnote" style={{ color: '#778390', fontSize: '11px', lineHeight: '1.6' }}>
+          AREA, LOCATION, MEDIA, LIGHT, W, H, SQ FT, AVAILABLITY, Selling Amount, Latitude Longitude, Latitude and Longitude are mapped automatically. Selling Amount becomes Automated PPT Rate Per Month; AVAILABLITY becomes Automated PPT Availability; W × H becomes the site size; GPS coordinates are stored as separate latitude and longitude values.
+        </p>
       </div>
     </>
   );
@@ -1750,7 +1898,7 @@ function Crud({ entity, title }) {
   async function load() {
     try {
       const { data } = await api.get('/' + entity);
-      setRows(data);
+      if (Array.isArray(data)) setRows(data);
     } catch (e) {
       console.warn('Error loading ' + entity, e);
     }
@@ -1758,7 +1906,7 @@ function Crud({ entity, title }) {
 
   useEffect(() => { load(); }, [entity]);
 
-  const shown = rows.filter(r => JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
+  const shown = (Array.isArray(rows) ? rows : []).filter(r => JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
 
   async function save(e) {
     e.preventDefault();
@@ -1883,7 +2031,9 @@ function SimpleList({ endpoint, title }) {
   const [rows, setRows] = useState([]);
 
   useEffect(() => {
-    api.get('/' + endpoint).then(r => setRows(r.data)).catch(() => {});
+    api.get('/' + endpoint).then(r => {
+      if (Array.isArray(r.data)) setRows(r.data);
+    }).catch(() => {});
   }, [endpoint]);
 
   return (
@@ -1893,11 +2043,11 @@ function SimpleList({ endpoint, title }) {
         <table className="scooh-table">
           <thead>
             <tr>
-              {Object.keys(rows[0] || {}).slice(0, 9).map(k => <th key={k}>{label(k)}</th>)}
+              {Object.keys((rows && rows[0]) || {}).slice(0, 9).map(k => <th key={k}>{label(k)}</th>)}
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
+            {(!rows || rows.length === 0) ? (
               <tr><td colSpan="9" className="scooh-empty">No records found</td></tr>
             ) : (
               rows.map((r, i) => (
@@ -1919,10 +2069,12 @@ function SimpleList({ endpoint, title }) {
 
 function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/*" element={<Guard><Layout /></Guard>} />
-    </Routes>
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/*" element={<Guard><Layout /></Guard>} />
+      </Routes>
+    </ErrorBoundary>
   );
 }
 
