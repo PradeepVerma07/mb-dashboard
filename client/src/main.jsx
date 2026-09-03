@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useRef, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import PptxGenJS from 'pptxgenjs';
 import api from './api';
 import { defaultSites, defaultSettings } from './defaultSites';
@@ -236,6 +237,111 @@ async function makePpt(sites, pages) {
   }
   await fixed(pages.last);
   await pptx.writeFile({ fileName: 'MediaBuzz_Automated-PPT.pptx' });
+}
+
+async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx') {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Sites', {
+    views: [{ state: 'frozen', ySplit: 1 }]
+  });
+
+  worksheet.columns = [
+    { header: 'SR NO', key: 'sr', width: 8 },
+    { header: 'AREA', key: 'area', width: 22 },
+    { header: 'LOCATION', key: 'location', width: 55 },
+    { header: 'MEDIA', key: 'media', width: 14 },
+    { header: 'LIGHT', key: 'light', width: 10 },
+    { header: 'W', key: 'w', width: 8 },
+    { header: 'H', key: 'h', width: 8 },
+    { header: 'SQ FT', key: 'sqft', width: 12 },
+    { header: 'AVAILABLITY', key: 'availability', width: 18 },
+    { header: 'Selling Amount', key: 'rate', width: 18 },
+    { header: 'Latitude Longitude', key: 'coords', width: 28 }
+  ];
+
+  rowsData.forEach(r => {
+    worksheet.addRow({
+      sr: r['SR NO'],
+      area: r['AREA'],
+      location: r['LOCATION'],
+      media: r['MEDIA'],
+      light: r['LIGHT'],
+      w: r['W'],
+      h: r['H'],
+      sqft: r['SQ FT'],
+      availability: r['AVAILABLITY'],
+      rate: r['Selling Amount'],
+      coords: r['Latitude Longitude']
+    });
+  });
+
+  // Style Header Row (Row 1) in Bright Yellow (#FFFF00)
+  const headerRow = worksheet.getRow(1);
+  headerRow.height = 28;
+  headerRow.eachCell((cell, colNumber) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFFF00' } // Bright Yellow matching template screenshot
+    };
+    cell.font = {
+      name: 'Calibri',
+      size: 11,
+      bold: true,
+      color: { argb: 'FF000000' }
+    };
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: [1, 5, 6, 7, 8, 9].includes(colNumber) ? 'center' : (colNumber === 10 ? 'right' : 'left'),
+      wrapText: false
+    };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFC0C0C0' } },
+      left: { style: 'thin', color: { argb: 'FFC0C0C0' } },
+      bottom: { style: 'medium', color: { argb: 'FF808080' } },
+      right: { style: 'thin', color: { argb: 'FFC0C0C0' } }
+    };
+  });
+
+  // Style Data Rows
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber > 1) {
+      row.height = 22;
+      row.eachCell((cell, colNumber) => {
+        cell.font = {
+          name: 'Calibri',
+          size: 10.5
+        };
+        cell.alignment = {
+          vertical: 'middle',
+          horizontal: [1, 5, 6, 7, 8, 9].includes(colNumber) ? 'center' : (colNumber === 10 ? 'right' : 'left')
+        };
+        if (colNumber === 10 && typeof cell.value === 'number') {
+          cell.numFmt = '#,##,##0';
+        }
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+          left: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+          bottom: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+          right: { style: 'thin', color: { argb: 'FFE8E8E8' } }
+        };
+      });
+    }
+  });
+
+  // Enable Auto-Filter
+  if (rowsData.length > 0) {
+    worksheet.autoFilter = `A1:K${rowsData.length + 1}`;
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function Login() {
@@ -1090,7 +1196,7 @@ function PptView() {
     setSel(newSel);
   }
 
-  function downloadExcel() {
+  async function downloadExcel() {
     try {
       const selectedList = sites.filter(s => sel[s.id || s.site_code]?.checked);
       const targetSites = selectedList.length > 0 ? selectedList : (filtered.length > 0 ? filtered : sites);
@@ -1120,31 +1226,7 @@ function PptView() {
         };
       });
 
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(rows);
-
-      // Auto-fit column widths matching standard Media Buzz template
-      ws['!cols'] = [
-        { wch: 8 },  // SR NO
-        { wch: 20 }, // AREA
-        { wch: 55 }, // LOCATION
-        { wch: 14 }, // MEDIA
-        { wch: 10 }, // LIGHT
-        { wch: 8 },  // W
-        { wch: 8 },  // H
-        { wch: 10 }, // SQ FT
-        { wch: 18 }, // AVAILABLITY
-        { wch: 18 }, // Selling Amount
-        { wch: 28 }  // Latitude Longitude
-      ];
-
-      // Enable Excel Auto-Filter dropdowns on Header Row
-      if (rows.length > 0) {
-        ws['!autofilter'] = { ref: `A1:K${rows.length + 1}` };
-      }
-
-      XLSX.utils.book_append_sheet(wb, ws, 'Sites');
-      XLSX.writeFile(wb, 'MediaBuzz_PPT_Inventory.xlsx');
+      await exportStyledExcel(rows, 'MediaBuzz_PPT_Inventory.xlsx');
     } catch (e) {
       alert('Export Excel failed: ' + e.message);
     }
@@ -1959,31 +2041,7 @@ function DataToolsView() {
         };
       });
 
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(rows);
-
-      // Auto-fit column widths matching standard Media Buzz template
-      ws['!cols'] = [
-        { wch: 8 },  // SR NO
-        { wch: 20 }, // AREA
-        { wch: 55 }, // LOCATION
-        { wch: 14 }, // MEDIA
-        { wch: 10 }, // LIGHT
-        { wch: 8 },  // W
-        { wch: 8 },  // H
-        { wch: 10 }, // SQ FT
-        { wch: 18 }, // AVAILABLITY
-        { wch: 18 }, // Selling Amount
-        { wch: 28 }  // Latitude Longitude
-      ];
-
-      // Enable Excel Auto-Filter dropdowns on Header Row
-      if (rows.length > 0) {
-        ws['!autofilter'] = { ref: `A1:K${rows.length + 1}` };
-      }
-
-      XLSX.utils.book_append_sheet(wb, ws, 'Sites');
-      XLSX.writeFile(wb, 'MediaBuzz_Sites.xlsx');
+      await exportStyledExcel(rows, 'MediaBuzz_Sites.xlsx');
     } catch (e) {
       alert('Export failed: ' + e.message);
     }
