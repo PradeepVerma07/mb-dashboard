@@ -294,6 +294,14 @@ function Layout() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem('scooh_theme') || 'dark');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('scooh_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
 
   const currentModule = useMemo(() => {
     const p = loc.pathname.replace(/^\//, '').split('/')[0] || 'dashboard';
@@ -336,6 +344,17 @@ function Layout() {
           </div>
 
           <div className="scooh-topbar-user">
+            {/* Quick Theme Toggle */}
+            <button
+              type="button"
+              className="scooh-iconbtn"
+              onClick={toggleTheme}
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+              style={{ fontSize: '15px', padding: '6px 10px', borderRadius: '9px', border: '1px solid var(--mb-border)' }}
+            >
+              {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+            </button>
+
             <div className="scooh-topbar-notifications" style={{ position: 'relative' }}>
               <button
                 type="button"
@@ -1931,48 +1950,74 @@ SR NO | AREA | LOCATION | MEDIA | LIGHT | W | H | SQ FT | AVAILABLITY | Selling 
         <div className="scooh-panel scooh-data-panel">
           <h3>Import from Excel</h3>
           <p className="scooh-footnote scooh-data-copy">
-            Select your Excel file first, then click <b>Import Data</b>. Existing sites are updated by Site ID when available, otherwise created automatically.
+            Select your 11-column Excel file, then click <b>Import Data</b> to auto-update sites and availability.
           </p>
-          <div className="scooh-file-control">
-            <input
-              type="file"
-              id="import-xlsx"
-              accept=".xlsx,.xls"
-              onChange={e => {
-                const f = e.target.files?.[0];
-                setXlsxFile(f || null);
-                setXlsxStatus(f ? `Selected: ${f.name}. Click Import Data to apply.` : 'No Excel file selected.');
-              }}
-            />
-            <button type="button" className="scooh-btn primary" onClick={importXlsx} disabled={loading}>
-              Import Data
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--mb-input)', border: '1px solid var(--mb-border)', borderRadius: '12px', padding: '8px 12px', marginTop: '12px' }}>
+            <label className="scooh-btn ghost" style={{ margin: 0, cursor: 'pointer', flexShrink: 0, padding: '7px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              📁 {xlsxFile ? 'Change File' : 'Choose Excel'}
+              <input
+                type="file"
+                id="import-xlsx"
+                accept=".xlsx,.xls"
+                hidden
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  setXlsxFile(f || null);
+                  setXlsxStatus(f ? `Selected: ${f.name}` : '');
+                }}
+              />
+            </label>
+            <div style={{ flex: 1, minWidth: 0, fontSize: '12px', color: xlsxFile ? 'var(--mb-text)' : 'var(--mb-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {xlsxFile ? `📄 ${xlsxFile.name} (${(xlsxFile.size / 1024).toFixed(1)} KB)` : 'No Excel file selected'}
+            </div>
+            <button
+              type="button"
+              className="scooh-btn purple-btn"
+              onClick={importXlsx}
+              disabled={loading || !xlsxFile}
+              style={{ flexShrink: 0, padding: '7px 18px', fontSize: '12.5px' }}
+            >
+              {loading ? 'Importing…' : '⬆ Import Data'}
             </button>
           </div>
-          <div className="scooh-footnote scooh-import-status" style={{ marginTop: '10px' }}>{xlsxStatus}</div>
+          {xlsxStatus && <div className="scooh-footnote" style={{ marginTop: '10px', color: '#48c79a', fontWeight: 600 }}>{xlsxStatus}</div>}
         </div>
 
         {/* Import from JSON Backup */}
         <div className="scooh-panel scooh-data-panel">
           <h3>Import from JSON backup</h3>
           <p className="scooh-footnote scooh-data-copy">
-            Select a JSON database backup file, then click <b>Import Data</b> to restore operational records.
+            Select a JSON database backup file to restore operational records.
           </p>
-          <div className="scooh-file-control">
-            <input
-              type="file"
-              id="import-json"
-              accept=".json,application/json"
-              onChange={e => {
-                const f = e.target.files?.[0];
-                setJsonFile(f || null);
-                setJsonStatus(f ? `Selected: ${f.name}. Click Import Data to restore.` : 'No JSON file selected.');
-              }}
-            />
-            <button type="button" className="scooh-btn primary" onClick={importJson} disabled={loading}>
-              Import Data
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--mb-input)', border: '1px solid var(--mb-border)', borderRadius: '12px', padding: '8px 12px', marginTop: '12px' }}>
+            <label className="scooh-btn ghost" style={{ margin: 0, cursor: 'pointer', flexShrink: 0, padding: '7px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              📁 {jsonFile ? 'Change File' : 'Choose JSON'}
+              <input
+                type="file"
+                id="import-json"
+                accept=".json,application/json"
+                hidden
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  setJsonFile(f || null);
+                  setJsonStatus(f ? `Selected: ${f.name}` : '');
+                }}
+              />
+            </label>
+            <div style={{ flex: 1, minWidth: 0, fontSize: '12px', color: jsonFile ? 'var(--mb-text)' : 'var(--mb-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {jsonFile ? `📄 ${jsonFile.name} (${(jsonFile.size / 1024).toFixed(1)} KB)` : 'No JSON file selected'}
+            </div>
+            <button
+              type="button"
+              className="scooh-btn purple-btn"
+              onClick={importJson}
+              disabled={loading || !jsonFile}
+              style={{ flexShrink: 0, padding: '7px 18px', fontSize: '12.5px' }}
+            >
+              {loading ? 'Restoring…' : '⬆ Restore Data'}
             </button>
           </div>
-          <div className="scooh-footnote scooh-import-status" style={{ marginTop: '10px' }}>{jsonStatus}</div>
+          {jsonStatus && <div className="scooh-footnote" style={{ marginTop: '10px', color: '#48c79a', fontWeight: 600 }}>{jsonStatus}</div>}
         </div>
 
         {/* Export Data Panel */}
@@ -2340,6 +2385,37 @@ function SettingsView() {
                   onChange={e => setS({ ...s, currency: e.target.value })}
                   placeholder="INR"
                 />
+              </div>
+              <div className="scooh-field">
+                <label>WORKSPACE THEME (LIGHT / DARK)</label>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    className={`scooh-btn ${(localStorage.getItem('scooh_theme') || 'dark') === 'dark' ? 'purple-btn' : 'ghost'}`}
+                    style={{ flex: 1, minHeight: '38px', fontSize: '12px' }}
+                    onClick={() => {
+                      localStorage.setItem('scooh_theme', 'dark');
+                      document.documentElement.setAttribute('data-theme', 'dark');
+                      window.dispatchEvent(new Event('storage'));
+                      setS({ ...s, _render: Date.now() });
+                    }}
+                  >
+                    🌙 Dark Mode (Default)
+                  </button>
+                  <button
+                    type="button"
+                    className={`scooh-btn ${(localStorage.getItem('scooh_theme') || 'dark') === 'light' ? 'purple-btn' : 'ghost'}`}
+                    style={{ flex: 1, minHeight: '38px', fontSize: '12px' }}
+                    onClick={() => {
+                      localStorage.setItem('scooh_theme', 'light');
+                      document.documentElement.setAttribute('data-theme', 'light');
+                      window.dispatchEvent(new Event('storage'));
+                      setS({ ...s, _render: Date.now() });
+                    }}
+                  >
+                    ☀️ Light Mode
+                  </button>
+                </div>
               </div>
             </div>
           </section>
