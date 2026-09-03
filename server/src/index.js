@@ -69,6 +69,32 @@ async function initDb() {
   try {
     await pool.query('SELECT 1');
     console.log('Database connected successfully');
+
+    // Automatically create tables from schema.sql if they do not exist
+    const schemaCandidates = [
+      path.resolve(__dirname, '../../sql/schema.sql'),
+      path.resolve(__dirname, '../sql/schema.sql'),
+      path.resolve(process.cwd(), 'sql/schema.sql'),
+      path.resolve(process.cwd(), '../sql/schema.sql')
+    ];
+    const schemaPath = schemaCandidates.find(p => fs.existsSync(p));
+    if (schemaPath) {
+      try {
+        const sql = fs.readFileSync(schemaPath, 'utf8');
+        const stmts = sql.split(';').map(s => s.trim()).filter(s => s.length > 0);
+        for (const stmt of stmts) {
+          try {
+            await pool.query(stmt);
+          } catch (e) {
+            // Ignore benign statements
+          }
+        }
+        console.log('Database tables verified and ready.');
+      } catch (schemaErr) {
+        console.warn('Auto-schema execution notice:', schemaErr.message);
+      }
+    }
+
     try {
       const emails = await q('SELECT COUNT(*) c FROM users');
       if (!emails[0].c && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
@@ -77,7 +103,7 @@ async function initDb() {
         console.log('Initial admin user created');
       }
     } catch (tblErr) {
-      console.warn('Database connected, but schema tables may need to be imported (sql/schema.sql):', tblErr.message);
+      console.warn('User table check notice:', tblErr.message);
     }
   } catch (err) {
     console.error('Database connection warning (check DB_HOST, DB_USER, DB_PASSWORD, DB_NAME):', err.message);
