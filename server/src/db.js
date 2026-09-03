@@ -9,12 +9,16 @@ dotenv.config({path: path.resolve(__dirname, '../../.env')});
 dotenv.config({path: path.resolve(__dirname, '../.env')});
 dotenv.config({path: path.resolve(process.cwd(), '.env')});
 
+const rawHost = process.env.DB_HOST || '127.0.0.1';
+const host = (rawHost === 'localhost' || rawHost === '::1') ? '127.0.0.1' : rawHost;
+
 export const pool = mysql.createPool({
-  host: process.env.DB_HOST || '127.0.0.1',
+  host,
   port: Number(process.env.DB_PORT || 3306),
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'sitecontrol',
+  socketPath: process.env.DB_SOCKET || undefined,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,

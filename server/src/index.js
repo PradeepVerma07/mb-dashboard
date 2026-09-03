@@ -13,7 +13,20 @@ async function tableColumns(table){const rows=await q(`SHOW COLUMNS FROM \`${tab
 async function cleanData(table,body){const cols=await tableColumns(table),out={};for(const [k,v] of Object.entries(body||{})){if(cols.has(k)&&!blocked.has(k)){if(typeof v==='object'&&v!==null)out[k]=JSON.stringify(v);else out[k]=v===''?null:v}}return out}
 async function audit(user,action,type,id,before=null,after=null){try{await q('INSERT INTO activity_log (user_id,user_name,action,object_type,object_id,old_value,new_value,created_at) VALUES (?,?,?,?,?,?,?,NOW())',[user?.id||null,user?.name||'',action,type,id||null,before?JSON.stringify(before):null,after?JSON.stringify(after):null])}catch{}}
 app.get('/api/health',async(req,res)=>{try{await q('SELECT 1');res.json({ok:true})}catch(e){res.status(500).json({ok:false,message:e.message})}});
-app.post('/api/auth/login',async(req,res)=>{const {email,password}=req.body||{};const rows=await q('SELECT * FROM users WHERE email=? AND status="active" LIMIT 1',[email]);const u=rows[0];if(!u||!await bcrypt.compare(password||'',u.password_hash))return res.status(401).json({message:'Invalid email or password'});res.json({token:sign(u),user:{id:u.id,email:u.email,name:u.name,role:u.role}})});
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const {email, password} = req.body || {};
+    const rows = await q('SELECT * FROM users WHERE email=? AND status="active" LIMIT 1', [email]);
+    const u = rows[0];
+    if (!u || !await bcrypt.compare(password || '', u.password_hash)) {
+      return res.status(401).json({message: 'Invalid email or password'});
+    }
+    res.json({token: sign(u), user: {id: u.id, email: u.email, name: u.name, role: u.role}});
+  } catch (err) {
+    console.error('Login error:', err.message);
+    res.status(500).json({message: 'Database error: ' + err.message});
+  }
+});
 app.get('/api/auth/me',auth,(req,res)=>res.json(req.user));
 app.get('/api/dashboard',auth,async(req,res)=>{const [[s],[c],[e],[i]]=await Promise.all([q("SELECT COUNT(*) total, SUM(availability='Available') available FROM sites WHERE record_status='active'"),q("SELECT COUNT(*) total, SUM(CURDATE() BETWEEN start_date AND end_date) live, COALESCE(SUM(revenue),0) revenue, COALESCE(SUM(revenue-vendor_cost-printing_cost-mounting_cost-electricity_cost-other_cost),0) margin FROM campaigns WHERE record_status='active'"),q("SELECT COUNT(*) total, SUM(payment_status<>'Paid' AND due_date<CURDATE()) overdue, COALESCE(SUM(CASE WHEN payment_status<>'Paid' THEN amount ELSE 0 END),0) unpaid FROM electricity WHERE record_status='active'"),q("SELECT COUNT(*) total, SUM(status NOT IN ('Paid','Sent')) pending FROM invoices WHERE record_status='active'")]);const alerts=await q("SELECT id,site_code,client,campaign_name,end_date,invoice_status,hard_copy_status FROM campaigns WHERE record_status='active' AND (end_date <= DATE_ADD(CURDATE(),INTERVAL 7 DAY) OR invoice_status='Pending' OR hard_copy_status='Pending') ORDER BY end_date LIMIT 20");res.json({kpis:{total_sites:s.total||0,available_sites:s.available||0,active_campaigns:c.live||0,campaign_revenue:c.revenue||0,gross_margin:c.margin||0,electricity_overdue:e.overdue||0,unpaid_electricity:e.unpaid||0,invoice_actions:i.pending||0},alerts})});
 app.get('/api/:entity',auth,async(req,res)=>{const e=safeEntity(req,res);if(!e)return;const limit=Math.min(Number(req.query.limit||1000),5000);const rows=await q(`SELECT * FROM \`${e.table}\` ORDER BY ${e.order} LIMIT ${limit}`);for(const r of rows){for(const k of ['flags','images_json'])if(typeof r[k]==='string'){try{r[k]=JSON.parse(r[k])}catch{}}}res.json(rows)});
