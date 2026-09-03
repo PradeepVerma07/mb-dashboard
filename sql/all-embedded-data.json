@@ -1,0 +1,2084 @@
+{
+  "sites": [
+    {
+      "site_code": "AMD-GT-001",
+      "city": "Ahmedabad",
+      "area": "Shivranjani",
+      "address": "Shivranjani Bridge- Nr.D Mart Junction - Left",
+      "size": "30x10",
+      "media_type": "Gantry",
+      "lighting": "BL",
+      "facing": "Left",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.019187, 72.530184",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-GT-002",
+      "city": "Ahmedabad",
+      "area": "Shivranjani",
+      "address": "Shivranjani Bridge- Nr.D Mart Junction - Middel",
+      "size": "30x10",
+      "media_type": "Gantry",
+      "lighting": "BL",
+      "facing": "Middle",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.019187, 72.530184",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-GT-003",
+      "city": "Ahmedabad",
+      "area": "Shivranjani",
+      "address": "Shivranjani Bridge- Nr.D Mart Junction - Right",
+      "size": "30x10",
+      "media_type": "Gantry",
+      "lighting": "BL",
+      "facing": "Right",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.019177, 72.530066",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-GT-004",
+      "city": "Ahmedabad",
+      "area": "Shivranjani",
+      "address": "Shivranjani Bridge- Fcg. Shyamal 4 road Jnc - Left",
+      "size": "30x10",
+      "media_type": "Gantry",
+      "lighting": "BL",
+      "facing": "Left",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 225000,
+      "monthly_rate": 225000,
+      "gps": "23.018881, 72.530022",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-GT-005",
+      "city": "Ahmedabad",
+      "area": "Shivranjani",
+      "address": "Shivranjani Bridge- Fcg. Shyamal 4 road Jnc - Middel",
+      "size": "30x10",
+      "media_type": "Gantry",
+      "lighting": "BL",
+      "facing": "Middle",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 225000,
+      "monthly_rate": 225000,
+      "gps": "23.018881, 72.530022",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-GT-006",
+      "city": "Ahmedabad",
+      "area": "Shivranjani",
+      "address": "Shivranjani Bridge- Fcg. Shyamal 4 road Jnc - Right",
+      "size": "30x10",
+      "media_type": "Gantry",
+      "lighting": "BL",
+      "facing": "Right",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 225000,
+      "monthly_rate": 225000,
+      "gps": "23.018881, 72.530022",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-UP-001",
+      "city": "Ahmedabad",
+      "area": "Shivranjani",
+      "address": "Outside Kalamandir Jewellers  Traffic from Nehrunagar Circle to Shivranjani Junction",
+      "size": "20x20",
+      "media_type": "Unipole",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 350000,
+      "monthly_rate": 350000,
+      "gps": "23.023702, 72.533068",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-UP-002",
+      "city": "Ahmedabad",
+      "area": "Shivranjani",
+      "address": "Shivranjani Junction  traffic from SG Road",
+      "size": "14x14",
+      "media_type": "Unipole",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.024627, 72.529971",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-UP-003",
+      "city": "Ahmedabad",
+      "area": "Satellite",
+      "address": "ISRO - Nr. Bhavnirjar Gat, Satellite Road, Iscon to Jodhpur Cross Road",
+      "size": "20x10",
+      "media_type": "Unipole",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.028015, 72.519220",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-UP-004",
+      "city": "Ahmedabad",
+      "area": "Satellite",
+      "address": "Satellite Road Opp. Sundarvan traffic from Isro to Jodhpur",
+      "size": "15x15",
+      "media_type": "Unipole",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 225000,
+      "monthly_rate": 225000,
+      "gps": "23.027722, 72.521722",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-001",
+      "city": "Ahmedabad",
+      "area": "Sindhubhavan",
+      "address": "Sindhubhavan Rd. Fcg.Sindhu Bhavan  To Pakvan Jnc - Upper",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.030001, 72.527826",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-002",
+      "city": "Ahmedabad",
+      "area": "Sindhubhavan",
+      "address": "Sindhubhavan Rd. Fcg.Sindhu Bhavan  To Pakvan Jnc - Lower",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.030001, 72.527826",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-003",
+      "city": "Ahmedabad",
+      "area": "Bopal Ambli Road",
+      "address": "Bopal Ambli Road – Fcg. Iscon to Bopal",
+      "size": "20x10",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Facing",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.028710, 72.490397",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-004",
+      "city": "Ahmedabad",
+      "area": "Bopal Ambli Road",
+      "address": "Bopal Ambli. Fcg from Iscon Circle to Bopal Ambli",
+      "size": "14x14",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Facing",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.027264, 72.505747",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-005",
+      "city": "Ahmedabad",
+      "area": "Bopal Ambli Road",
+      "address": "Zaveri Circle",
+      "size": "31x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 325000,
+      "monthly_rate": 325000,
+      "gps": "23.018583, 72.494472",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-006",
+      "city": "Ahmedabad",
+      "area": "S.G.Highway",
+      "address": "Karnavati Club Fcg Ring Road to SG Highway",
+      "size": "24x12",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Facing",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 225000,
+      "monthly_rate": 225000,
+      "gps": "23.018839, 72.501663",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-007",
+      "city": "Ahmedabad",
+      "area": "S.G.Highway",
+      "address": "Thaltej  junction outside PVR – Traffic from Sal  & Gurudwara - Upper",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 225000,
+      "monthly_rate": 225000,
+      "gps": "23.050126, 72.516999",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-008",
+      "city": "Ahmedabad",
+      "area": "S.G.Highway",
+      "address": "Thaltej  junction outside PVR – Traffic from Sal  & Gurudwara - Lower",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 225000,
+      "monthly_rate": 225000,
+      "gps": "23.050126, 72.516999",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-009",
+      "city": "Ahmedabad",
+      "area": "S.G.Highway",
+      "address": "Thaltej Acropolis Mall Thaltej Junction Fcg Sal Hospital",
+      "size": "42x20",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Facing",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 400000,
+      "monthly_rate": 400000,
+      "gps": "23.049593, 72.516808",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-010",
+      "city": "Ahmedabad",
+      "area": "Vastrapur",
+      "address": "Vastrapur Lake- Nr. Alpha One Mall",
+      "size": "20x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.039800, 72.528029",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-011",
+      "city": "Ahmedabad",
+      "area": "Vastrapur",
+      "address": "Vastrapur Junction",
+      "size": "20x10",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 250000,
+      "monthly_rate": 250000,
+      "gps": "23.037570, 72.527889",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-012",
+      "city": "Ahmedabad",
+      "area": "Judgesbunglow",
+      "address": "Sal Hospital Junction  - Traffic ftf Sal Hospital to Judges Bungalows",
+      "size": "20x10",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Front-to-Front",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 225000,
+      "monthly_rate": 225000,
+      "gps": "23.048272, 72.523345",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-013",
+      "city": "Ahmedabad",
+      "area": "Judgesbunglow",
+      "address": "Sal Hospital  Fcg Drivein to Thaltej",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Facing",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 275000,
+      "monthly_rate": 275000,
+      "gps": "23.048371, 72.523147",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-014",
+      "city": "Ahmedabad",
+      "area": "Judgesbunglow",
+      "address": "Keshavbaug To Mansi Jnc.-Opposite ITC Narmada Hotel",
+      "size": "20x31",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 275000,
+      "monthly_rate": 275000,
+      "gps": "23.030001, 72.527826",
+      "notes": "",
+      "flags": "[\"Height (31ft) exceeds width (20ft) — confirm this isn't a swapped W/H entry\"]"
+    },
+    {
+      "site_code": "AMD-HD-015",
+      "city": "Ahmedabad",
+      "area": "Judgesbunglow",
+      "address": "Keshav Baugh junction",
+      "size": "20x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 300000,
+      "monthly_rate": 300000,
+      "gps": "23.028541, 72.531762",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-016",
+      "city": "Ahmedabad",
+      "area": "Satellite",
+      "address": "Jodhpur Cr Road – Outside iconic Showroom",
+      "size": "15x31",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 195000,
+      "monthly_rate": 195000,
+      "gps": "23.026120, 72.525703",
+      "notes": "",
+      "flags": "[\"Height (31ft) exceeds width (15ft) — confirm this isn't a swapped W/H entry\"]"
+    },
+    {
+      "site_code": "AMD-HD-017",
+      "city": "Ahmedabad",
+      "area": "Prahladnagar",
+      "address": "Prahladnagar Road – Towards Anandnagar - Upper (Sachin Tower)",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 195000,
+      "monthly_rate": 195000,
+      "gps": "23.013021, 72.524427",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-018",
+      "city": "Ahmedabad",
+      "area": "Prahladnagar",
+      "address": "Prahladnagar Road – Towards Anandnagar - Lower",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 195000,
+      "monthly_rate": 195000,
+      "gps": "23.013021, 72.524427",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-019",
+      "city": "Ahmedabad",
+      "area": "Prahladnagar",
+      "address": "Prahladnagar Road – Towards Shymal Cross Road Upper",
+      "size": "15x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 95000,
+      "monthly_rate": 95000,
+      "gps": "23.013523, 72.526682",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-020",
+      "city": "Ahmedabad",
+      "area": "Prahladnagar",
+      "address": "Prahladnagar Road – Towards Shymal Cross Road Lower",
+      "size": "15x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 95000,
+      "monthly_rate": 95000,
+      "gps": "23.013523, 72.526682",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-021",
+      "city": "Ahmedabad",
+      "area": "Prahladnagar",
+      "address": "Prahladnagar Road ftf Shyamal Cr Road to Anandnagar - Upper",
+      "size": "15x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Front-to-Front",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 67500,
+      "monthly_rate": 67500,
+      "gps": "23.013523, 72.526682",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-022",
+      "city": "Ahmedabad",
+      "area": "Prahladnagar",
+      "address": "Prahladnagar Road ftf Shyamal Cr Road to Anandnagar - Lower",
+      "size": "15x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Front-to-Front",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 67500,
+      "monthly_rate": 67500,
+      "gps": "23.013523, 72.526682",
+      "notes": "",
+      "flags": "[\"Source row had no serial number\"]"
+    },
+    {
+      "site_code": "AMD-HD-023",
+      "city": "Ahmedabad",
+      "area": "Science City",
+      "address": "Science City Road- Nr. Trends Show Room",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.075289, 72.510669",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-024",
+      "city": "Ahmedabad",
+      "area": "Judgesbunglow",
+      "address": "Sun- N- Step Club - Sattadhar Cr. Road To Sal Hospital - Upper",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.061082, 72.530859",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-025",
+      "city": "Ahmedabad",
+      "area": "Judgesbunglow",
+      "address": "Sun- N- Step Club - Sattadhar Cr. Road To Sal Hospital - Lower",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.061082, 72.530859",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-026",
+      "city": "Ahmedabad",
+      "area": "Gota",
+      "address": "Silver Cross Road Gota to Chandlodiya Overbridge",
+      "size": "20x10",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 95000,
+      "monthly_rate": 95000,
+      "gps": "23.082665, 72.546350",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-027",
+      "city": "Ahmedabad",
+      "area": "Hebatpur",
+      "address": "Hebatpur Road – Opp Columbia Asia Hospital",
+      "size": "20x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.057543, 72.510842",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-028",
+      "city": "Ahmedabad",
+      "area": "Hebatpur",
+      "address": "Hebatpur Road-Bagaban circle To Zydus Hospital",
+      "size": "30x21",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 175000,
+      "monthly_rate": 175000,
+      "gps": "23.056085, 72.506030",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-029",
+      "city": "Ahmedabad",
+      "area": "Shahibaugh",
+      "address": "Opp. Rajasthan Hospital towards Shahibaug Overbridge",
+      "size": "14x14",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 110000,
+      "monthly_rate": 110000,
+      "gps": "23.052793, 72.595410",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-030",
+      "city": "Ahmedabad",
+      "area": "C.G Road",
+      "address": "Ashram Road - Vallabh Sadan junction - Way to River Front",
+      "size": "20x10",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 200000,
+      "monthly_rate": 200000,
+      "gps": "23.074490, 72.656098",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-031",
+      "city": "Ahmedabad",
+      "area": "C.G Road",
+      "address": "Commerce College Road –Outside Wagh Bakri Tea Lounge - Upper",
+      "size": "20x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 85000,
+      "monthly_rate": 85000,
+      "gps": "23.033581, 72.555121",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-032",
+      "city": "Ahmedabad",
+      "area": "C.G Road",
+      "address": "Commerce College Road –Outside Wagh Bakri Tea Lounge - Lower",
+      "size": "20x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 85000,
+      "monthly_rate": 85000,
+      "gps": "23.033581, 72.555121",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-033",
+      "city": "Ahmedabad",
+      "area": "SOBO",
+      "address": "South Bopal -Opp Sobo Center Upper",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 175000,
+      "monthly_rate": 175000,
+      "gps": "23.017947, 72.475671",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-034",
+      "city": "Ahmedabad",
+      "area": "SOBO",
+      "address": "South Bopal -Opp Sobo Center Lower",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.017947, 72.475671",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-035",
+      "city": "Ahmedabad",
+      "area": "200ft Ring Road",
+      "address": "200ft Ring Road  Junction – From  YMCA Club Road to Club O7/South Bopal - Left - Upper",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.009692, 72.478725",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-036",
+      "city": "Ahmedabad",
+      "area": "200ft Ring Road",
+      "address": "200ft Ring Road  Junction – From  YMCA Club Road to Club O7/South Bopal - Left - Lower",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.009692, 72.478725",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-037",
+      "city": "Ahmedabad",
+      "area": "200ft Ring Road",
+      "address": "200ft Ring Road  Junction – From  YMCA Club Road to Club O7/South Bopal Right - Upper",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.009692, 72.478725",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-038",
+      "city": "Ahmedabad",
+      "area": "200ft Ring Road",
+      "address": "200ft Ring Road  Junction – From  YMCA Club Road to Club O7/South Bopal Right - Lower",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.009692, 72.478725",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-039",
+      "city": "Ahmedabad",
+      "area": "Billionair Street",
+      "address": "Billionaire Street Road- Nr.Karnavati Club Traffic from Bopal & Ring Road Upper",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.018340, 72.493945",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-040",
+      "city": "Ahmedabad",
+      "area": "Billionair Street",
+      "address": "Billionaire Street Road- Nr.Karnavati Club Traffic from Bopal & Ring Road Lower",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.018340, 72.493945",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-041",
+      "city": "Ahmedabad",
+      "area": "Bopal",
+      "address": "Bopal Road-  Nr. TRP Mall Upper (Aksardhara)",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "FL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.034310, 72.464996",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-042",
+      "city": "Ahmedabad",
+      "area": "Bopal",
+      "address": "Bopal Road-  Nr. TRP Mall Lower (Aksardhara)",
+      "size": "30x15",
+      "media_type": "Hoarding",
+      "lighting": "FL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 150000,
+      "monthly_rate": 150000,
+      "gps": "23.034310, 72.464996",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-043",
+      "city": "Ahmedabad",
+      "area": "Bopal",
+      "address": "Bopal Road-  Nr. TRP Mall",
+      "size": "41x15",
+      "media_type": "Hoarding",
+      "lighting": "FL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 125000,
+      "monthly_rate": 125000,
+      "gps": "23.034156, 72.465140",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-044",
+      "city": "Ahmedabad",
+      "area": "Adani Shantigram",
+      "address": "Opp. Adani Shantigram  Entry - Khoraj Fly Over",
+      "size": "80x20",
+      "media_type": "Hoarding",
+      "lighting": "FL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 325000,
+      "monthly_rate": 325000,
+      "gps": "23.145776, 72.546999",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-045",
+      "city": "Ahmedabad",
+      "area": "Bopal",
+      "address": "Club O7 Road – Outside Skyville",
+      "size": "30x27",
+      "media_type": "Hoarding",
+      "lighting": "BL",
+      "facing": "Single",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 125000,
+      "monthly_rate": 125000,
+      "gps": "23.007130, 72.456622",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-046",
+      "city": "Ahmedabad",
+      "area": "Sanathal",
+      "address": "Sanathal Circle  Bridge- Ahmedabad Entry from Changodar Upper",
+      "size": "40x20",
+      "media_type": "Hoarding",
+      "lighting": "NL",
+      "facing": "Upper",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 70000,
+      "monthly_rate": 70000,
+      "gps": "22.962323, 72.476140",
+      "notes": "",
+      "flags": "[]"
+    },
+    {
+      "site_code": "AMD-HD-047",
+      "city": "Ahmedabad",
+      "area": "Sanathal",
+      "address": "Sanathal Circle  Bridge- Ahmedabad Entry from Changodar Lower",
+      "size": "40x20",
+      "media_type": "Hoarding",
+      "lighting": "NL",
+      "facing": "Lower",
+      "ownership": "",
+      "availability": "Available",
+      "vendor_name": "",
+      "meter_no": "",
+      "monthly_cost": 70000,
+      "monthly_rate": 70000,
+      "gps": "22.962323, 72.476140",
+      "notes": "",
+      "flags": "[]"
+    }
+  ],
+  "default_settings": {
+    "company_name": "Media Buzz",
+    "default_city": "",
+    "currency": "INR",
+    "validation_interval": 15,
+    "mounting_grace_days": 3,
+    "electricity_due_soon_days": 7,
+    "campaign_ending_warning_days": 7,
+    "notification_emails": "",
+    "email_notifications": 0,
+    "proposal_validity": 7,
+    "proposal_tax": 18,
+    "proposal_terms": "Rates are exclusive of production/printing and mounting costs unless stated. 50% advance on confirmation, balance before mounting. Site availability is subject to confirmation in writing.",
+    "delete_on_uninstall": 0
+  },
+  "city_media_codes": {
+    "city_codes": {
+      "ahmedabad": "AMD",
+      "surat": "SUR",
+      "vadodara": "BAR",
+      "baroda": "BAR",
+      "rajkot": "RAJ",
+      "gandhinagar": "GNR",
+      "mumbai": "BOM",
+      "delhi": "DEL",
+      "bengaluru": "BLR",
+      "bangalore": "BLR"
+    },
+    "media_codes": {
+      "Billboard": "BB",
+      "Unipole": "UP",
+      "Gantry": "GT",
+      "Bus Shelter": "BS",
+      "Hoarding": "HD",
+      "DOOH": "DH",
+      "Other": "OT"
+    }
+  },
+  "roles_capabilities": {
+    "OOH Administrator": [
+      "scooh_access",
+      "scooh_manage_sites",
+      "scooh_manage_campaigns",
+      "scooh_manage_vendors",
+      "scooh_manage_electricity",
+      "scooh_manage_proposals",
+      "scooh_manage_clients",
+      "scooh_manage_invoices",
+      "scooh_import_export",
+      "scooh_view_reports",
+      "scooh_manage_settings",
+      "scooh_delete_records",
+      "scooh_upload_validations",
+      "scooh_view_financials"
+    ],
+    "OOH Operations": [
+      "scooh_access",
+      "scooh_manage_sites",
+      "scooh_manage_campaigns",
+      "scooh_manage_vendors",
+      "scooh_manage_electricity",
+      "scooh_upload_validations",
+      "scooh_view_reports"
+    ],
+    "OOH Accounts": [
+      "scooh_access",
+      "scooh_manage_electricity",
+      "scooh_manage_invoices",
+      "scooh_view_reports",
+      "scooh_view_financials"
+    ],
+    "OOH Viewer": [
+      "scooh_access",
+      "scooh_view_reports"
+    ],
+    "WordPress Administrator": [
+      "scooh_access",
+      "scooh_manage_sites",
+      "scooh_manage_campaigns",
+      "scooh_manage_vendors",
+      "scooh_manage_electricity",
+      "scooh_manage_proposals",
+      "scooh_manage_clients",
+      "scooh_manage_invoices",
+      "scooh_import_export",
+      "scooh_view_reports",
+      "scooh_manage_settings",
+      "scooh_delete_records",
+      "scooh_upload_validations",
+      "scooh_view_financials"
+    ]
+  },
+  "business_rules": {
+    "campaign_status": {
+      "Upcoming": "today before start date, or missing valid dates",
+      "Live": "start date <= today <= end date",
+      "Completed": "today after end date"
+    },
+    "campaign_alerts": {
+      "Mounting overdue": "no mounting date and today > start + mounting_grace_days while campaign has not ended",
+      "15-day due": "no validation_15_date and today >= start + validation_interval while campaign has not ended",
+      "Final validation due": "no final_validation_date and today >= end date",
+      "Campaign ending soon": "no final_validation_date and today is within campaign_ending_warning_days before end",
+      "Invoice action": "final validation exists and invoice not requested or invoice number missing",
+      "Hard copy pending": "final validation exists, invoice number exists, hard_copy_status is Pending"
+    },
+    "site_status": {
+      "Maintenance": "availability=Maintenance",
+      "Blocked": "availability=Blocked",
+      "Active": "has a live active campaign today",
+      "Vacant": "otherwise"
+    },
+    "occupancy": {
+      "formula": "unique booked days / tracked days * 100",
+      "default_window_days": 365,
+      "tiers": {
+        "Star performer": ">=85%",
+        "Solid performer": ">=65%",
+        "Needs attention": ">=50%",
+        "Underperforming": "<50%"
+      }
+    },
+    "electricity_status": {
+      "Paid": "payment_status=Paid",
+      "Disputed": "payment_status=Disputed",
+      "Overdue": "due date before today",
+      "Due Today": "due date=today",
+      "Due Soon": "due within configured due_soon_days",
+      "Pending": "otherwise"
+    },
+    "vendor_score": {
+      "on_time_percent": "on_time jobs / total jobs * 100",
+      "overall": "(on_time_percent / 20 * 0.55) + (quality_score * 0.45)",
+      "rating": "overall clamped 1..5",
+      "fallback_rating": 4
+    },
+    "site_id_generation": {
+      "format": "CITY-MEDIA-###",
+      "city_codes": {
+        "ahmedabad": "AMD",
+        "surat": "SUR",
+        "vadodara": "BAR",
+        "baroda": "BAR",
+        "rajkot": "RAJ",
+        "gandhinagar": "GNR",
+        "mumbai": "BOM",
+        "delhi": "DEL",
+        "bengaluru": "BLR",
+        "bangalore": "BLR"
+      },
+      "media_codes": {
+        "Billboard": "BB",
+        "Unipole": "UP",
+        "Gantry": "GT",
+        "Bus Shelter": "BS",
+        "Hoarding": "HD",
+        "DOOH": "DH",
+        "Other": "OT"
+      }
+    }
+  },
+  "database_data_dictionary": {
+    "sites": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "site_code",
+        "definition": "varchar(60) NOT NULL"
+      },
+      {
+        "name": "city",
+        "definition": "varchar(120) NOT NULL"
+      },
+      {
+        "name": "area",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "address",
+        "definition": "text NULL"
+      },
+      {
+        "name": "media_type",
+        "definition": "varchar(80) NOT NULL DEFAULT 'Billboard'"
+      },
+      {
+        "name": "lighting",
+        "definition": "varchar(20) NOT NULL DEFAULT 'FL'"
+      },
+      {
+        "name": "facing",
+        "definition": "varchar(80) NOT NULL DEFAULT 'Upper'"
+      },
+      {
+        "name": "size",
+        "definition": "varchar(60) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "width",
+        "definition": "decimal(10,2) NULL"
+      },
+      {
+        "name": "height",
+        "definition": "decimal(10,2) NULL"
+      },
+      {
+        "name": "orientation",
+        "definition": "varchar(50) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "ownership",
+        "definition": "varchar(80) NOT NULL DEFAULT 'Owned'"
+      },
+      {
+        "name": "availability",
+        "definition": "varchar(40) NOT NULL DEFAULT 'Available'"
+      },
+      {
+        "name": "vendor_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "vendor_name",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "meter_no",
+        "definition": "varchar(100) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "monthly_cost",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "monthly_rate",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "latitude",
+        "definition": "decimal(11,8) NULL"
+      },
+      {
+        "name": "longitude",
+        "definition": "decimal(11,8) NULL"
+      },
+      {
+        "name": "maps_url",
+        "definition": "text NULL"
+      },
+      {
+        "name": "gps",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      },
+      {
+        "name": "flags",
+        "definition": "longtext NULL"
+      },
+      {
+        "name": "record_status",
+        "definition": "varchar(20) NOT NULL DEFAULT 'active'"
+      },
+      {
+        "name": "created_by",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "updated_by",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL"
+      },
+      {
+        "name": "updated_at",
+        "definition": "datetime NOT NULL"
+      }
+    ],
+    "clients": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "client_name",
+        "definition": "varchar(190) NOT NULL"
+      },
+      {
+        "name": "company",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "primary_contact",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "email",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "phone",
+        "definition": "varchar(60) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "billing_address",
+        "definition": "text NULL"
+      },
+      {
+        "name": "gst_number",
+        "definition": "varchar(80) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "status",
+        "definition": "varchar(20) NOT NULL DEFAULT 'active'"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      },
+      {
+        "name": "created_by",
+        "definition": "bigint(20) unsigned NULL, updated_by bigint(20) unsigned NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL, updated_at datetime NOT NULL"
+      }
+    ],
+    "campaigns": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "booking_code",
+        "definition": "varchar(80) NOT NULL"
+      },
+      {
+        "name": "parent_campaign",
+        "definition": "varchar(120) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "site_id",
+        "definition": "bigint(20) unsigned NOT NULL"
+      },
+      {
+        "name": "site_code",
+        "definition": "varchar(60) NOT NULL"
+      },
+      {
+        "name": "client_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "client",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "brand",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "campaign_name",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "booking_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "start_date",
+        "definition": "date NOT NULL"
+      },
+      {
+        "name": "end_date",
+        "definition": "date NOT NULL"
+      },
+      {
+        "name": "mounting_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "printing_status",
+        "definition": "varchar(40) NOT NULL DEFAULT 'Pending'"
+      },
+      {
+        "name": "mounting_status",
+        "definition": "varchar(40) NOT NULL DEFAULT 'Pending'"
+      },
+      {
+        "name": "validation_15_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "final_validation_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "revenue",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "vendor_cost",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "printing_cost",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "mounting_cost",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "electricity_cost",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "other_cost",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "invoice_required",
+        "definition": "tinyint(1) NOT NULL DEFAULT 1"
+      },
+      {
+        "name": "invoice_requested",
+        "definition": "varchar(10) NOT NULL DEFAULT 'No'"
+      },
+      {
+        "name": "invoice_no",
+        "definition": "varchar(100) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "invoice_status",
+        "definition": "varchar(40) NOT NULL DEFAULT 'Pending'"
+      },
+      {
+        "name": "hard_copy_status",
+        "definition": "varchar(40) NOT NULL DEFAULT 'Pending'"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      },
+      {
+        "name": "record_status",
+        "definition": "varchar(20) NOT NULL DEFAULT 'active'"
+      },
+      {
+        "name": "created_by",
+        "definition": "bigint(20) unsigned NULL, updated_by bigint(20) unsigned NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL, updated_at datetime NOT NULL"
+      }
+    ],
+    "validations": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "campaign_id",
+        "definition": "bigint(20) unsigned NOT NULL"
+      },
+      {
+        "name": "site_id",
+        "definition": "bigint(20) unsigned NOT NULL"
+      },
+      {
+        "name": "validation_type",
+        "definition": "varchar(30) NOT NULL"
+      },
+      {
+        "name": "validation_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "gps_attachment_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "site_attachment_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "newspaper_attachment_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "day_attachment_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "night_attachment_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "validated_by",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      },
+      {
+        "name": "status",
+        "definition": "varchar(30) NOT NULL DEFAULT 'pending'"
+      },
+      {
+        "name": "created_by",
+        "definition": "bigint(20) unsigned NULL, updated_by bigint(20) unsigned NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL, updated_at datetime NOT NULL"
+      }
+    ],
+    "electricity": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "site_id",
+        "definition": "bigint(20) unsigned NOT NULL"
+      },
+      {
+        "name": "site_code",
+        "definition": "varchar(60) NOT NULL"
+      },
+      {
+        "name": "meter_no",
+        "definition": "varchar(100) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "billing_month",
+        "definition": "varchar(60) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "bill_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "due_date",
+        "definition": "date NOT NULL"
+      },
+      {
+        "name": "units",
+        "definition": "decimal(12,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "rate",
+        "definition": "decimal(12,4) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "other_charges",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "amount",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "payment_status",
+        "definition": "varchar(30) NOT NULL DEFAULT 'Pending'"
+      },
+      {
+        "name": "paid_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "payment_reference",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "bill_attachment_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      },
+      {
+        "name": "record_status",
+        "definition": "varchar(20) NOT NULL DEFAULT 'active'"
+      },
+      {
+        "name": "created_by",
+        "definition": "bigint(20) unsigned NULL, updated_by bigint(20) unsigned NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL, updated_at datetime NOT NULL"
+      }
+    ],
+    "vendors": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "name",
+        "definition": "varchar(190) NOT NULL"
+      },
+      {
+        "name": "service",
+        "definition": "varchar(120) NOT NULL DEFAULT 'Printing'"
+      },
+      {
+        "name": "contact_person",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "phone",
+        "definition": "varchar(60) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "email",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "cities",
+        "definition": "text NULL"
+      },
+      {
+        "name": "rating",
+        "definition": "decimal(3,2) NOT NULL DEFAULT 4"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      },
+      {
+        "name": "status",
+        "definition": "varchar(20) NOT NULL DEFAULT 'active'"
+      },
+      {
+        "name": "created_by",
+        "definition": "bigint(20) unsigned NULL, updated_by bigint(20) unsigned NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL, updated_at datetime NOT NULL"
+      }
+    ],
+    "vendor_jobs": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "vendor_id",
+        "definition": "bigint(20) unsigned NOT NULL"
+      },
+      {
+        "name": "campaign_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "service",
+        "definition": "varchar(120) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "due_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "completed_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "on_time",
+        "definition": "tinyint(1) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "quality_score",
+        "definition": "decimal(4,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      },
+      {
+        "name": "created_by",
+        "definition": "bigint(20) unsigned NULL, updated_by bigint(20) unsigned NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL, updated_at datetime NOT NULL"
+      }
+    ],
+    "proposals": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "proposal_code",
+        "definition": "varchar(80) NOT NULL"
+      },
+      {
+        "name": "client_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "client_name",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "campaign_name",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "proposal_date",
+        "definition": "date NOT NULL"
+      },
+      {
+        "name": "start_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "duration_days",
+        "definition": "int unsigned NOT NULL DEFAULT 30"
+      },
+      {
+        "name": "validity_days",
+        "definition": "int unsigned NOT NULL DEFAULT 7"
+      },
+      {
+        "name": "discount_percent",
+        "definition": "decimal(6,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "tax_percent",
+        "definition": "decimal(6,2) NOT NULL DEFAULT 18"
+      },
+      {
+        "name": "subtotal",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "total",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "status",
+        "definition": "varchar(30) NOT NULL DEFAULT 'Draft'"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      },
+      {
+        "name": "terms",
+        "definition": "longtext NULL"
+      },
+      {
+        "name": "created_by",
+        "definition": "bigint(20) unsigned NULL, updated_by bigint(20) unsigned NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL, updated_at datetime NOT NULL"
+      }
+    ],
+    "proposal_sites": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "proposal_id",
+        "definition": "bigint(20) unsigned NOT NULL"
+      },
+      {
+        "name": "site_id",
+        "definition": "bigint(20) unsigned NOT NULL"
+      },
+      {
+        "name": "site_code",
+        "definition": "varchar(60) NOT NULL"
+      },
+      {
+        "name": "rate",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      }
+    ],
+    "invoices": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "campaign_id",
+        "definition": "bigint(20) unsigned NOT NULL"
+      },
+      {
+        "name": "client_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "requested_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "invoice_no",
+        "definition": "varchar(120) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "invoice_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "invoice_amount",
+        "definition": "decimal(15,2) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "invoice_status",
+        "definition": "varchar(40) NOT NULL DEFAULT 'Pending'"
+      },
+      {
+        "name": "hard_copy_required",
+        "definition": "tinyint(1) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "hard_copy_status",
+        "definition": "varchar(40) NOT NULL DEFAULT 'Pending'"
+      },
+      {
+        "name": "courier_name",
+        "definition": "varchar(120) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "tracking_number",
+        "definition": "varchar(120) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "dispatch_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "delivered_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "payment_status",
+        "definition": "varchar(40) NOT NULL DEFAULT 'Pending'"
+      },
+      {
+        "name": "payment_date",
+        "definition": "date NULL"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      },
+      {
+        "name": "created_by",
+        "definition": "bigint(20) unsigned NULL, updated_by bigint(20) unsigned NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL, updated_at datetime NOT NULL"
+      }
+    ],
+    "attachments": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "site_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "campaign_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "attachment_id",
+        "definition": "bigint(20) unsigned NOT NULL"
+      },
+      {
+        "name": "upload_type",
+        "definition": "varchar(50) NOT NULL"
+      },
+      {
+        "name": "notes",
+        "definition": "text NULL"
+      },
+      {
+        "name": "uploaded_by",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "uploaded_at",
+        "definition": "datetime NOT NULL"
+      }
+    ],
+    "notifications": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "user_id",
+        "definition": "bigint(20) unsigned NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "type",
+        "definition": "varchar(80) NOT NULL"
+      },
+      {
+        "name": "object_type",
+        "definition": "varchar(50) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "object_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "title",
+        "definition": "varchar(190) NOT NULL"
+      },
+      {
+        "name": "message",
+        "definition": "text NULL"
+      },
+      {
+        "name": "is_read",
+        "definition": "tinyint(1) NOT NULL DEFAULT 0"
+      },
+      {
+        "name": "fingerprint",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "last_emailed_at",
+        "definition": "datetime NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL"
+      }
+    ],
+    "activity_log": [
+      {
+        "name": "id",
+        "definition": "bigint(20) unsigned NOT NULL AUTO_INCREMENT"
+      },
+      {
+        "name": "user_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "user_name",
+        "definition": "varchar(190) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "action",
+        "definition": "varchar(120) NOT NULL"
+      },
+      {
+        "name": "object_type",
+        "definition": "varchar(50) NOT NULL DEFAULT ''"
+      },
+      {
+        "name": "object_id",
+        "definition": "bigint(20) unsigned NULL"
+      },
+      {
+        "name": "old_value",
+        "definition": "longtext NULL"
+      },
+      {
+        "name": "new_value",
+        "definition": "longtext NULL"
+      },
+      {
+        "name": "created_at",
+        "definition": "datetime NOT NULL"
+      }
+    ]
+  }
+}

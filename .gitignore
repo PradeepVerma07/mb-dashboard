@@ -26,6 +26,7 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Archives
+# Archives & references
 *.zip
 *.tar.gz
+plugin-reference/

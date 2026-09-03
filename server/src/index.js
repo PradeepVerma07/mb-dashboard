@@ -131,6 +131,69 @@ async function initDb() {
     } catch (tblErr) {
       console.warn('User table check notice:', tblErr.message);
     }
+
+    // Auto-seed initial Media Buzz sites & settings if empty
+    try {
+      const siteCount = await q('SELECT COUNT(*) c FROM sites WHERE record_status="active"');
+      if (!siteCount[0]?.c) {
+        const seedCandidates = [
+          path.resolve(__dirname, 'data/all-embedded-data.json'),
+          path.resolve(__dirname, '../data/all-embedded-data.json'),
+          path.resolve(process.cwd(), 'server/src/data/all-embedded-data.json'),
+          path.resolve(process.cwd(), 'sql/all-embedded-data.json')
+        ];
+        const seedPath = seedCandidates.find(p => fs.existsSync(p));
+        if (seedPath) {
+          const raw = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+          if (Array.isArray(raw.sites)) {
+            for (const s of raw.sites) {
+              const code = String(s.site_code || '').trim();
+              if (!code) continue;
+              const parts = (s.gps || '').split(',').map(x => parseFloat(x.trim()));
+              const lat = isNaN(parts[0]) ? null : parts[0];
+              const lng = isNaN(parts[1]) ? null : parts[1];
+              const flags = typeof s.flags === 'string' ? s.flags : JSON.stringify(s.flags || {});
+              await q(`INSERT INTO sites (
+                site_code, city, area, address, size, media_type, lighting, facing,
+                ownership, availability, vendor_name, meter_no, monthly_cost, monthly_rate,
+                latitude, longitude, gps, notes, flags, record_status, created_at, updated_at
+              ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'active', NOW(), NOW())
+              ON DUPLICATE KEY UPDATE site_code=VALUES(site_code)`, [
+                code,
+                s.city || 'Ahmedabad',
+                s.area || '',
+                s.address || '',
+                s.size || '',
+                s.media_type || 'Hoarding',
+                s.lighting || 'BL',
+                s.facing || '',
+                s.ownership || 'Owned',
+                s.availability || 'Available',
+                s.vendor_name || '',
+                s.meter_no || '',
+                Number(s.monthly_cost || 0),
+                Number(s.monthly_rate || 0),
+                lat,
+                lng,
+                s.gps || '',
+                s.notes || '',
+                flags
+              ]);
+            }
+            console.log(`Seeded ${raw.sites.length} initial Media Buzz sites successfully.`);
+          }
+
+          if (raw.default_settings) {
+            for (const [k, v] of Object.entries(raw.default_settings)) {
+              await q('INSERT INTO settings (setting_key, setting_value, updated_at) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)', [k, String(v ?? '')]);
+            }
+            console.log('Seeded default Media Buzz settings successfully.');
+          }
+        }
+      }
+    } catch (seedErr) {
+      console.warn('Site seed notice:', seedErr.message);
+    }
   } catch (err) {
     console.error('Database connection warning (check DB_HOST, DB_USER, DB_PASSWORD, DB_NAME):', err.message);
   }
