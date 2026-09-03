@@ -1186,9 +1186,21 @@ function PptView() {
           </div>
         </div>
 
-        {/* Toolbar matching plugin */}
-        <div className="scooh-ppt-toolbar">
-          <div className="scooh-search scooh-ppt-search-wrap">
+        {/* Toolbar with Search on Left and Select/Deselect on Right */}
+        <div
+          className="scooh-ppt-toolbar"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            margin: '18px 0 10px',
+            width: '100%'
+          }}
+        >
+          <div
+            className="scooh-search scooh-ppt-search-wrap"
+            style={{ flex: 1, minWidth: 0, margin: 0 }}
+          >
             <span aria-hidden="true">⌕</span>
             <input
               id="scooh-ppt-search"
@@ -1199,9 +1211,26 @@ function PptView() {
               autoComplete="off"
             />
           </div>
-          <div className="scooh-ppt-select-actions">
-            <button type="button" className="scooh-btn" onClick={selectAllVisible}>Select all visible</button>
-            <button type="button" className="scooh-btn ghost" onClick={deselectAll}>Deselect all</button>
+          <div
+            className="scooh-ppt-select-actions"
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}
+          >
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={selectAllVisible}
+              style={{ minHeight: '44px', padding: '0 16px', fontSize: '12.5px', whiteSpace: 'nowrap' }}
+            >
+              Select all visible
+            </button>
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={deselectAll}
+              style={{ minHeight: '44px', padding: '0 16px', fontSize: '12.5px', whiteSpace: 'nowrap' }}
+            >
+              Deselect all
+            </button>
           </div>
         </div>
 

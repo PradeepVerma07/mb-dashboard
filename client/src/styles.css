@@ -637,6 +637,13 @@ body {
 .scooh-proposal-rates input{width:100%;min-height:36px;padding:6px 8px;border:1px solid var(--mb-border-2);border-radius:8px;background:var(--mb-input)!important;color:var(--mb-text)!important;font-size:12px;font-weight:800;box-sizing:border-box}
 .scooh-proposal-actions{position:sticky;bottom:-24px;margin:20px -24px -24px;padding:15px 24px;background:var(--mb-surface);border-top:1px solid var(--mb-border);backdrop-filter:blur(10px)}
 
+/* Automated PPT Toolbar & Single Row Search/Actions */
+.scooh-ppt-toolbar{display:flex;align-items:center;gap:12px;margin:18px 0 10px;width:100%}
+.scooh-ppt-toolbar .scooh-ppt-search-wrap{flex:1;min-width:0;margin:0!important}
+.scooh-ppt-select-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.scooh-ppt-select-actions .scooh-btn{white-space:nowrap;min-height:44px;padding:0 16px;font-size:12.5px}
+@media(max-width:768px){.scooh-ppt-toolbar{flex-direction:column;align-items:stretch}.scooh-ppt-select-actions{justify-content:flex-start}}
+
 /* Automated PPT optional output controls */
 .scooh-ppt-output-options{display:grid;grid-template-columns:1fr;gap:7px;margin-top:10px;padding:9px 10px;border:1px solid var(--mb-border);border-radius:8px;background:var(--mb-surface-2)}
 .scooh-ppt-output-option{display:flex;align-items:center;gap:7px;color:var(--mb-text);font-size:10.5px;line-height:1.3;cursor:pointer}
