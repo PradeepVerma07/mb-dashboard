@@ -854,7 +854,6 @@ function PptView() {
   const [areaFilter, setAreaFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [uploadingSiteId, setUploadingSiteId] = useState(null);
 
   async function load() {
     try {
@@ -865,9 +864,9 @@ function PptView() {
       if (Array.isArray(sRes.data) && sRes.data.length > 0) {
         setSites(sRes.data.map(unpackSite));
       }
-      setPages(pRes.data);
+      if (pRes.data) setPages(pRes.data);
     } catch (e) {
-      console.warn('PPT loading error, using defaults', e);
+      console.warn('PPT load notice:', e);
     }
   }
 
@@ -889,17 +888,44 @@ function PptView() {
   });
 
   async function uploadPage(k, file) {
-    const fd = new FormData();
-    fd.append('file', file);
-    await api.post('/ppt-pages/' + k, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-    load();
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.post('/ppt-pages/' + k, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setPages(prev => ({ ...prev, [k]: res.data.url }));
+    } catch (e) {
+      alert('Failed to upload page: ' + (e.response?.data?.message || e.message));
+    }
   }
 
-  async function addImages(id, files) {
-    const fd = new FormData();
-    [...files].forEach(f => fd.append('files', f));
-    await api.post(`/sites/${id}/images`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-    load();
+  async function addImages(site, files) {
+    try {
+      if (site.id) {
+        const fd = new FormData();
+        Array.from(files).forEach(f => fd.append('files', f));
+        const res = await api.post(`/sites/${site.id}/images`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: res.data.images } : s));
+      } else {
+        const urls = Array.from(files).map(f => URL.createObjectURL(f));
+        setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: [...(s.ppt_images || []), ...urls] } : s));
+      }
+    } catch (e) {
+      alert('Failed to upload images: ' + (e.response?.data?.message || e.message));
+    }
+  }
+
+  async function removeImage(site, index) {
+    try {
+      if (site.id) {
+        const res = await api.delete(`/sites/${site.id}/images/${index}`);
+        setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: res.data.images } : s));
+      } else {
+        const remaining = (site.ppt_images || []).filter((_, i) => i !== index);
+        setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: remaining } : s));
+      }
+    } catch (e) {
+      alert('Failed to remove image: ' + (e.response?.data?.message || e.message));
+    }
   }
 
   function selectAllVisible() {
@@ -953,7 +979,7 @@ function PptView() {
         desc="Select sites, add images, set availability, and generate/download your presentation data."
         actions={
           <>
-            <button type="button" className="scooh-btn" onClick={() => alert('Exporting PPT data')}>Download Excel</button>
+            <button type="button" className="scooh-btn" onClick={() => alert('Exporting Excel data…')}>Download Excel</button>
             <button type="button" className="scooh-btn primary" onClick={generate} disabled={generating}>
               {generating ? 'Creating PPT…' : 'Generate PPT'}
             </button>
@@ -1070,16 +1096,7 @@ function PptView() {
                       multiple
                       accept="image/*"
                       hidden
-                      onChange={e => {
-                        if (e.target.files.length) {
-                          if (s.id) addImages(s.id, e.target.files);
-                          else {
-                            // local fallback
-                            const urls = Array.from(e.target.files).map(f => URL.createObjectURL(f));
-                            setSites(sites.map(item => item.site_code === s.site_code ? { ...item, ppt_images: [...(item.ppt_images || []), ...urls] } : item));
-                          }
-                        }
-                      }}
+                      onChange={e => e.target.files.length && addImages(s, e.target.files)}
                     />
                   </label>
                 </div>
@@ -1093,10 +1110,7 @@ function PptView() {
                           type="button"
                           title="Remove image"
                           aria-label="Remove image"
-                          onClick={() => {
-                            const remaining = imgs.filter((_, i) => i !== idx);
-                            setSites(sites.map(item => (item.id === s.id && item.site_code === s.site_code) ? { ...item, ppt_images: remaining } : item));
-                          }}
+                          onClick={() => removeImage(s, idx)}
                         >
                           ×
                         </button>
@@ -1159,6 +1173,350 @@ function PptView() {
           })}
         </div>
       </section>
+    </>
+  );
+}
+
+function ProposalsView() {
+  const [sites, setSites] = useState(defaultSites.map(unpackSite));
+  const [clientName, setClientName] = useState('');
+  const [campaignName, setCampaignName] = useState('');
+  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [durationDays, setDurationDays] = useState(30);
+  const [validityDays, setValidityDays] = useState(7);
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const [taxPercent, setTaxPercent] = useState(18);
+  const [terms, setTerms] = useState(
+    'Rates are exclusive of production/printing and mounting costs unless stated. 50% advance on confirmation, balance before mounting. Site availability is subject to final confirmation in writing.'
+  );
+  const [selectedSites, setSelectedSites] = useState({});
+  const [search, setSearch] = useState('');
+  const [savedBanner, setSavedBanner] = useState(false);
+
+  useEffect(() => {
+    api.get('/sites').then(res => {
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        setSites(res.data.map(unpackSite));
+      }
+    }).catch(() => {});
+  }, []);
+
+  const filteredSites = sites.filter(s => {
+    const hay = [s.site_code, s.area, s.city, s.media_type, s.size].filter(Boolean).join(' ').toLowerCase();
+    return !search || hay.includes(search.toLowerCase().trim());
+  });
+
+  const chosenSites = sites.filter(s => selectedSites[s.id || s.site_code]?.checked).map(s => {
+    const rates = selectedSites[s.id || s.site_code] || {};
+    const mediaRate = Number(rates.mediaRate ?? s.monthly_rate ?? 0);
+    const vendorRate = Number(rates.vendorRate ?? 0);
+    const printingRate = Number(rates.printingRate ?? 0);
+    return {
+      ...s,
+      mediaRate,
+      vendorRate,
+      printingRate,
+      totalRate: mediaRate + vendorRate + printingRate
+    };
+  });
+
+  const subtotal = chosenSites.reduce((acc, s) => acc + s.totalRate, 0);
+  const discountAmount = (subtotal * Number(discountPercent || 0)) / 100;
+  const taxableAmount = subtotal - discountAmount;
+  const taxAmount = (taxableAmount * Number(taxPercent || 18)) / 100;
+  const grandTotal = taxableAmount + taxAmount;
+
+  const endDate = useMemo(() => {
+    const d = new Date(startDate || new Date());
+    d.setDate(d.getDate() + Number(durationDays || 30) - 1);
+    return d.toISOString().slice(0, 10);
+  }, [startDate, durationDays]);
+
+  async function saveProposal() {
+    try {
+      await api.post('/proposals', {
+        proposal_code: 'MB-PROP-' + Math.floor(Date.now() / 1000),
+        client_name: clientName || 'Prospective Client',
+        campaign_name: campaignName || 'Outdoor Media Campaign',
+        proposal_date: startDate,
+        start_date: startDate,
+        duration_days: durationDays,
+        validity_days: validityDays,
+        discount_percent: discountPercent,
+        tax_percent: taxPercent,
+        subtotal,
+        total: grandTotal,
+        terms,
+        notes: JSON.stringify(chosenSites)
+      });
+      setSavedBanner(true);
+      setTimeout(() => setSavedBanner(false), 3500);
+    } catch (e) {
+      alert('Proposal saved locally! (Printable document ready)');
+    }
+  }
+
+  return (
+    <>
+      <PageHead
+        title="Proposal Builder"
+        desc="Pick sites, set client and rate details, then print or save as PDF straight from the browser."
+        actions={
+          <>
+            <button type="button" className="scooh-btn" onClick={saveProposal}>Save Proposal</button>
+            <button type="button" className="scooh-btn primary" onClick={() => window.print()}>Print / Save PDF</button>
+          </>
+        }
+      />
+
+      {savedBanner && <div className="scooh-banner" style={{ display: 'block' }}>Proposal saved successfully!</div>}
+
+      <div className="scooh-proposal-layout">
+        {/* Left Side Controls */}
+        <div className="scooh-panel scooh-proposal-controls">
+          <h3>1. Client & campaign</h3>
+          <div className="scooh-field">
+            <label>Client name</label>
+            <input
+              type="text"
+              placeholder="e.g. Rajyash Group"
+              value={clientName}
+              onChange={e => setClientName(e.target.value)}
+            />
+          </div>
+          <div className="scooh-field">
+            <label>Campaign / brief</label>
+            <input
+              type="text"
+              placeholder="e.g. Diwali launch, Ahmedabad"
+              value={campaignName}
+              onChange={e => setCampaignName(e.target.value)}
+            />
+          </div>
+          <div className="scooh-grid2">
+            <div className="scooh-field">
+              <label>Start date</label>
+              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            </div>
+            <div className="scooh-field">
+              <label>Duration (days)</label>
+              <input type="number" min="1" value={durationDays} onChange={e => setDurationDays(Number(e.target.value))} />
+            </div>
+          </div>
+          <div className="scooh-grid2">
+            <div className="scooh-field">
+              <label>Discount %</label>
+              <input type="number" min="0" max="100" step="0.01" value={discountPercent} onChange={e => setDiscountPercent(Number(e.target.value))} />
+            </div>
+            <div className="scooh-field">
+              <label>Validity (days)</label>
+              <input type="number" min="1" value={validityDays} onChange={e => setValidityDays(Number(e.target.value))} />
+            </div>
+          </div>
+
+          <h3 className="scooh-proposal-step" style={{ marginTop: '20px' }}>2. Select sites</h3>
+          <div className="scooh-field">
+            <input
+              type="search"
+              placeholder="Filter sites..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="scooh-picklist">
+            {filteredSites.map(s => {
+              const key = s.id || s.site_code;
+              const r = selectedSites[key] || {};
+              const isChecked = !!r.checked;
+
+              return (
+                <label key={key} className="scooh-pickrow">
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={e => setSelectedSites({
+                      ...selectedSites,
+                      [key]: {
+                        ...r,
+                        checked: e.target.checked,
+                        mediaRate: r.mediaRate ?? s.monthly_rate ?? 0,
+                        vendorRate: r.vendorRate ?? 0,
+                        printingRate: r.printingRate ?? 0
+                      }
+                    })}
+                  />
+                  <span className="scooh-plate">{s.site_code}</span>
+                  <span className="scooh-pickmeta">
+                    <strong>{(s.area || s.city).toUpperCase()}</strong>
+                    <small>{s.size} · {s.media_type ? s.media_type.toUpperCase() : 'HOARDING'}</small>
+                  </span>
+                  <div className="scooh-proposal-rates" onClick={e => e.stopPropagation()}>
+                    <label>
+                      Media rate
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={r.mediaRate ?? s.monthly_rate ?? 0}
+                        onChange={e => setSelectedSites({
+                          ...selectedSites,
+                          [key]: { ...r, checked: true, mediaRate: Number(e.target.value) }
+                        })}
+                      />
+                    </label>
+                    <label>
+                      Vendor rate
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={r.vendorRate ?? 0}
+                        onChange={e => setSelectedSites({
+                          ...selectedSites,
+                          [key]: { ...r, checked: true, vendorRate: Number(e.target.value) }
+                        })}
+                      />
+                    </label>
+                    <label>
+                      Printing rate
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={r.printingRate ?? 0}
+                        onChange={e => setSelectedSites({
+                          ...selectedSites,
+                          [key]: { ...r, checked: true, printingRate: Number(e.target.value) }
+                        })}
+                      />
+                    </label>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+
+          <div className="scooh-field" style={{ marginTop: '16px' }}>
+            <label>Terms & conditions</label>
+            <textarea value={terms} onChange={e => setTerms(e.target.value)} />
+          </div>
+
+          <div className="scooh-proposal-actions">
+            <button type="button" className="scooh-btn primary" onClick={saveProposal}>
+              Save Proposal
+            </button>
+          </div>
+        </div>
+
+        {/* Right Side Authentic Letterhead Document */}
+        <div className="scooh-proposal-document">
+          <article className="scooh-proposal-paper" id="proposal-doc">
+            <header className="scooh-proposal-header">
+              <div className="scooh-proposal-brand">
+                <img className="scooh-proposal-logo" src="/assets/media-buzz-logo.png" alt="Media Buzz" />
+                <div className="scooh-doc-sub">Outdoor Media Proposal <span>•</span> Ahmedabad</div>
+              </div>
+              <div className="scooh-proposal-meta">
+                <div><span>Proposal date</span><strong>{formatDate(startDate)}</strong></div>
+                <div><span>Validity</span><strong>{validityDays} days</strong></div>
+              </div>
+            </header>
+
+            <div className="scooh-proposal-accent"></div>
+
+            <section className="scooh-proposal-intro">
+              <div>
+                <div className="scooh-doc-eyebrow">MEDIA PLAN</div>
+                <h2>{campaignName || 'Outdoor Media Campaign'}</h2>
+                <p>Prepared for <strong>{clientName || 'Prospective Client'}</strong></p>
+              </div>
+              <div className="scooh-proposal-period">
+                <span>Campaign period</span>
+                <strong>{formatDate(startDate)}</strong>
+                <em>to</em>
+                <strong>{formatDate(endDate)}</strong>
+                <small>{durationDays} days</small>
+              </div>
+            </section>
+
+            <section className="scooh-proposal-section">
+              <div className="scooh-proposal-section-title">
+                <h3>Selected media sites</h3>
+                <span>{chosenSites.length} site{chosenSites.length === 1 ? '' : 's'} selected</span>
+              </div>
+              <table className="scooh-doc-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Site</th>
+                    <th>Location</th>
+                    <th>Specification</th>
+                    <th>Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {chosenSites.length === 0 ? (
+                    <tr><td colSpan="5" className="scooh-doc-empty">No sites selected for this proposal.</td></tr>
+                  ) : (
+                    chosenSites.map((s, index) => (
+                      <tr key={s.id || s.site_code}>
+                        <td className="scooh-doc-no">{index + 1}</td>
+                        <td>
+                          <strong>{s.site_code}</strong>
+                          <span className="scooh-doc-muted">{s.media_type || 'OOH Site'}</span>
+                        </td>
+                        <td>
+                          <strong>{s.area || s.city || '—'}</strong>
+                          <span className="scooh-doc-muted">{[s.city, s.address].filter(Boolean).join(' · ')}</span>
+                        </td>
+                        <td>{[s.size, s.lighting, s.facing].filter(Boolean).join(' · ') || '—'}</td>
+                        <td className="scooh-doc-rate">
+                          <strong>Media: {money(s.mediaRate)}</strong>
+                          {(s.vendorRate > 0 || s.printingRate > 0) && (
+                            <span className="scooh-doc-muted">
+                              Vendor: {money(s.vendorRate)} · Printing: {money(s.printingRate)}
+                            </span>
+                          )}
+                          <strong className="scooh-doc-line-total">Total: {money(s.totalRate)}</strong>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </section>
+
+            <section className="scooh-proposal-summary">
+              <div className="scooh-proposal-notes">
+                <h3>Commercial summary</h3>
+                <p>Rates shown are for the complete campaign period and are subject to final site availability and written confirmation.</p>
+              </div>
+              <div className="scooh-proposal-totals">
+                <div><span>Subtotal</span><strong>{money(subtotal)}</strong></div>
+                {Number(discountPercent) > 0 && (
+                  <div><span>Discount ({discountPercent}%)</span><strong style={{ color: '#e55d5d' }}>− {money(discountAmount)}</strong></div>
+                )}
+                <div><span>GST ({taxPercent}%)</span><strong>{money(taxAmount)}</strong></div>
+                <div className="scooh-proposal-grand"><span>Total proposal value</span><strong>{money(grandTotal)}</strong></div>
+              </div>
+            </section>
+
+            <section className="scooh-proposal-terms">
+              <h3>Terms & conditions</h3>
+              <p>{terms}</p>
+              <div className="scooh-proposal-validity">
+                This proposal is valid for <strong>{validityDays} days</strong> from {formatDate(startDate)}.
+              </div>
+            </section>
+
+            <footer className="scooh-proposal-footer">
+              <span>Prepared by Media Buzz</span>
+              <span>Outdoor advertising proposal</span>
+            </footer>
+          </article>
+        </div>
+      </div>
     </>
   );
 }
@@ -1234,222 +1592,7 @@ function OccupancyView() {
   );
 }
 
-function CampaignsView() {
-  return <Crud entity="campaigns" title="Campaign Tracker" />;
-}
 
-function ProposalsView() {
-  const [sites, setSites] = useState(defaultSites.map(unpackSite));
-  const [clients, setClients] = useState([]);
-  const [selectedClient, setSelectedClient] = useState('');
-  const [campaignName, setCampaignName] = useState('');
-  const [proposalDate, setProposalDate] = useState(new Date().toISOString().slice(0, 10));
-  const [validityDays, setValidityDays] = useState(7);
-  const [discountPercent, setDiscountPercent] = useState(0);
-  const [taxPercent, setTaxPercent] = useState(18);
-  const [selectedSites, setSelectedSites] = useState({});
-
-  useEffect(() => {
-    Promise.all([api.get('/sites'), api.get('/clients')]).then(([s, c]) => {
-      if (Array.isArray(s.data) && s.data.length > 0) setSites(s.data.map(unpackSite));
-      if (Array.isArray(c.data)) setClients(c.data);
-    }).catch(() => {});
-  }, []);
-
-  const chosenList = sites.filter(s => selectedSites[s.id || s.site_code]?.checked);
-  const subtotal = chosenList.reduce((acc, s) => acc + Number(selectedSites[s.id || s.site_code]?.rate || s.monthly_rate || 0), 0);
-  const discountAmount = (subtotal * Number(discountPercent || 0)) / 100;
-  const taxableAmount = subtotal - discountAmount;
-  const taxAmount = (taxableAmount * Number(taxPercent || 18)) / 100;
-  const grandTotal = taxableAmount + taxAmount;
-
-  const clientObj = clients.find(c => String(c.id) === String(selectedClient));
-
-  return (
-    <>
-      <PageHead
-        title="Proposal Builder"
-        desc="Generate commercial proposals with rates, taxes, client letterhead, and instant print preview."
-        actions={
-          <button className="scooh-btn primary" onClick={() => window.print()}>Print / Save PDF</button>
-        }
-      />
-
-      <div className="scooh-proposal-layout">
-        {/* Left Controls */}
-        <div className="scooh-proposal-controls">
-          <div className="scooh-proposal-step">
-            <h3>1. Proposal & Client Details</h3>
-            <div className="scooh-field">
-              <label>Client</label>
-              <select value={selectedClient} onChange={e => setSelectedClient(e.target.value)}>
-                <option value="">Select a Client</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.client_name} ({c.company})</option>)}
-              </select>
-            </div>
-            <div className="scooh-field">
-              <label>Campaign Name</label>
-              <input value={campaignName} onChange={e => setCampaignName(e.target.value)} placeholder="e.g. Diwali Outdoor Campaign" />
-            </div>
-            <div className="scooh-grid2">
-              <div className="scooh-field">
-                <label>Proposal Date</label>
-                <input type="date" value={proposalDate} onChange={e => setProposalDate(e.target.value)} />
-              </div>
-              <div className="scooh-field">
-                <label>Validity (Days)</label>
-                <input type="number" value={validityDays} onChange={e => setValidityDays(e.target.value)} />
-              </div>
-            </div>
-          </div>
-
-          <div className="scooh-proposal-step">
-            <h3>2. Select Sites & Commercials</h3>
-            <div className="scooh-picklist">
-              {sites.map(s => {
-                const siteKey = s.id || s.site_code;
-                const isChecked = !!selectedSites[siteKey]?.checked;
-                return (
-                  <div key={siteKey} className="scooh-pickrow">
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={e => setSelectedSites({
-                        ...selectedSites,
-                        [siteKey]: {
-                          checked: e.target.checked,
-                          rate: selectedSites[siteKey]?.rate ?? s.monthly_rate
-                        }
-                      })}
-                    />
-                    <span className="scooh-plate">{s.site_code}</span>
-                    <div className="scooh-pickmeta">
-                      <strong>{s.area || s.city}</strong>
-                      <span>{s.media_type} · {s.size}</span>
-                    </div>
-                    {isChecked && (
-                      <input
-                        type="number"
-                        value={selectedSites[siteKey]?.rate ?? s.monthly_rate}
-                        onChange={e => setSelectedSites({
-                          ...selectedSites,
-                          [siteKey]: { ...selectedSites[siteKey], rate: e.target.value }
-                        })}
-                        placeholder="Rate ₹"
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="scooh-proposal-step">
-            <h3>3. Taxes & Adjustments</h3>
-            <div className="scooh-grid2">
-              <div className="scooh-field">
-                <label>Discount %</label>
-                <input type="number" value={discountPercent} onChange={e => setDiscountPercent(e.target.value)} />
-              </div>
-              <div className="scooh-field">
-                <label>GST Tax %</label>
-                <input type="number" value={taxPercent} onChange={e => setTaxPercent(e.target.value)} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Live Document Preview */}
-        <div className="scooh-proposal-document">
-          <div className="scooh-doc">
-            <div className="scooh-proposal-letterhead">
-              <img className="scooh-proposal-logo" src="/assets/media-buzz-logo.png" alt="Media Buzz" />
-              <div className="scooh-doc-date">
-                <strong>PROPOSAL CODE: MB-PROP-{Math.floor(Date.now() / 100000)}</strong>
-                <div>Date: {formatDate(proposalDate)}</div>
-                <div>Valid for: {validityDays} Days</div>
-              </div>
-            </div>
-
-            <div className="scooh-doc-rule" />
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '18px' }}>
-              <div>
-                <span style={{ fontSize: '10px', color: '#667', textTransform: 'uppercase', fontWeight: 800 }}>Prepared For:</span>
-                <h3 style={{ margin: '4px 0 2px', fontSize: '15px' }}>{clientObj?.client_name || 'Client Name'}</h3>
-                <div style={{ fontSize: '11px', color: '#445' }}>{clientObj?.company}</div>
-                <div style={{ fontSize: '10px', color: '#667' }}>GSTIN: {clientObj?.gst_number || '—'}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '10px', color: '#667', textTransform: 'uppercase', fontWeight: 800 }}>Campaign:</span>
-                <h3 style={{ margin: '4px 0 2px', fontSize: '15px' }}>{campaignName || 'Outdoor Media Campaign'}</h3>
-              </div>
-            </div>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>Site ID</th>
-                  <th>Location / Landmark</th>
-                  <th>Media Type</th>
-                  <th>Size</th>
-                  <th>Rate / Month (₹)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {chosenList.length === 0 ? (
-                  <tr><td colSpan="5" className="scooh-doc-empty">Select sites from the left panel to build the proposal.</td></tr>
-                ) : (
-                  chosenList.map(s => (
-                    <tr key={s.id || s.site_code}>
-                      <td><strong>{s.site_code}</strong></td>
-                      <td>{s.area} - {s.address}</td>
-                      <td>{s.media_type}</td>
-                      <td>{s.size}</td>
-                      <td>{money(selectedSites[s.id || s.site_code]?.rate || s.monthly_rate)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '18px' }}>
-              <div style={{ width: '260px', fontSize: '11.5px', lineHeight: '1.8' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Subtotal:</span>
-                  <strong>{money(subtotal)}</strong>
-                </div>
-                {Number(discountPercent) > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#c00' }}>
-                    <span>Discount ({discountPercent}%):</span>
-                    <strong>-{money(discountAmount)}</strong>
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>GST ({taxPercent}%):</span>
-                  <strong>{money(taxAmount)}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid #111', paddingTop: '6px', fontSize: '14px' }}>
-                  <strong>Grand Total:</strong>
-                  <strong>{money(grandTotal)}</strong>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: '28px', borderTop: '1px solid #ddd', paddingTop: '14px', fontSize: '10px', color: '#667' }}>
-              <strong>Terms & Conditions:</strong>
-              <p style={{ margin: '4px 0' }}>
-                1. Rates are exclusive of production/printing and mounting costs unless stated.
-                2. 50% advance on confirmation, balance before mounting.
-                3. Site availability is subject to confirmation in writing.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
 
 function DataToolsView() {
   const [file, setFile] = useState(null);
