@@ -436,11 +436,11 @@ body {
 
 .scooh-ppt-availability,.scooh-ppt-rate{margin-top:10px}.scooh-ppt-availability label,.scooh-ppt-rate label{display:block;font-size:11px;color:#94a4b8;margin-bottom:5px}.scooh-ppt-availability input,.scooh-ppt-rate input{width:100%;box-sizing:border-box;background:#101722;border:1px solid #344258;color:#f4f6fb;border-radius:8px;padding:8px 9px}
 
-/* Automated PPT search */
-.scooh-ppt-search-wrap{display:flex;align-items:center;gap:10px;margin:18px 0 6px;background:#101722;border:1px solid #344258;border-radius:10px;padding:0 12px}
-.scooh-ppt-search-wrap span{color:#94a4b8;font-size:22px;line-height:1}
-.scooh-ppt-search-wrap input{width:100%;border:0;outline:0;background:transparent;color:#f4f6fb;padding:12px 0;font-size:13px}
-.scooh-ppt-search-wrap input::placeholder{color:#738399}
+.scooh-ppt-search-wrap{position:relative;display:flex;align-items:center;gap:12px;margin:18px 0 6px;background:#101722;border:1px solid #34404e;border-radius:12px;padding:0 16px;box-shadow:inset 0 1px 2px rgba(0,0,0,.25);transition:all .16s ease}
+.scooh-ppt-search-wrap:focus-within{border-color:#f2c94c;box-shadow:0 0 0 3px rgba(242,201,76,.12)}
+.scooh-ppt-search-wrap span{color:#738399;font-size:18px;line-height:1;flex:0 0 auto}
+.scooh-ppt-search-wrap input,.scooh-app .scooh-ppt-search-wrap input{width:100%;min-height:44px;border:0!important;outline:0!important;background:transparent!important;box-shadow:none!important;color:#f4f6fb!important;padding:10px 0!important;font-size:13.5px!important}
+.scooh-ppt-search-wrap input::placeholder{color:#64748b!important}
 .scooh-ppt-search-count{font-size:12px;color:#94a4b8;margin-bottom:12px}
 .scooh-ppt-site[hidden]{display:none!important}
 

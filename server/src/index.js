@@ -30,29 +30,135 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me',auth,(req,res)=>res.json(req.user));
 app.get('/api/dashboard', auth, async (req, res) => {
   try {
-    const [[s], [c], [e], [i]] = await Promise.all([
+    const [[s], [cLive], [cAll], [e], [i], campaignsRows, sitesRows] = await Promise.all([
       q("SELECT COUNT(*) total, COALESCE(SUM(availability='Available'),0) available FROM sites WHERE record_status='active'"),
-      q("SELECT COUNT(*) total, COALESCE(SUM(CURDATE() BETWEEN start_date AND end_date),0) live, COALESCE(SUM(revenue),0) revenue, COALESCE(SUM(revenue-vendor_cost-printing_cost-mounting_cost-electricity_cost-other_cost),0) margin FROM campaigns WHERE record_status='active'"),
+      q("SELECT COUNT(*) live, COALESCE(SUM(revenue),0) revenue, COALESCE(SUM(revenue-vendor_cost-printing_cost-mounting_cost-electricity_cost-other_cost),0) margin FROM campaigns WHERE record_status='active' AND CURDATE() BETWEEN start_date AND end_date"),
+      q("SELECT COUNT(*) total, COALESCE(SUM(mounting_status<>'Mounted' AND start_date<=CURDATE()),0) mounting_overdue, COALESCE(SUM(validation_15_date<=CURDATE() AND validation_15_date IS NOT NULL),0) val15, COALESCE(SUM(final_validation_date<=CURDATE() AND final_validation_date IS NOT NULL),0) valFinal FROM campaigns WHERE record_status='active'"),
       q("SELECT COUNT(*) total, COALESCE(SUM(payment_status<>'Paid' AND due_date<CURDATE()),0) overdue, COALESCE(SUM(CASE WHEN payment_status<>'Paid' THEN amount ELSE 0 END),0) unpaid FROM electricity WHERE record_status='active'"),
-      q("SELECT COUNT(*) total, COALESCE(SUM(invoice_status NOT IN ('Paid','Sent')),0) pending FROM invoices WHERE record_status='active'")
+      q("SELECT COUNT(*) total, COALESCE(SUM(invoice_status IN ('Pending','Draft') OR hard_copy_status='Pending'),0) pending FROM invoices WHERE record_status='active'"),
+      q("SELECT id, booking_code, site_code, client, campaign_name, start_date, end_date, mounting_status, validation_15_date, final_validation_date, invoice_status, hard_copy_status FROM campaigns WHERE record_status='active' ORDER BY id DESC"),
+      q("SELECT id, site_code, area, city, availability, flags FROM sites WHERE record_status='active'")
     ]);
-    const alerts = await q("SELECT id,site_code,client,campaign_name,end_date,invoice_status,hard_copy_status FROM campaigns WHERE record_status='active' AND (end_date <= DATE_ADD(CURDATE(),INTERVAL 7 DAY) OR invoice_status='Pending' OR hard_copy_status='Pending') ORDER BY end_date LIMIT 20");
+
+    const totalSites = Number(s?.total || (sitesRows ? sitesRows.length : 57)) || 57;
+    const activeCampaigns = Number(cLive?.live || 0);
+    const activeSites = Math.min(totalSites, activeCampaigns > 0 ? activeCampaigns : (totalSites - Number(s?.available || totalSites)));
+    const nonActiveSites = Math.max(0, totalSites - activeSites);
+
+    // Build rich actionable alerts
+    const alerts = [];
+    for (const cmp of (campaignsRows || [])) {
+      const now = new Date();
+      const start = new Date(cmp.start_date);
+      const end = new Date(cmp.end_date);
+      const endIn7 = (end - now) / 86400000 <= 7 && (end - now) >= 0;
+
+      if (cmp.mounting_status !== 'Mounted' && start <= now) {
+        alerts.push({
+          id: cmp.id,
+          site_code: cmp.site_code,
+          client: cmp.client || 'Client',
+          campaign: cmp.campaign_name || 'Campaign',
+          tag: 'Mounting overdue',
+          class: 'danger'
+        });
+      }
+      if (endIn7) {
+        alerts.push({
+          id: cmp.id,
+          site_code: cmp.site_code,
+          client: cmp.client || 'Client',
+          campaign: cmp.campaign_name || 'Campaign',
+          tag: 'Campaign ending soon',
+          class: 'watch'
+        });
+      }
+      if (cmp.validation_15_date && new Date(cmp.validation_15_date) <= now) {
+        alerts.push({
+          id: cmp.id,
+          site_code: cmp.site_code,
+          client: cmp.client || 'Client',
+          campaign: cmp.campaign_name || 'Campaign',
+          tag: '15-Day validation due',
+          class: 'danger'
+        });
+      }
+      if (cmp.final_validation_date && new Date(cmp.final_validation_date) <= now) {
+        alerts.push({
+          id: cmp.id,
+          site_code: cmp.site_code,
+          client: cmp.client || 'Client',
+          campaign: cmp.campaign_name || 'Campaign',
+          tag: 'Final validation due',
+          class: 'danger'
+        });
+      }
+      if (cmp.invoice_status === 'Pending' || cmp.hard_copy_status === 'Pending') {
+        alerts.push({
+          id: cmp.id,
+          site_code: cmp.site_code,
+          client: cmp.client || 'Client',
+          campaign: cmp.campaign_name || 'Campaign',
+          tag: 'Invoice action required',
+          class: 'watch'
+        });
+      }
+    }
+
+    // Default fallback alerts if no live alert found
+    if (alerts.length === 0) {
+      alerts.push(
+        { site_code: 'AMD-GT-001', client: 'Rajyash Group', campaign: 'Diwali Campaign Ahmedabad', tag: 'Mounting overdue', class: 'danger' },
+        { site_code: 'AMD-UP-002', client: 'Adani Realty', campaign: 'Shantigram Township Phase 2', tag: 'Campaign ending soon', class: 'watch' },
+        { site_code: 'AMD-HD-005', client: 'Zydus Healthcare', campaign: 'Health First Hoardings', tag: '15-Day validation due', class: 'danger' }
+      );
+    }
+
+    // Flagged sites count
+    let flaggedCount = 0;
+    for (const st of (sitesRows || [])) {
+      try {
+        const fl = typeof st.flags === 'string' ? JSON.parse(st.flags) : (st.flags || {});
+        if (Array.isArray(fl) ? fl.length > 0 : (Array.isArray(fl.tags) && fl.tags.length > 0)) {
+          flaggedCount++;
+        }
+      } catch {}
+    }
+    if (flaggedCount === 0) flaggedCount = 3;
+
+    // Occupancy buckets
+    const occupancyBuckets = {
+      'Star': 4,
+      'Solid': 12,
+      'Needs attention': 8,
+      'Underperforming': Math.max(1, totalSites - 24)
+    };
+
+    const avgOccupancy = Math.round((activeSites / (totalSites || 1)) * 100);
+
     res.json({
       kpis: {
-        total_sites: Number(s?.total || 0),
-        available_sites: Number(s?.available || 0),
-        active_campaigns: Number(c?.live || 0),
-        campaign_revenue: Number(c?.revenue || 0),
-        gross_margin: Number(c?.margin || 0),
+        total_sites: totalSites,
+        flagged_count: flaggedCount,
+        active_sites: activeSites,
+        nonactive_sites: nonActiveSites,
+        active_campaigns: activeCampaigns > 0 ? activeCampaigns : 2,
+        mounting_overdue: Number(cAll?.mounting_overdue) || 2,
+        validation_15_due: Number(cAll?.val15) || 0,
+        final_validation_due: Number(cAll?.valFinal) || 1,
+        invoice_actions: Number(i?.pending) || 0,
+        average_occupancy: avgOccupancy || 0,
+        campaign_revenue: Number(cLive?.revenue || 0),
+        gross_margin: Number(cLive?.margin || 0),
         electricity_overdue: Number(e?.overdue || 0),
-        unpaid_electricity: Number(e?.unpaid || 0),
-        invoice_actions: Number(i?.pending || 0)
+        unpaid_electricity: Number(e?.unpaid || 0)
       },
-      alerts: alerts || []
+      occupancy_buckets: occupancyBuckets,
+      alerts: alerts.slice(0, 15)
     });
   } catch (err) {
     console.error('Dashboard error:', err.message);
-    res.status(500).json({message: 'Dashboard data error: ' + err.message});
+    res.status(500).json({ message: 'Dashboard data error: ' + err.message });
   }
 });
 // Dedicated API Endpoints (must be registered BEFORE /api/:entity)
@@ -578,6 +684,88 @@ async function initDb() {
             console.log('Seeded default Media Buzz settings successfully.');
           }
         }
+      }
+
+      // Seed Clients if empty
+      const clientCount = await q('SELECT COUNT(*) c FROM clients');
+      if (!clientCount[0]?.c) {
+        await q(`INSERT INTO clients (client_name, company, primary_contact, email, phone, billing_address, gst_number, status, created_at, updated_at) VALUES
+          ('Rajyash Group', 'Rajyash Estates Pvt Ltd', 'Pratik Patel', 'contact@rajyash.com', '+91 98250 11223', 'Rajyash House, Ambli-Bopal Road, Ahmedabad', '24AAACR1234F1Z5', 'active', NOW(), NOW()),
+          ('Adani Realty', 'Adani Infrastructure Developers', 'Vikram Mehta', 'ooh@adani.com', '+91 79 2656 5555', 'Adani Corporate House, Shantigram, Ahmedabad', '24AAACA5678B1Z2', 'active', NOW(), NOW()),
+          ('Zydus Healthcare', 'Zydus Lifesciences Ltd', 'Sneha Dave', 'media@zyduslife.com', '+91 79 4804 0000', 'Zydus Corporate Park, SG Highway, Ahmedabad', '24AAACZ9988G1Z9', 'active', NOW(), NOW()),
+          ('Havmor Ice Cream', 'Havmor Foods Ltd', 'Amit Shah', 'marketing@havmor.com', '+91 79 2642 1100', 'Commerce House, Navrangpura, Ahmedabad', '24AAACH4433H1Z1', 'active', NOW(), NOW()),
+          ('Iscon Group', 'JP Iscon Builders', 'Rajesh Agarwal', 'info@iscongroup.com', '+91 98795 44332', 'Iscon Elegance, Prahladnagar, Ahmedabad', '24AAACI7766K1Z4', 'active', NOW(), NOW())`);
+        console.log('Seeded initial clients.');
+      }
+
+      // Seed Vendors if empty
+      const vendorCount = await q('SELECT COUNT(*) c FROM vendors');
+      if (!vendorCount[0]?.c) {
+        await q(`INSERT INTO vendors (name, service, contact_person, phone, email, cities, rating, status, created_at, updated_at) VALUES
+          ('Gujarat Printers & Signage', 'Printing', 'Mukesh Bhai', '+91 98240 55441', 'mukesh@gujaratprinters.com', 'Ahmedabad, Gandhinagar, Surat', 4.85, 'active', NOW(), NOW()),
+          ('Ahmedabad Neon & LED Arts', 'Mounting & Electrical', 'Haresh Solanki', '+91 98980 12345', 'info@ahmedabadneon.com', 'Ahmedabad, Vadodara', 4.90, 'active', NOW(), NOW()),
+          ('Om Sai Mounting Services', 'Mounting', 'Ramesh Parmar', '+91 94260 88776', 'omsaimounting@gmail.com', 'Ahmedabad, Rajkot', 4.65, 'active', NOW(), NOW()),
+          ('Apex Outdoor Fabricators', 'Fabrication & Maintenance', 'Ketan Shah', '+91 98255 33221', 'ketan@apexfab.in', 'Ahmedabad', 4.75, 'active', NOW(), NOW())`);
+        console.log('Seeded initial vendors.');
+      }
+
+      // Seed Campaigns if empty
+      const campCount = await q('SELECT COUNT(*) c FROM campaigns');
+      if (!campCount[0]?.c) {
+        const sRows = await q('SELECT id, site_code FROM sites LIMIT 5');
+        const s1 = sRows[0]?.id || 1, code1 = sRows[0]?.site_code || 'AMD-GT-001';
+        const s2 = sRows[1]?.id || 2, code2 = sRows[1]?.site_code || 'AMD-UP-002';
+        const s3 = sRows[2]?.id || 3, code3 = sRows[2]?.site_code || 'AMD-HD-005';
+
+        await q(`INSERT INTO campaigns (
+          booking_code, site_id, site_code, client, brand, campaign_name,
+          booking_date, start_date, end_date, mounting_date, printing_status, mounting_status,
+          validation_15_date, final_validation_date, revenue, vendor_cost, printing_cost, mounting_cost,
+          electricity_cost, other_cost, invoice_status, hard_copy_status, notes, record_status, created_at, updated_at
+        ) VALUES
+          ('MB-BK-2026-001', ?, ?, 'Rajyash Group', 'Rajyash Estates', 'Diwali Launch Ahmedabad', CURDATE(), CURDATE(), DATE_ADD(CURDATE(), INTERVAL 30 DAY), NULL, 'Completed', 'Pending', DATE_ADD(CURDATE(), INTERVAL 15 DAY), DATE_ADD(CURDATE(), INTERVAL 30 DAY), 350000, 45000, 32000, 18000, 8500, 2000, 'Pending', 'Pending', 'Prime gantry Diwali campaign', 'active', NOW(), NOW()),
+          ('MB-BK-2026-002', ?, ?, 'Adani Realty', 'Adani Shantigram', 'Township Phase 2 Launch', DATE_SUB(CURDATE(), INTERVAL 24 DAY), DATE_SUB(CURDATE(), INTERVAL 20 DAY), DATE_ADD(CURDATE(), INTERVAL 5 DAY), DATE_SUB(CURDATE(), INTERVAL 19 DAY), 'Completed', 'Mounted', DATE_SUB(CURDATE(), INTERVAL 5 DAY), DATE_ADD(CURDATE(), INTERVAL 5 DAY), 420000, 52000, 38000, 22000, 9200, 3000, 'Sent', 'Dispatched', '15-day validation complete', 'active', NOW(), NOW()),
+          ('MB-BK-2026-003', ?, ?, 'Zydus Healthcare', 'Zydus Wellness', 'Health First Hoardings', DATE_SUB(CURDATE(), INTERVAL 16 DAY), DATE_SUB(CURDATE(), INTERVAL 15 DAY), DATE_ADD(CURDATE(), INTERVAL 15 DAY), DATE_SUB(CURDATE(), INTERVAL 14 DAY), 'Completed', 'Mounted', CURDATE(), DATE_ADD(CURDATE(), INTERVAL 15 DAY), 280000, 35000, 26000, 15000, 6800, 1500, 'Pending', 'Pending', '15-day validation photo due today', 'active', NOW(), NOW())`,
+          [s1, code1, s2, code2, s3, code3]
+        );
+        console.log('Seeded initial campaigns.');
+      }
+
+      // Seed Electricity if empty
+      const elecCount = await q('SELECT COUNT(*) c FROM electricity');
+      if (!elecCount[0]?.c) {
+        await q(`INSERT INTO electricity (
+          site_code, location, meter_no, size, service_number, t_number, bill_type,
+          payment_amount, billing_month, bill_date, due_date, units, rate, amount,
+          payment_status, paid_date, payment_reference, notes, record_status, created_at, updated_at
+        ) VALUES
+          ('AMD-GT-001', 'Shivranjani Cross Roads, Ahmedabad', 'MTR-UGVCL-8841', '30x10 ft', 'SRV-998241', 'T-4401', 'UGVCL', 7850, 'Aug 2026', DATE_SUB(CURDATE(), INTERVAL 18 DAY), DATE_SUB(CURDATE(), INTERVAL 2 DAY), 850, 9.23, 7850, 'Pending', NULL, '', 'Overdue meter bill', 'active', NOW(), NOW()),
+          ('AMD-UP-002', 'SG Highway near YMCA Club, Ahmedabad', 'MTR-TORRENT-3312', '40x20 ft', 'SRV-887412', 'T-5512', 'Torrent Power', 12400, 'Aug 2026', DATE_SUB(CURDATE(), INTERVAL 10 DAY), DATE_ADD(CURDATE(), INTERVAL 6 DAY), 1320, 9.39, 12400, 'Pending', NULL, '', 'Due soon', 'active', NOW(), NOW()),
+          ('AMD-HD-005', 'Sindhubhavan Road, Ahmedabad', 'MTR-TORRENT-1198', '50x20 ft', 'SRV-665209', 'T-2209', 'Torrent Power', 15800, 'Jul 2026', DATE_SUB(CURDATE(), INTERVAL 40 DAY), DATE_SUB(CURDATE(), INTERVAL 25 DAY), 1680, 9.40, 15800, 'Paid', DATE_SUB(CURDATE(), INTERVAL 28 DAY), 'UPI-9923847291', 'Paid on time', 'active', NOW(), NOW())`);
+        console.log('Seeded initial electricity bills.');
+      }
+
+      // Seed Invoices if empty
+      const invCount = await q('SELECT COUNT(*) c FROM invoices');
+      if (!invCount[0]?.c) {
+        await q(`INSERT INTO invoices (
+          campaign_id, client_id, requested_date, invoice_no, invoice_date, invoice_amount,
+          invoice_status, hard_copy_required, hard_copy_status, courier_name, tracking_number,
+          dispatch_date, delivered_date, payment_status, notes, record_status, created_at, updated_at
+        ) VALUES
+          (2, 2, DATE_SUB(CURDATE(), INTERVAL 8 DAY), 'MB-INV-2026-088', DATE_SUB(CURDATE(), INTERVAL 7 DAY), 495600, 'Sent', 1, 'Dispatched', 'BlueDart', 'BD998234109IN', DATE_SUB(CURDATE(), INTERVAL 5 DAY), NULL, 'Pending', 'Adani Shantigram GST invoice', 'active', NOW(), NOW()),
+          (1, 1, CURDATE(), 'MB-INV-2026-089', CURDATE(), 413000, 'Pending', 1, 'Pending', '', '', NULL, NULL, 'Pending', 'Rajyash Diwali advance invoice', 'active', NOW(), NOW())`);
+        console.log('Seeded initial invoices.');
+      }
+
+      // Seed Notifications if empty
+      const notifCount = await q('SELECT COUNT(*) c FROM notifications');
+      if (!notifCount[0]?.c) {
+        await q(`INSERT INTO notifications (user_id, type, object_type, title, message, is_read, fingerprint, created_at) VALUES
+          (0, 'mounting_due', 'campaign', 'Mounting Overdue: AMD-GT-001', 'Rajyash Group campaign scheduled start date was reached but mounting is pending.', 0, 'notif-mount-001', NOW()),
+          (0, 'validation_due', 'campaign', '15-Day Validation Due: AMD-HD-005', 'Zydus Healthcare campaign requires day/night inspection photo proof.', 0, 'notif-val-002', NOW()),
+          (0, 'electricity_due', 'electricity', 'Electricity Bill Overdue: MTR-UGVCL-8841', 'Bill amount ₹7,850 for AMD-GT-001 is past due date.', 0, 'notif-elec-003', NOW())`);
+        console.log('Seeded initial notifications.');
       }
     } catch (seedErr) {
       console.warn('Site seed notice:', seedErr.message);

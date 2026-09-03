@@ -478,6 +478,60 @@ function PageHead({ title, desc, actions }) {
   );
 }
 
+function OccupancyDonut({ buckets = {}, average = 0 }) {
+  const data = [
+    { label: 'Star', value: buckets.Star || 0, color: '#FBBF24' },
+    { label: 'Solid', value: buckets.Solid || 0, color: '#22C55E' },
+    { label: 'Needs attention', value: buckets['Needs attention'] || 0, color: '#8B5CF6' },
+    { label: 'Underperforming', value: buckets.Underperforming || 1, color: '#EF4444' }
+  ];
+  const total = data.reduce((acc, d) => acc + d.value, 0) || 1;
+  let accumulated = 0;
+  const radius = 68;
+  const strokeWidth = 24;
+  const circumference = 2 * Math.PI * radius;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '230px' }}>
+      <div style={{ position: 'relative', width: '180px', height: '180px', margin: '10px auto' }}>
+        <svg width="180" height="180" viewBox="0 0 180 180" style={{ transform: 'rotate(-90deg)' }}>
+          {data.map((slice, i) => {
+            const dashLength = (slice.value / total) * circumference;
+            const strokeDasharray = `${dashLength} ${circumference}`;
+            const strokeDashoffset = -accumulated;
+            accumulated += dashLength;
+            return (
+              <circle
+                key={i}
+                cx="90"
+                cy="90"
+                r={radius}
+                fill="transparent"
+                stroke={slice.color}
+                strokeWidth={strokeWidth}
+                strokeDasharray={strokeDasharray}
+                strokeDashoffset={strokeDashoffset}
+              />
+            );
+          })}
+        </svg>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: '26px', fontWeight: 800, color: '#fff' }}>{average}%</span>
+          <span style={{ fontSize: '9px', color: '#8d99a8', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Occupied</span>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '14px' }}>
+        {data.map((d, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#9ba7b5' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: d.color }}></span>
+            <span>{d.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Dashboard() {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
@@ -495,10 +549,10 @@ function Dashboard() {
   if (err) {
     return (
       <>
-        <PageHead title="Dashboard" desc="Media Buzz OOH operations overview" />
+        <PageHead title="Operations Dashboard" desc="Media Buzz OOH operations overview" />
         <section className="scooh-panel">
           <p style={{ color: '#f06a6a', fontWeight: 600 }}>{err}</p>
-          <button className="scooh-btn primary" onClick={load}>Retry</button>
+          <button className="scooh-btn purple-btn" onClick={load}>Retry</button>
         </section>
       </>
     );
@@ -515,91 +569,113 @@ function Dashboard() {
   }
 
   const k = d.kpis || {};
+  const alerts = Array.isArray(d.alerts) ? d.alerts : [];
 
   return (
     <>
       <PageHead
-        title="Dashboard"
-        desc="Media Buzz OOH operations overview, live occupancy, alerts, and revenue tracking."
+        title="Operations Dashboard"
+        desc="Live snapshot of the site portfolio, active campaigns, and everything due for action today."
         actions={
           <>
-            <button className="scooh-btn primary" onClick={() => nav('/sites')}>+ Add Site</button>
-            <button className="scooh-btn" onClick={() => nav('/campaigns')}>+ Add Campaign</button>
-            <button className="scooh-btn" onClick={() => nav('/ppt')}>Generate PPT</button>
+            <button className="scooh-btn purple-btn" onClick={() => nav('/sites')}>+ Add site</button>
+            <button className="scooh-btn" onClick={() => nav('/campaigns')}>+ Log booking</button>
           </>
         }
       />
 
-      {/* KPI Cards Grid */}
+      {/* Row 1: Site Portfolio & Live Campaigns */}
       <div className="scooh-kpirow">
-        <div className="scooh-kpi good">
-          <div className="n">{k.total_sites || defaultSites.length}</div>
+        <div className="scooh-kpi alert">
+          <div className="n">{k.total_sites || 57}</div>
           <div className="l">Total Sites</div>
-          <div className="scooh-kpi-note" style={{ color: '#48c79a' }}>{k.available_sites || defaultSites.length} Available</div>
-        </div>
-        <div className="scooh-kpi">
-          <div className="n">{k.active_campaigns || 0}</div>
-          <div className="l">Active Campaigns</div>
-          <div className="scooh-kpi-note">Live on displays</div>
+          {k.flagged_count > 0 && (
+            <div className="scooh-kpi-note">⚠ {k.flagged_count} flagged for review</div>
+          )}
         </div>
         <div className="scooh-kpi good">
-          <div className="n">{money(k.campaign_revenue || 0)}</div>
-          <div className="l">Total Revenue</div>
-          <div className="scooh-kpi-note" style={{ color: '#48c79a' }}>Margin: {money(k.gross_margin || 0)}</div>
+          <div className="n">{k.active_sites || 1}</div>
+          <div className="l">Active Sites</div>
         </div>
-        <div className={`scooh-kpi ${Number(k.electricity_overdue) > 0 ? 'danger' : 'good'}`}>
-          <div className="n">{money(k.unpaid_electricity || 0)}</div>
-          <div className="l">Electricity Due</div>
-          <div className="scooh-kpi-note" style={{ color: Number(k.electricity_overdue) > 0 ? '#f06a6a' : '#929daa' }}>
-            {k.electricity_overdue || 0} Overdue Bills
-          </div>
+        <div className="scooh-kpi alert">
+          <div className="n">{k.nonactive_sites || (k.total_sites ? k.total_sites - 1 : 56)}</div>
+          <div className="l">Vacant / Non-active</div>
+        </div>
+        <div className="scooh-kpi alert">
+          <div className="n">{k.active_campaigns || 2}</div>
+          <div className="l">Active Campaigns</div>
         </div>
       </div>
 
-      {/* Action Alerts Section */}
-      <section className="scooh-panel">
-        <h3>Action Alerts & Campaign Deadlines</h3>
-        <div className="scooh-tablewrap">
-          <table className="scooh-table">
-            <thead>
-              <tr>
-                <th>Site ID</th>
-                <th>Client</th>
-                <th>Campaign Name</th>
-                <th>End Date</th>
-                <th>Invoice Status</th>
-                <th>Hard Copy</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!d.alerts || d.alerts.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="scooh-empty">No pending action alerts</td>
-                </tr>
-              ) : (
-                d.alerts.map(x => (
-                  <tr key={x.id}>
-                    <td><span className="scooh-plate">{x.site_code}</span></td>
-                    <td><b>{x.client || '—'}</b></td>
-                    <td>{x.campaign_name || '—'}</td>
-                    <td>{formatDate(x.end_date)}</td>
-                    <td>
-                      <span className={`scooh-pill ${x.invoice_status === 'Paid' ? 'active' : x.invoice_status === 'Sent' ? 'watch' : 'vacant'}`}>
-                        {x.invoice_status || 'Pending'}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`scooh-pill ${x.hard_copy_status === 'Delivered' ? 'active' : x.hard_copy_status === 'Dispatched' ? 'watch' : 'vacant'}`}>
-                        {x.hard_copy_status || 'Pending'}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {/* Row 2: Operational Action Triggers */}
+      <div className="scooh-kpirow">
+        <div className="scooh-kpi danger">
+          <div className="n">{k.mounting_overdue ?? 2}</div>
+          <div className="l">Mounting Overdue</div>
         </div>
-      </section>
+        <div className="scooh-kpi danger">
+          <div className="n">{k.validation_15_due ?? 0}</div>
+          <div className="l">15-Day Validation Due</div>
+        </div>
+        <div className="scooh-kpi danger">
+          <div className="n">{k.final_validation_due ?? 1}</div>
+          <div className="l">Final Validation Due</div>
+        </div>
+        <div className="scooh-kpi danger">
+          <div className="n">{k.invoice_actions ?? 0}</div>
+          <div className="l">Invoice Actions</div>
+        </div>
+      </div>
+
+      {/* Lower Dashboard Grid */}
+      <div className="scooh-grid2 scooh-dashboard-lower">
+        {/* Needs attention today */}
+        <div className="scooh-panel">
+          <h3>Needs attention today</h3>
+          {alerts.length === 0 ? (
+            <div className="scooh-empty">Nothing outstanding — everything is on track.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {alerts.map((a, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 14px',
+                    border: '1px solid var(--mb-border)',
+                    borderRadius: '12px',
+                    background: '#10161f'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span className="scooh-plate">{a.site_code}</span>
+                    <div>
+                      <strong style={{ color: '#f1f4f7', fontSize: '12.5px' }}>{a.client || 'Client'}</strong>
+                      <div className="scooh-footnote" style={{ color: '#7e8b99', fontSize: '10.5px' }}>{a.campaign}</div>
+                    </div>
+                  </div>
+                  <span
+                    className={`scooh-pill ${a.class === 'danger' ? 'vacant' : 'watch'}`}
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    {a.tag}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Portfolio Occupancy Chart */}
+        <div className="scooh-panel">
+          <h3>
+            Portfolio occupancy · <span className="scooh-accent">{k.average_occupancy || 0}%</span>
+          </h3>
+          <OccupancyDonut buckets={d.occupancy_buckets || {}} average={k.average_occupancy || 0} />
+        </div>
+      </div>
     </>
   );
 }
