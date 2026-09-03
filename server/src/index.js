@@ -32,6 +32,44 @@ app.get('/api/notifications',auth,async(req,res)=>res.json(await q('SELECT * FRO
 app.post('/api/notifications/read',auth,async(req,res)=>{if(req.body?.id)await q('UPDATE notifications SET is_read=1 WHERE id=?',[req.body.id]);else await q('UPDATE notifications SET is_read=1 WHERE user_id IN (0,?)',[req.user.id]);res.json({success:true})});
 app.get('/api/export/json',auth,async(req,res)=>{const out={format:'site-control-webapp',exported_at:new Date().toISOString()};for(const e of Object.values(entities))out[e.table]=await q(`SELECT * FROM \`${e.table}\``);res.setHeader('Content-Disposition','attachment; filename=site-control-backup.json');res.json(out)});
 app.post('/api/import/xlsx',auth,upload.single('file'),async(req,res)=>{if(!req.file)return res.status(400).json({message:'No workbook'});const wb=XLSX.readFile(req.file.path),sheet=wb.Sheets[wb.SheetNames[0]],rows=XLSX.utils.sheet_to_json(sheet,{defval:''});let count=0;for(const r of rows){const code=String(r['Site ID']||r['site_code']||r['SITE ID']||'').trim();if(!code)continue;const flags={ppt_availability:r['PPT Availability']||r['AVAILABLITY']||r['Availability']||'',ppt_rate:r['PPT Rate Per Month (₹)']||r['Selling Amount (₹)']||r['Selling Amount']||0,ppt_images:[]};const data={site_code:code,city:r.City||r.CITY||'',area:r['Area / Landmark']||r.AREA||'',address:r['Full Address']||r.LOCATION||'',size:r.Size||'',width:Number(r['Width (ft)']||r.W||0)||null,height:Number(r['Height (ft)']||r.H||0)||null,media_type:r['Media Type']||r.MEDIA||'Billboard',lighting:r.Lighting||r.LIGHT||'FL',availability:r.Availability||'Available',monthly_rate:Number(String(r['Selling Amount (₹)']||r['Selling Amount']||0).replace(/[^0-9.]/g,''))||0,latitude:Number(r.Latitude)||null,longitude:Number(r.Longitude)||null,flags:JSON.stringify(flags)};const ex=(await q('SELECT id,flags FROM sites WHERE site_code=?',[code]))[0];if(ex){let old={};try{old=JSON.parse(ex.flags||'{}')||{}}catch{};data.flags=JSON.stringify({...old,...flags,ppt_images:old.ppt_images||[]});await q('UPDATE sites SET city=?,area=?,address=?,size=?,width=?,height=?,media_type=?,lighting=?,availability=?,monthly_rate=?,latitude=?,longitude=?,flags=?,updated_at=NOW() WHERE id=?',[data.city,data.area,data.address,data.size,data.width,data.height,data.media_type,data.lighting,data.availability,data.monthly_rate,data.latitude,data.longitude,data.flags,ex.id])}else await q('INSERT INTO sites(site_code,city,area,address,size,width,height,media_type,lighting,availability,monthly_rate,latitude,longitude,flags,record_status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,"active",NOW(),NOW())',[data.site_code,data.city,data.area,data.address,data.size,data.width,data.height,data.media_type,data.lighting,data.availability,data.monthly_rate,data.latitude,data.longitude,data.flags]);count++}res.json({success:true,rows:count})});
-const clientDist=path.resolve(__dirname,'../../client/dist');if(fs.existsSync(clientDist)){app.use(express.static(clientDist));app.get('*',(req,res)=>res.sendFile(path.join(clientDist,'index.html')))}
-async function bootstrap(){await pool.query('SELECT 1');const emails=await q('SELECT COUNT(*) c FROM users');if(!emails[0].c&&process.env.ADMIN_EMAIL&&process.env.ADMIN_PASSWORD){const hash=await bcrypt.hash(process.env.ADMIN_PASSWORD,12);await q('INSERT INTO users(name,email,password_hash,role,status,created_at,updated_at) VALUES(?,?,?,?,"active",NOW(),NOW())',['Administrator',process.env.ADMIN_EMAIL,hash,'admin']);console.log('Initial admin user created')}app.listen(PORT,()=>console.log(`Site Control API running on :${PORT}`))}
-bootstrap().catch(e=>{console.error('Startup failed:',e);process.exit(1)});
+const distCandidates = [
+  path.resolve(__dirname, '../../client/dist'),
+  path.resolve(__dirname, '../client/dist'),
+  path.resolve(process.cwd(), 'client/dist'),
+  path.resolve(process.cwd(), 'dist')
+];
+const clientDist = distCandidates.find(p => fs.existsSync(p));
+if (clientDist) {
+  console.log(`Serving static frontend from: ${clientDist}`);
+  app.use(express.static(clientDist));
+  app.get('*', (req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+} else {
+  console.warn('Frontend build dist folder not found. API routes are active.');
+  app.get('/', (req, res) => res.json({ status: 'API is running', endpoints: '/api/health' }));
+}
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Site Control API & Web App listening on port ${PORT}`);
+});
+
+async function initDb() {
+  try {
+    await pool.query('SELECT 1');
+    console.log('Database connected successfully');
+    try {
+      const emails = await q('SELECT COUNT(*) c FROM users');
+      if (!emails[0].c && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
+        const hash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12);
+        await q('INSERT INTO users(name,email,password_hash,role,status,created_at,updated_at) VALUES(?,?,?,?,"active",NOW(),NOW())', ['Administrator', process.env.ADMIN_EMAIL, hash, 'admin']);
+        console.log('Initial admin user created');
+      }
+    } catch (tblErr) {
+      console.warn('Database connected, but schema tables may need to be imported (sql/schema.sql):', tblErr.message);
+    }
+  } catch (err) {
+    console.error('Database connection warning (check DB_HOST, DB_USER, DB_PASSWORD, DB_NAME):', err.message);
+  }
+}
+
+initDb();
+
