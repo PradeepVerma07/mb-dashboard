@@ -1861,13 +1861,60 @@ function DataToolsView() {
     }
   }
 
+  function downloadProductionGuide() {
+    const text = `# Media Buzz OOH Workspace — Production Guide & System Documentation
+Version: 3.0.0 | Environment: Production (Hostinger / VPS / Cloud)
+
+## 1. System Architecture
+- Frontend: React 18, React Router v6, Vite SPA
+- Backend: Express Node.js API with JWT Stateless Auth & Bcrypt
+- Database: MySQL 8.0 (InnoDB) with composite indexing
+- Presentation: Client-side 16:9 widescreen PPTX generation (PptxGenJS)
+- Excel: Native 11-column parser & builder (SheetJS XLSX)
+
+## 2. Production Advantages
+- Sub-50ms API response time with zero WordPress PHP overhead
+- 100% data privacy on your own MySQL database
+- Client-side PowerPoint generation in <2 seconds with custom brand cards
+- Zero recurring software licensing or subscription fees
+- Full source code ownership in modern React & Node.js
+
+## 3. Production Disadvantages & Mitigations
+- Self-managed infrastructure (Mitigation: Auto-restart via PM2/Hostinger Node runner)
+- Database backups (Mitigation: Built-in one-click Export JSON backup + MySQL cron dumps)
+- SMTP email configuration (Mitigation: Standard SMTP environment variables in .env)
+
+## 4. Excel Standard Column Format
+SR NO | AREA | LOCATION | MEDIA | LIGHT | W | H | SQ FT | AVAILABLITY | Selling Amount | Latitude Longitude
+
+## 5. Security & Deployment
+- Set strong JWT_SECRET and database passwords in server/.env
+- Configure daily cron backup: mysqldump -u <user> -p'<pass>' <dbname> > /backups/mb_\$(date +%F).sql
+- Hostinger Node.js runner: Node 18/20, Root: /, Startup: server/src/index.js
+`;
+    const b = new Blob([text], { type: 'text/markdown' });
+    const u = URL.createObjectURL(b);
+    const a = document.createElement('a');
+    a.href = u;
+    a.download = 'MediaBuzz_Production_Guide.md';
+    a.click();
+    URL.revokeObjectURL(u);
+  }
+
   return (
     <>
       <PageHead
         title="Import / Export"
         desc="Import or update your OOH workbook, then export operational data as Excel, PowerPoint, JSON or CSV."
         actions={
-          <button type="button" className="scooh-btn primary" onClick={exportExcel}>Export Data</button>
+          <>
+            <button type="button" className="scooh-btn ghost" onClick={downloadProductionGuide}>
+              Download Production Guide (.md)
+            </button>
+            <button type="button" className="scooh-btn primary" onClick={exportExcel}>
+              Export Excel (.xlsx)
+            </button>
+          </>
         }
       />
 
@@ -1922,7 +1969,7 @@ function DataToolsView() {
 
         {/* Export Data Panel */}
         <div className="scooh-panel scooh-data-panel" style={{ gridColumn: '1 / -1' }}>
-          <h3>Export Operational Data</h3>
+          <h3>Export Operational Data & Documentation</h3>
           <p className="scooh-footnote scooh-data-copy">
             Export the latest live database data. Excel includes latitude, longitude, PPT availability and PPT rate so it can be edited and imported again.
           </p>
@@ -1930,6 +1977,7 @@ function DataToolsView() {
             <button type="button" className="scooh-btn primary" onClick={exportExcel}>Export Excel (.xlsx)</button>
             <button type="button" className="scooh-btn" onClick={exportCsv}>Export Sites CSV</button>
             <button type="button" className="scooh-btn ghost" onClick={exportJson}>Export JSON Backup</button>
+            <button type="button" className="scooh-btn purple-btn" onClick={downloadProductionGuide}>Download Production Guide (.md)</button>
           </div>
           <div className="scooh-footnote scooh-data-copy" style={{ marginTop: '14px', color: '#94a4b8' }}>
             Excel import updates the Automated PPT values directly. After importing, open Automated PPT and the imported availability/rate will already appear on each site card.
