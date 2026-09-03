@@ -569,115 +569,80 @@ body {
 .scooh-topbar-user .scooh-topbar-notifications{position:relative;display:flex;align-items:center;margin-right:4px}.scooh-topbar-user .scooh-top-notification-panel{left:auto;right:0}
 
 /* Automated PPT */
-.scooh-ppt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;padding:8px 0}
-.scooh-ppt-site{display:block;background:#182230;border:1px solid #344258;border-radius:14px;padding:12px;cursor:pointer}
+.scooh-ppt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding:8px 0}
+.scooh-ppt-site{display:block;background:var(--mb-surface);border:1px solid var(--mb-border);border-radius:14px;padding:12px;cursor:pointer;color:var(--mb-text);transition:all .18s ease}
+.scooh-ppt-site:hover{border-color:var(--mb-accent);transform:translateY(-1px)}
 .scooh-ppt-site:has(input:checked){border-color:#9c8cff;box-shadow:0 0 0 1px #9c8cff}
-.scooh-ppt-site input{margin-bottom:8px}.scooh-ppt-thumb{height:130px;border-radius:9px;background:#101722;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#8fa0b3;font-size:12px;margin-bottom:10px}.scooh-ppt-thumb img{width:100%;height:100%;object-fit:cover}.scooh-ppt-site strong{display:block;color:#f4f6fb;font-size:13px}.scooh-ppt-site small{display:block;color:#94a4b8;margin-top:4px}.scooh-help{color:#94a4b8;font-size:12px}
+.scooh-ppt-site input{margin-bottom:8px}
+.scooh-ppt-site strong{display:block;color:var(--mb-text);font-size:13px}
+.scooh-ppt-site small{display:block;color:var(--mb-muted);margin-top:4px}
+.scooh-help{color:var(--mb-muted);font-size:12px}
 
-.scooh-site-images-preview{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}.scooh-site-image-item{position:relative;width:110px;height:78px;border-radius:8px;overflow:hidden;border:1px solid #344258}.scooh-site-image-item img{width:100%;height:100%;object-fit:cover}.scooh-site-image-item button{position:absolute;top:3px;right:3px;border:0;border-radius:50%;width:22px;height:22px;cursor:pointer}.scooh-site-images small{display:block;margin-top:8px;color:#94a4b8}
+.scooh-site-images-preview{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+.scooh-site-image-item{position:relative;width:110px;height:78px;border-radius:8px;overflow:hidden;border:1px solid var(--mb-border)}
+.scooh-site-image-item img{width:100%;height:100%;object-fit:cover}
+.scooh-site-image-item button{position:absolute;top:3px;right:3px;border:0;border-radius:50%;width:22px;height:22px;cursor:pointer}
+.scooh-site-images small{display:block;margin-top:8px;color:var(--mb-muted)}
 
 .scooh-ppt-card-actions{display:flex;justify-content:flex-end;margin:8px 0}
 .scooh-ppt-card-actions .scooh-btn{padding:6px 10px;font-size:12px}
 
-.scooh-ppt-availability,.scooh-ppt-rate{margin-top:10px}.scooh-ppt-availability label,.scooh-ppt-rate label{display:block;font-size:11px;color:#94a4b8;margin-bottom:5px}.scooh-ppt-availability input,.scooh-ppt-rate input{width:100%;box-sizing:border-box;background:#101722;border:1px solid #344258;color:#f4f6fb;border-radius:8px;padding:8px 9px}
+.scooh-ppt-availability,.scooh-ppt-rate{margin-top:10px}
+.scooh-ppt-availability label,.scooh-ppt-rate label{display:block;font-size:11px;color:var(--mb-muted);margin-bottom:5px;font-weight:700}
+.scooh-ppt-availability input,.scooh-ppt-rate input{width:100%;box-sizing:border-box;background:var(--mb-input)!important;border:1px solid var(--mb-border-2)!important;color:var(--mb-text)!important;border-radius:8px;padding:8px 9px}
 
-.scooh-ppt-search-wrap{position:relative;display:flex;align-items:center;gap:12px;margin:18px 0 6px;background:#101722;border:1px solid #34404e;border-radius:12px;padding:0 16px;box-shadow:inset 0 1px 2px rgba(0,0,0,.25);transition:all .16s ease}
-.scooh-ppt-search-wrap:focus-within{border-color:#f2c94c;box-shadow:0 0 0 3px rgba(242,201,76,.12)}
-.scooh-ppt-search-wrap span{color:#738399;font-size:18px;line-height:1;flex:0 0 auto}
-.scooh-ppt-search-wrap input,.scooh-app .scooh-ppt-search-wrap input{width:100%;min-height:44px;border:0!important;outline:0!important;background:transparent!important;box-shadow:none!important;color:#f4f6fb!important;padding:10px 0!important;font-size:13.5px!important}
-.scooh-ppt-search-wrap input::placeholder{color:#64748b!important}
-.scooh-ppt-search-count{font-size:12px;color:#94a4b8;margin-bottom:12px}
+.scooh-ppt-search-wrap{position:relative;display:flex;align-items:center;gap:12px;margin:18px 0 6px;background:var(--mb-input);border:1px solid var(--mb-border);border-radius:12px;padding:0 16px;box-shadow:inset 0 1px 2px rgba(0,0,0,.25);transition:all .16s ease}
+.scooh-ppt-search-wrap:focus-within{border-color:var(--mb-primary);box-shadow:0 0 0 3px var(--mb-primary-soft)}
+.scooh-ppt-search-wrap span{color:var(--mb-muted);font-size:18px;line-height:1;flex:0 0 auto}
+.scooh-ppt-search-wrap input,.scooh-app .scooh-ppt-search-wrap input{width:100%;min-height:44px;border:0!important;outline:0!important;background:transparent!important;box-shadow:none!important;color:var(--mb-text)!important;padding:10px 0!important;font-size:13.5px!important}
+.scooh-ppt-search-wrap input::placeholder{color:var(--mb-subtle)!important}
+.scooh-ppt-search-count{font-size:12px;color:var(--mb-muted);margin-bottom:12px}
 .scooh-ppt-site[hidden]{display:none!important}
 
 /* Automated PPT photo manager */
-.scooh-ppt-photo-list{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
-.scooh-ppt-photo{position:relative;width:58px;height:46px;border-radius:6px;overflow:hidden;border:1px solid #344258;background:#101722}
-.scooh-ppt-photo img{width:100%;height:100%;object-fit:cover;display:block}
-.scooh-ppt-photo button{position:absolute;right:2px;top:2px;width:18px;height:18px;border:0;border-radius:50%;background:#202a37;color:#fff;font-size:15px;line-height:16px;padding:0;cursor:pointer}
-.scooh-ppt-photo button:hover{background:#9d3d3d}
-
-/* v2.4.9 uploaded image display */
-.scooh-ppt-thumb{height:190px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#121b28;border-radius:10px}
-.scooh-ppt-thumb img{display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important}
 .scooh-ppt-photo-list{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0!important;width:100%}
-.scooh-ppt-photo{display:block!important;position:relative!important;width:100%!important;height:72px!important;border-radius:8px!important;overflow:hidden!important;border:1px solid #3b4b63!important;background:#101722!important}
+.scooh-ppt-photo{display:block!important;position:relative!important;width:100%!important;height:72px!important;border-radius:8px!important;overflow:hidden!important;border:1px solid var(--mb-border)!important;background:var(--mb-surface-2)!important}
 .scooh-ppt-photo img{display:block!important;width:100%!important;height:100%!important;object-fit:cover!important}
-.scooh-ppt-photo button{z-index:3!important}
-.scooh-ppt-no-photos{grid-column:1/-1;padding:10px;border:1px dashed #41506a;border-radius:8px;color:#94a4b8;text-align:center;font-size:12px}
+.scooh-ppt-photo button{position:absolute;right:4px;top:4px;width:20px;height:20px;border:0;border-radius:50%;background:#ef4444;color:#fff;font-size:14px;line-height:1;padding:0;cursor:pointer;z-index:3!important}
+.scooh-ppt-no-photos{grid-column:1/-1;padding:10px;border:1px dashed var(--mb-border);border-radius:8px;color:var(--mb-muted);text-align:center;font-size:12px}
 
-/* v2.5.2: show only the images actually added to each site */
-.scooh-ppt-thumb{display:none!important}
 .scooh-ppt-added-images{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px!important;margin:12px 0!important;width:100%!important}
-.scooh-ppt-added-images .scooh-ppt-photo{height:150px!important;display:block!important;position:relative!important;overflow:hidden!important;border:1px solid #44516a!important;border-radius:8px!important;background:#111925!important}
-.scooh-ppt-added-images .scooh-ppt-photo img{display:block!important;width:100%!important;height:100%!important;object-fit:cover!important;opacity:1!important;visibility:visible!important}
-.scooh-ppt-added-images .scooh-ppt-photo button{position:absolute!important;top:6px!important;right:6px!important;z-index:5!important}
+.scooh-ppt-added-images .scooh-ppt-photo{aspect-ratio:16/9!important;height:auto!important;display:flex!important;align-items:center!important;justify-content:center!important;overflow:hidden!important;background:var(--mb-surface-2)!important}
+.scooh-ppt-added-images .scooh-ppt-photo img{width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}
 .scooh-ppt-added-images .scooh-ppt-no-photos{grid-column:1/-1!important;padding:18px!important;text-align:center!important}
 
-/* v2.5.3: preserve original uploaded image format */
-.scooh-ppt-added-images .scooh-ppt-photo{height:190px!important;display:flex!important;align-items:center!important;justify-content:center!important;background:#101722!important}
-.scooh-ppt-added-images .scooh-ppt-photo img{width:100%!important;height:100%!important;object-fit:contain!important;object-position:center!important}
-
-/* v2.5.4: all uploaded site images use a consistent landscape frame */
-.scooh-ppt-added-images .scooh-ppt-photo{
-    aspect-ratio:16 / 9!important;
-    height:auto!important;
-    display:flex!important;
-    align-items:center!important;
-    justify-content:center!important;
-    overflow:hidden!important;
-    background:#101722!important;
-}
-.scooh-ppt-added-images .scooh-ppt-photo img{
-    width:100%!important;
-    height:100%!important;
-    object-fit:cover!important;
-    object-position:center!important;
-}
-
-
-/* v3.3 High-contrast occupancy status system */
-.scooh-chartbox{background:#182233;border-radius:14px;padding:12px}
-.scooh-chartbox canvas{filter:none}
+/* Status System */
+.scooh-chartbox{background:var(--mb-surface);border:1px solid var(--mb-border);border-radius:14px;padding:12px}
 .scooh-tag.star,.scooh-pill.star{border-color:rgba(251,191,36,.45)!important;background:rgba(251,191,36,.14)!important;color:#FBBF24!important}
 .scooh-tag.solid,.scooh-pill.solid{border-color:rgba(34,197,94,.45)!important;background:rgba(34,197,94,.14)!important;color:#22C55E!important}
 .scooh-tag.watch,.scooh-pill.watch{border-color:rgba(139,92,246,.45)!important;background:rgba(139,92,246,.14)!important;color:#A78BFA!important}
-.scooh-tag.underperforming,.scooh-tag.danger,.scooh-pill.underperforming,.scooh-pill.under{border-color:rgba(239,68,68,.45)!important;background:rgba(239,68,68,.14)!important;color:#EF4444!important}
-.scooh-occbar{background:#334155!important;border:1px solid rgba(255,255,255,.08)}
-.scooh-occbar span{box-shadow:0 0 10px rgba(255,255,255,.08)}
+.scooh-tag.underperforming,.scooh-tag.danger,.scooh-pill.underperforming,.scooh-pill.under,.scooh-pill.vacant{border-color:rgba(239,68,68,.45)!important;background:rgba(239,68,68,.14)!important;color:#EF4444!important}
+.scooh-pill.active{border-color:rgba(34,197,94,.45)!important;background:rgba(34,197,94,.14)!important;color:#22C55E!important}
 
-/* Proposal rate inputs */
-.scooh-proposal-rates{display:grid;grid-template-columns:repeat(3,minmax(110px,1fr));gap:8px;margin-top:8px;width:100%}.scooh-proposal-rates label{display:block;font-size:10px;color:#9eabc0;font-weight:700}.scooh-proposal-rates input{width:100%;margin-top:4px;padding:8px 9px;border:1px solid #33435c;border-radius:8px;background:#121b29;color:#e8edf7}.scooh-doc-line-total{display:block;margin-top:3px}@media(max-width:900px){.scooh-proposal-rates{grid-template-columns:1fr}}
-
-/* v3.6.0 – Expanded Proposal Builder */
+/* Proposal Builder */
 .scooh-proposal-layout{grid-template-columns:minmax(420px,48%) minmax(520px,1fr);gap:22px;align-items:start}
-.scooh-proposal-controls{max-height:calc(100vh - 112px);padding:24px;border-radius:20px;background:linear-gradient(180deg,#121a23 0%,#0e141b 100%);box-shadow:0 18px 45px rgba(0,0,0,.18)}
-.scooh-proposal-controls h3{font-size:16px!important;letter-spacing:.01em}
+.scooh-proposal-controls{max-height:calc(100vh - 112px);padding:24px;border-radius:20px;background:var(--mb-surface);border:1px solid var(--mb-border);box-shadow:0 18px 45px rgba(0,0,0,.12)}
+.scooh-proposal-controls h3{font-size:16px!important;color:var(--mb-text)!important}
 .scooh-proposal-step{margin-top:24px;padding-bottom:18px}
-.scooh-picklist{max-height:500px;border-radius:15px;background:#0b1117}
-.scooh-pickrow{grid-template-columns:22px 86px minmax(150px,1fr);gap:14px;padding:15px 16px;align-items:start}
+.scooh-picklist{max-height:500px;border-radius:15px;background:var(--mb-bg-2);border:1px solid var(--mb-border);overflow-y:auto}
+.scooh-pickrow{grid-template-columns:22px 86px minmax(150px,1fr);gap:14px;padding:15px 16px;align-items:start;border-bottom:1px solid var(--mb-border)}
 .scooh-pickrow .scooh-plate{margin-top:4px}
 .scooh-pickmeta{padding-top:3px;font-size:11px}
-.scooh-pickmeta strong{display:block;margin-bottom:5px;font-size:11px;color:#edf2f6}
-.scooh-proposal-rates{grid-column:2 / -1;display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:12px;margin-top:4px;padding:14px;border:1px solid rgba(255,255,255,.06);border-radius:12px;background:#111922}
-.scooh-proposal-rates label{display:flex;flex-direction:column;gap:7px;color:#8f9aa5;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
-.scooh-proposal-rates input{width:100%;min-height:42px;padding:8px 11px;border-radius:9px;background:#0a1016;color:#f3f6f8;font-size:13px;font-weight:800}
-.scooh-proposal-rates label:first-child input{border-color:rgba(242,201,76,.34)}
-.scooh-proposal-actions{position:sticky;bottom:-24px;margin:20px -24px -24px;padding:15px 24px;background:rgba(14,20,27,.96);border-top:1px solid var(--mb-border);backdrop-filter:blur(10px)}
-.scooh-proposal-actions .scooh-btn{min-height:42px;padding-left:18px;padding-right:18px}
-.scooh-doc{min-height:760px;padding:44px 48px;border-radius:20px}
-@media(max-width:1320px){.scooh-proposal-layout{grid-template-columns:minmax(380px,45%) minmax(0,1fr)}.scooh-proposal-rates{grid-template-columns:repeat(3,minmax(105px,1fr))}}
-@media(max-width:1180px){.scooh-proposal-layout{grid-template-columns:1fr}.scooh-proposal-controls{position:static;max-height:none}.scooh-picklist{max-height:420px}.scooh-proposal-actions{position:static;margin:20px 0 0;padding:0;background:transparent;border:0}}
-@media(max-width:720px){.scooh-proposal-controls{padding:16px}.scooh-pickrow{grid-template-columns:20px 1fr;padding:13px}.scooh-pickmeta{grid-column:2}.scooh-proposal-rates{grid-column:1 / -1;grid-template-columns:1fr}.scooh-doc{padding:28px 20px}}
-
-/* Automated PPT controls */
-.scooh-ppt-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;margin:12px 0 8px}
-.scooh-ppt-select-actions{display:flex;gap:8px;flex-wrap:wrap}
-.scooh-ppt-select-actions .scooh-btn{white-space:nowrap}
-.scooh-ppt-coordinates{display:block!important;margin-top:5px;color:#8ea0b8!important;font-size:11px!important}
-.scooh-ppt-site[hidden]{display:none!important}
-@media(max-width:900px){.scooh-ppt-toolbar{grid-template-columns:1fr}.scooh-ppt-select-actions{justify-content:flex-start}}
+.scooh-pickmeta strong{display:block;margin-bottom:5px;font-size:11px;color:var(--mb-text)}
+.scooh-proposal-rates{grid-column:2 / -1;display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));gap:12px;margin-top:6px;padding:12px;border:1px solid var(--mb-border);border-radius:12px;background:var(--mb-surface)}
+.scooh-proposal-rates label{display:flex;flex-direction:column;gap:5px;color:var(--mb-muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}
+.scooh-proposal-rates input{width:100%;min-height:40px;padding:8px 11px;border:1px solid var(--mb-border-2);border-radius:9px;background:var(--mb-input)!important;color:var(--mb-text)!important;font-size:13px;font-weight:800}
+.scooh-proposal-actions{position:sticky;bottom:-24px;margin:20px -24px -24px;padding:15px 24px;background:var(--mb-surface);border-top:1px solid var(--mb-border);backdrop-filter:blur(10px)}
 
 /* Automated PPT optional output controls */
-.scooh-ppt-output-options{display:grid;grid-template-columns:1fr;gap:7px;margin-top:10px;padding:9px 10px;border:1px solid #344258;border-radius:8px;background:#101722}
-.scooh-ppt-output-option{display:flex;align-items:center;gap:7px;color:#a9b7ca;font-size:10px;line-height:1.3;cursor:pointer}
+.scooh-ppt-output-options{display:grid;grid-template-columns:1fr;gap:7px;margin-top:10px;padding:9px 10px;border:1px solid var(--mb-border);border-radius:8px;background:var(--mb-surface-2)}
+.scooh-ppt-output-option{display:flex;align-items:center;gap:7px;color:var(--mb-text);font-size:10.5px;line-height:1.3;cursor:pointer}
 .scooh-ppt-output-option input{margin:0;flex:0 0 auto}
+
+/* Theme Toggle Button */
+.scooh-theme-toggle-btn{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border:1px solid var(--mb-border-2);border-radius:10px;background:var(--mb-surface);color:var(--mb-text);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .16s ease}
+.scooh-theme-toggle-btn:hover{background:var(--mb-surface-2);border-color:var(--mb-accent)}
+
+/* Global Heading & Text Contrast */
+.scooh-panel h3,.scooh-pagehead h1,.scooh-modalhead h2,h1,h2,h3,h4{color:var(--mb-text)!important}
+.scooh-pagehead p,.scooh-footnote{color:var(--mb-muted)!important}

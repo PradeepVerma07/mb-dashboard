@@ -347,12 +347,13 @@ function Layout() {
             {/* Quick Theme Toggle */}
             <button
               type="button"
-              className="scooh-iconbtn"
+              className="scooh-theme-toggle-btn"
               onClick={toggleTheme}
               title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-              style={{ fontSize: '15px', padding: '6px 10px', borderRadius: '9px', border: '1px solid var(--mb-border)' }}
+              aria-label="Toggle Theme"
             >
-              {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+              <span>{theme === 'dark' ? '☀️' : '🌙'}</span>
+              <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
             </button>
 
             <div className="scooh-topbar-notifications" style={{ position: 'relative' }}>
@@ -665,14 +666,14 @@ function Dashboard() {
                     padding: '12px 14px',
                     border: '1px solid var(--mb-border)',
                     borderRadius: '12px',
-                    background: '#10161f'
+                    background: 'var(--mb-surface-2)'
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span className="scooh-plate">{a.site_code}</span>
                     <div>
-                      <strong style={{ color: '#f1f4f7', fontSize: '12.5px' }}>{a.client || 'Client'}</strong>
-                      <div className="scooh-footnote" style={{ color: '#7e8b99', fontSize: '10.5px' }}>{a.campaign}</div>
+                      <strong style={{ color: 'var(--mb-text)', fontSize: '12.5px' }}>{a.client || 'Client'}</strong>
+                      <div className="scooh-footnote" style={{ color: 'var(--mb-muted)', fontSize: '10.5px' }}>{a.campaign}</div>
                     </div>
                   </div>
                   <span
