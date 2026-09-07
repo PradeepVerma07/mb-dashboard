@@ -276,23 +276,9 @@ body {
 }
 @media(max-width:520px){.scooh-kpirow{grid-template-columns:1fr}.scooh-kpi{min-height:108px}.scooh-pagehead h1{font-size:25px}.scooh-headactions .scooh-btn{flex:1}.scooh-filters{display:grid;grid-template-columns:1fr 1fr}.scooh-filters select{width:100%;min-width:0}.scooh-table{min-width:700px}.scooh-user-avatar{width:32px;height:32px}.scooh-topbar-context{display:none}.scooh-modalfoot-left,.scooh-modalfoot-actions{width:100%}.scooh-modalfoot-actions{margin-left:0}.scooh-modalfoot-actions .scooh-btn{flex:1}.scooh-proposal-logo{max-width:58%}}
 
-/* Print proposal only */
+/* Responsive Mobile Print Rules */
 @media print{
-  html, body{background:#fff!important;color:#000!important;margin:0!important;padding:0!important;height:auto!important;min-height:0!important;overflow:visible!important}
-  body *{visibility:hidden!important}
-  .scooh-proposal-document,
-  .scooh-proposal-document *,
-  .scooh-proposal-paper,
-  .scooh-proposal-paper *,
-  .scooh-doc,
-  .scooh-doc *{visibility:visible!important}
-  .scooh-proposal-document{position:absolute!important;left:0!important;top:0!important;width:100%!important;margin:0!important;padding:0!important;background:#fff!important;display:block!important}
-  .scooh-proposal-paper,
-  .scooh-doc{position:relative!important;left:0!important;top:0!important;width:100%!important;min-height:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding:12mm 15mm!important;background:#fff!important;color:#1c2630!important;display:block!important}
-  .scooh-proposal-logo{width:170px!important;height:auto!important}
-  .scooh-doc-table th{background:#1c2630!important;color:#fff!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-  .scooh-proposal-accent,.scooh-proposal-period{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-  .scooh-sidebar,.scooh-topbar,.scooh-pagehead,.scooh-proposal-controls,.scooh-banner,.scooh-saved-proposals-panel,.scooh-proposal-actions,#wpadminbar,#adminmenumain,#wpfooter{display:none!important}
+  /* Managed in unified print engine below */
 }
 
 .scooh-confirm-copy{margin:0;color:#aab4bf;line-height:1.65;font-size:11.5px}
@@ -478,11 +464,13 @@ body {
 .scooh-proposal-meta>div{padding:10px 13px}.scooh-proposal-meta>div+div{border-left:1px solid #e1e5e8}
 .scooh-proposal-meta span,.scooh-proposal-period span,.scooh-doc-eyebrow{display:block;color:#7a858f;font-size:8px;font-weight:800;letter-spacing:.11em;text-transform:uppercase}
 .scooh-proposal-meta strong{display:block;margin-top:4px;color:#222d36;font-size:11px}
-.scooh-proposal-accent{height:3px;margin:24px 0 26px;background:linear-gradient(90deg,#1c2630 0 76%,#f0bf34 76% 100%)}
-.scooh-proposal-intro{display:flex;justify-content:space-between;gap:28px;align-items:flex-end;margin-bottom:30px}
-.scooh-proposal-intro h2{margin:7px 0 6px;color:#17212b;font-family:"Playfair Display",Georgia,serif;font-size:28px;line-height:1.12}
-.scooh-proposal-intro p{margin:0;color:#66717b;font-size:11.5px}.scooh-proposal-intro p strong{color:#28333d}
-.scooh-proposal-period{min-width:215px;padding:13px 15px;border-left:3px solid #f0bf34;background:#f0f1ef}
+.scooh-proposal-accent{height:3px;margin:20px 0 22px;background:linear-gradient(90deg,#1c2630 0 76%,#f0bf34 76% 100%)}
+.scooh-proposal-intro{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:26px}
+.scooh-proposal-intro > div:first-child{flex:1;min-width:0}
+.scooh-proposal-intro h2{margin:6px 0 6px;color:#0f172a!important;font-family:"Playfair Display",Georgia,serif;font-size:25px;font-weight:800;line-height:1.25;word-wrap:break-word;overflow-wrap:break-word;white-space:normal;max-width:100%}
+.scooh-proposal-intro p{margin:0;color:#475569;font-size:11.5px;word-wrap:break-word}
+.scooh-proposal-intro p strong{color:#0f172a;font-weight:800}
+.scooh-proposal-period{min-width:215px;flex-shrink:0;padding:12px 14px;border-left:3px solid #f0bf34;background:#f0f1ef;border-radius:0 6px 6px 0}
 .scooh-proposal-period strong{display:inline-block;margin-top:5px;color:#1e2933;font-size:11.5px}.scooh-proposal-period em{display:inline-block;margin:0 5px;color:#8a939c;font-size:9px;font-style:normal}
 .scooh-proposal-period small{display:block;margin-top:6px;color:#707b85;font-size:9px}
 .scooh-proposal-section{margin-top:8px}.scooh-proposal-section-title{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:10px}
@@ -509,18 +497,41 @@ body {
   .scooh-proposal-meta{width:100%}.scooh-proposal-period{min-width:0}
   .scooh-proposal-summary{grid-template-columns:1fr}.scooh-doc-table{font-size:8px}
 }
+
+/* High-Precision Print Engine for Proposals & PDF Export */
 @media print{
-  @page{size:A4;margin:0}
-  body{background:#fff!important}
-  .scooh-doc{width:210mm!important;margin:0!important;border:0!important;border-radius:0!important;background:#fff!important;box-shadow:none!important}
-  .scooh-proposal-paper{min-height:297mm;padding:15mm 16mm 12mm!important;background:#fff!important}
-  .scooh-proposal-header{break-inside:avoid;page-break-inside:avoid}
-  .scooh-doc-table thead{display:table-header-group}
-  .scooh-doc-table tr,.scooh-proposal-summary,.scooh-proposal-terms{break-inside:avoid;page-break-inside:avoid}
-  .scooh-proposal-intro h2{font-size:26px!important}
-  .scooh-doc-table th{background:#202932!important;color:#fff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .scooh-proposal-grand{background:#202932!important;color:#fff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .scooh-proposal-paper *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4 portrait;margin:12mm 14mm}
+  *,*::before,*::after{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  html,body{background:#fff!important;color:#0f172a!important;margin:0!important;padding:0!important;width:100%!important;min-height:auto!important;overflow:visible!important}
+  body *{visibility:hidden!important}
+  .scooh-proposal-document,
+  .scooh-proposal-document *,
+  .scooh-proposal-paper,
+  .scooh-proposal-paper *{visibility:visible!important}
+  .scooh-app,.scooh-main,.scooh-wp-wrap,.scooh-proposal-layout,.scooh-proposal-document{display:block!important;width:100%!important;max-width:100%!important;margin:0!important;padding:0!important;background:transparent!important;border:none!important;box-shadow:none!important;position:static!important}
+  .scooh-proposal-paper{display:block!important;width:100%!important;max-width:100%!important;margin:0!important;padding:0!important;background:#fff!important;color:#0f172a!important;border:none!important;box-shadow:none!important;border-radius:0!important}
+  .scooh-proposal-header{display:flex!important;justify-content:space-between!important;align-items:flex-start!important;gap:20px!important;page-break-inside:avoid!important;break-inside:avoid!important}
+  .scooh-proposal-logo{width:160px!important;height:auto!important;max-height:50px!important}
+  .scooh-proposal-meta{display:grid!important;grid-template-columns:repeat(2,minmax(100px,1fr))!important;border:1px solid #cbd5e1!important;border-radius:6px!important;background:#fff!important}
+  .scooh-proposal-meta>div{padding:7px 11px!important}
+  .scooh-proposal-accent{height:3px!important;margin:16px 0 20px!important;background:linear-gradient(90deg,#0f172a 0 76%,#f59e0b 76% 100%)!important}
+  .scooh-proposal-intro{display:flex!important;justify-content:space-between!important;align-items:flex-start!important;gap:20px!important;margin-bottom:20px!important;page-break-inside:avoid!important;break-inside:avoid!important}
+  .scooh-proposal-intro>div:first-child{flex:1!important;min-width:0!important}
+  .scooh-proposal-intro h2{margin:6px 0 6px!important;color:#0f172a!important;font-family:"Playfair Display",Georgia,serif!important;font-size:22px!important;font-weight:800!important;line-height:1.25!important;word-wrap:break-word!important;overflow-wrap:break-word!important;white-space:normal!important}
+  .scooh-proposal-period{min-width:190px!important;flex-shrink:0!important;padding:9px 13px!important;border-left:3px solid #f59e0b!important;background:#f8fafc!important}
+  .scooh-doc-table{width:100%!important;border-collapse:separate!important;border-spacing:0!important;border:1px solid #cbd5e1!important;border-radius:6px!important;margin-top:10px!important}
+  .scooh-doc-table thead{display:table-header-group!important}
+  .scooh-doc-table th{background:#0f172a!important;color:#fff!important;padding:8px 10px!important;font-size:8.5px!important;font-weight:800!important;text-transform:uppercase!important;border:0!important}
+  .scooh-doc-table td{padding:9px 10px!important;border-bottom:1px solid #e2e8f0!important;background:#fff!important;font-size:9.5px!important;color:#1e293b!important}
+  .scooh-doc-table tr{page-break-inside:avoid!important;break-inside:avoid!important}
+  .scooh-proposal-summary{display:grid!important;grid-template-columns:minmax(0,1fr) 280px!important;gap:24px!important;align-items:start!important;margin-top:20px!important;page-break-inside:avoid!important;break-inside:avoid!important}
+  .scooh-proposal-totals{border:1px solid #cbd5e1!important;border-radius:6px!important;background:#fff!important}
+  .scooh-proposal-grand{background:#0f172a!important;color:#fff!important;padding:10px 12px!important}
+  .scooh-proposal-grand strong{color:#fff!important;font-size:13px!important}
+  .scooh-proposal-terms{margin-top:20px!important;padding-top:14px!important;border-top:1px solid #cbd5e1!important;page-break-inside:avoid!important;break-inside:avoid!important}
+  .scooh-proposal-validity{margin-top:8px!important;padding:8px 10px!important;border-left:3px solid #f59e0b!important;background:#f8fafc!important}
+  .scooh-proposal-footer{display:flex!important;justify-content:space-between!important;gap:16px!important;margin-top:20px!important;padding-top:10px!important;border-top:1px solid #cbd5e1!important;color:#64748b!important;font-size:8.5px!important}
+  .scooh-sidebar,.scooh-topbar,.scooh-pagehead,.scooh-proposal-controls,.scooh-banner,.scooh-saved-proposals-panel,.scooh-proposal-actions,.scooh-mobile-scrim,.scooh-mobile-nav-toggle,#wpadminbar,#adminmenumain,#wpfooter{display:none!important}
 }
 
 
