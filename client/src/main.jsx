@@ -425,8 +425,12 @@ function Layout() {
   const unreadCount = (Array.isArray(notifications) ? notifications : []).filter(n => !n.is_read).length;
 
   async function clearAllNotifs() {
-    await api.post('/notifications/read', {});
-    setNotifications((Array.isArray(notifications) ? notifications : []).map(n => ({ ...n, is_read: 1 })));
+    try {
+      await api.post('/notifications/clear', {});
+    } catch (e) {
+      try { await api.post('/notifications/read', {}); } catch (err) {}
+    }
+    setNotifications([]);
   }
 
   return (

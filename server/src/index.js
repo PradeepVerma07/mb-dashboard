@@ -345,7 +345,25 @@ app.get('/api/notifications', auth, async (req, res) => {
 app.post('/api/notifications/read', auth, async (req, res) => {
   try {
     if (req.body?.id) await q('UPDATE notifications SET is_read=1 WHERE id=?', [req.body.id]);
-    else await q('UPDATE notifications SET is_read=1 WHERE user_id IN (0,?)', [req.user.id]);
+    else await q('UPDATE notifications SET is_read=1');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.post('/api/notifications/clear', auth, async (req, res) => {
+  try {
+    await q('DELETE FROM notifications');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.delete('/api/notifications', auth, async (req, res) => {
+  try {
+    await q('DELETE FROM notifications');
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: err.message });
