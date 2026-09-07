@@ -600,7 +600,29 @@ app.get('/api/:entity', auth, async (req, res) => {
     const e = safeEntity(req, res);
     if (!e) return;
     const limit = Math.min(Number(req.query.limit || 1000), 5000);
-    let rows = await q(`SELECT * FROM \`${e.table}\` ORDER BY ${e.order} LIMIT ${limit}`);
+    let rows;
+    if (e.table === 'electricity') {
+      rows = await q(`
+        SELECT 
+          e.*,
+          COALESCE(NULLIF(e.site_code,''), s.site_code, '') AS site_code,
+          COALESCE(NULLIF(e.location,''), NULLIF(s.address,''), s.area, s.city, '') AS location,
+          COALESCE(NULLIF(e.size,''), s.size, '') AS size,
+          COALESCE(NULLIF(e.meter_no,''), s.meter_no, '') AS meter_no,
+          COALESCE(NULLIF(e.service_number,''), '') AS service_number,
+          COALESCE(NULLIF(e.t_number,''), '') AS t_number,
+          COALESCE(NULLIF(e.bill_type,''), '') AS bill_type,
+          COALESCE(NULLIF(e.amount, 0), e.payment_amount, 0) AS amount,
+          COALESCE(NULLIF(e.payment_amount, 0), e.amount, 0) AS payment_amount
+        FROM electricity e
+        LEFT JOIN sites s ON (e.site_id = s.id OR (e.site_code != '' AND e.site_code = s.site_code))
+        WHERE e.record_status = 'active'
+        ORDER BY e.id DESC
+        LIMIT ${limit}
+      `);
+    } else {
+      rows = await q(`SELECT * FROM \`${e.table}\` ORDER BY ${e.order} LIMIT ${limit}`);
+    }
     
     // Auto-seed sites if table is empty
     if (e.table === 'sites' && (!rows || rows.length === 0)) {
@@ -668,6 +690,21 @@ app.post('/api/:entity', auth, async (req, res) => {
   const e = safeEntity(req, res);
   if (!e) return;
   const data = await cleanData(e.table, req.body);
+  if (req.params.entity === 'electricity') {
+    if (data.amount && !data.payment_amount) data.payment_amount = data.amount;
+    if (data.payment_amount && !data.amount) data.amount = data.payment_amount;
+    if (data.site_code || data.site_id) {
+      const siteRows = await q('SELECT * FROM sites WHERE id=? OR site_code=? LIMIT 1', [data.site_id || 0, data.site_code || '']);
+      if (siteRows[0]) {
+        const s = siteRows[0];
+        if (!data.site_code) data.site_code = s.site_code;
+        if (!data.site_id) data.site_id = s.id;
+        if (!data.location) data.location = s.address || s.area || s.city || '';
+        if (!data.size) data.size = s.size || '';
+        if (!data.meter_no) data.meter_no = s.meter_no || '';
+      }
+    }
+  }
   const keys = Object.keys(data);
   if (!keys.length) return res.status(400).json({ message: 'No valid fields' });
   const sql = `INSERT INTO \`${e.table}\` (${keys.map(k => '`' + k + '`').join(',')},created_at,updated_at) VALUES (${keys.map(() => '?').join(',')},NOW(),NOW())`;
@@ -682,7 +719,22 @@ app.put('/api/:entity/:id', auth, async (req, res) => {
   if (!e) return;
   const before = (await q(`SELECT * FROM \`${e.table}\` WHERE id=?`, [req.params.id]))[0];
   if (!before) return res.status(404).json({ message: 'Record not found' });
-  const data = await cleanData(e.table, req.body), keys = Object.keys(data);
+  const data = await cleanData(e.table, req.body);
+  if (req.params.entity === 'electricity') {
+    if (data.amount && !data.payment_amount) data.payment_amount = data.amount;
+    if (data.payment_amount && !data.amount) data.amount = data.payment_amount;
+    if (data.site_code || data.site_id) {
+      const siteRows = await q('SELECT * FROM sites WHERE id=? OR site_code=? LIMIT 1', [data.site_id || 0, data.site_code || '']);
+      if (siteRows[0]) {
+        const s = siteRows[0];
+        if (!data.site_code && !before.site_code) data.site_code = s.site_code;
+        if (!data.location && !before.location) data.location = s.address || s.area || s.city || '';
+        if (!data.size && !before.size) data.size = s.size || '';
+        if (!data.meter_no && !before.meter_no) data.meter_no = s.meter_no || '';
+      }
+    }
+  }
+  const keys = Object.keys(data);
   if (keys.length) await q(`UPDATE \`${e.table}\` SET ${keys.map(k => '`' + k + '`=?').join(',')},updated_at=NOW() WHERE id=?`, [...keys.map(k => data[k]), req.params.id]);
   const after = (await q(`SELECT * FROM \`${e.table}\` WHERE id=?`, [req.params.id]))[0];
   await audit(req.user, 'Updated', req.params.entity, req.params.id, before, after);

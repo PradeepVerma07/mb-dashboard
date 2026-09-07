@@ -542,7 +542,7 @@ function Layout() {
                   <button
                     key={k}
                     type="button"
-                    className={loc.pathname.includes(k) ? 'active' : ''}
+                    className={loc.pathname === '/' + k || (k !== 'dashboard' && loc.pathname.startsWith('/' + k)) ? 'active' : ''}
                     onClick={() => {
                       nav('/' + k);
                       setSidebarOpen(false);
@@ -578,7 +578,7 @@ function Layout() {
               <Route path="/occupancy" element={<OccupancyView />} />
               <Route path="/proposals" element={<ProposalsView />} />
               <Route path="/ppt" element={<PptView />} />
-              <Route path="/electricity" element={<Crud entity="electricity" title="Electricity" />} />
+              <Route path="/electricity" element={<ElectricityView />} />
               <Route path="/vendors" element={<Crud entity="vendors" title="Vendors" />} />
               <Route path="/clients" element={<Crud entity="clients" title="Clients" />} />
               <Route path="/invoices" element={<Crud entity="invoices" title="Invoices" />} />
@@ -2125,6 +2125,898 @@ function OccupancyView() {
           </table>
         </div>
       </section>
+    </>
+  );
+}
+
+async function exportElectricityExcel(rowsData, filename = 'MediaBuzz_Electricity_Bills.xlsx') {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Electricity Bills', {
+    views: [{ state: 'frozen', ySplit: 1 }]
+  });
+
+  worksheet.columns = [
+    { header: 'SR NO', key: 'sr', width: 8 },
+    { header: 'SITE CODE', key: 'site_code', width: 16 },
+    { header: 'LOCATION', key: 'location', width: 40 },
+    { header: 'SIZE', key: 'size', width: 14 },
+    { header: 'METER NO', key: 'meter_no', width: 20 },
+    { header: 'SERVICE NUMBER', key: 'service_number', width: 18 },
+    { header: 'T NUMBER', key: 't_number', width: 14 },
+    { header: 'BILL / PROVIDER', key: 'bill_type', width: 18 },
+    { header: 'BILLING MONTH', key: 'billing_month', width: 16 },
+    { header: 'DUE DATE', key: 'due_date', width: 16 },
+    { header: 'UNITS', key: 'units', width: 12 },
+    { header: 'RATE', key: 'rate', width: 12 },
+    { header: 'PAYMENT AMOUNT (₹)', key: 'amount', width: 20 },
+    { header: 'STATUS', key: 'status', width: 14 },
+    { header: 'PAID DATE', key: 'paid_date', width: 16 },
+    { header: 'PAYMENT REF', key: 'payment_reference', width: 22 },
+    { header: 'NOTES', key: 'notes', width: 28 }
+  ];
+
+  rowsData.forEach((r, idx) => {
+    worksheet.addRow({
+      sr: idx + 1,
+      site_code: r.site_code || '',
+      location: r.location || '',
+      size: r.size || '',
+      meter_no: r.meter_no || '',
+      service_number: r.service_number || '',
+      t_number: r.t_number || '',
+      bill_type: r.bill_type || '',
+      billing_month: r.billing_month || '',
+      due_date: r.due_date ? new Date(r.due_date).toLocaleDateString('en-IN') : '',
+      units: r.units || '',
+      rate: r.rate || '',
+      amount: Number(r.amount || r.payment_amount || 0),
+      status: r.payment_status || 'Pending',
+      paid_date: r.paid_date ? new Date(r.paid_date).toLocaleDateString('en-IN') : '',
+      payment_reference: r.payment_reference || '',
+      notes: r.notes || ''
+    });
+  });
+
+  // Style Header Row (Row 1) in Bright Yellow (#FFFF00)
+  const headerRow = worksheet.getRow(1);
+  headerRow.height = 28;
+  headerRow.eachCell((cell, colNumber) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFFF00' }
+    };
+    cell.font = {
+      name: 'Calibri',
+      size: 11,
+      bold: true,
+      color: { argb: 'FF000000' }
+    };
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: [1, 4, 8, 9, 10, 11, 12, 14, 15].includes(colNumber) ? 'center' : (colNumber === 13 ? 'right' : 'left'),
+      wrapText: false
+    };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFC0C0C0' } },
+      left: { style: 'thin', color: { argb: 'FFC0C0C0' } },
+      bottom: { style: 'thin', color: { argb: 'FF000000' } },
+      right: { style: 'thin', color: { argb: 'FFC0C0C0' } }
+    };
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
+
+function ElectricityView() {
+  const [rows, setRows] = useState([]);
+  const [sites, setSites] = useState([]);
+  const [editModal, setEditModal] = useState(null);
+  const [payModal, setPayModal] = useState(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [providerFilter, setProviderFilter] = useState('ALL');
+  const [monthFilter, setMonthFilter] = useState('ALL');
+  const [saving, setSaving] = useState(false);
+  const [banner, setBanner] = useState('');
+
+  async function loadData() {
+    try {
+      const [eRes, sRes] = await Promise.all([
+        api.get('/electricity').catch(() => ({ data: [] })),
+        api.get('/sites').catch(() => ({ data: [] }))
+      ]);
+      const siteList = Array.isArray(sRes.data) && sRes.data.length > 0 ? sRes.data : defaultSites;
+      setSites(siteList);
+
+      const siteMap = new Map();
+      siteList.forEach(s => {
+        if (s.id) siteMap.set(String(s.id), s);
+        if (s.site_code) siteMap.set(String(s.site_code).trim(), s);
+      });
+
+      const rawBills = Array.isArray(eRes.data) ? eRes.data : [];
+      const enriched = rawBills.map(b => {
+        const matchedSite = siteMap.get(String(b.site_id)) || siteMap.get(String(b.site_code).trim()) || {};
+        return {
+          ...b,
+          site_code: b.site_code || matchedSite.site_code || '',
+          location: b.location || matchedSite.address || matchedSite.area || matchedSite.city || '',
+          size: b.size || matchedSite.size || (matchedSite.width && matchedSite.height ? `${matchedSite.width}x${matchedSite.height} ft` : ''),
+          meter_no: b.meter_no || matchedSite.meter_no || '',
+          service_number: b.service_number || matchedSite.service_number || '',
+          t_number: b.t_number || matchedSite.t_number || '',
+          amount: Number(b.amount || b.payment_amount || 0),
+          payment_amount: Number(b.payment_amount || b.amount || 0)
+        };
+      });
+      setRows(enriched);
+    } catch (err) {
+      console.warn('Error loading electricity:', err);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const totalExpense = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
+  const paidExpense = rows.filter(r => r.payment_status === 'Paid').reduce((acc, r) => acc + Number(r.amount || 0), 0);
+  const pendingExpense = rows.filter(r => r.payment_status !== 'Paid').reduce((acc, r) => acc + Number(r.amount || 0), 0);
+  const overdueCount = rows.filter(r => {
+    if (r.payment_status === 'Paid') return false;
+    if (!r.due_date) return false;
+    const d = new Date(r.due_date);
+    d.setHours(23, 59, 59, 999);
+    return d < new Date();
+  }).length;
+
+  const months = Array.from(new Set(rows.map(r => r.billing_month).filter(Boolean)));
+  const providers = Array.from(new Set(rows.map(r => r.bill_type).filter(Boolean)));
+
+  const filtered = rows.filter(r => {
+    const q = search.trim().toLowerCase();
+    const matchesSearch = !q || [
+      r.site_code,
+      r.location,
+      r.size,
+      r.meter_no,
+      r.service_number,
+      r.t_number,
+      r.bill_type,
+      r.billing_month,
+      r.payment_status,
+      r.notes
+    ].some(v => String(v || '').toLowerCase().includes(q));
+
+    const matchesStatus = statusFilter === 'ALL' ? true :
+      statusFilter === 'Overdue' ? (r.payment_status !== 'Paid' && r.due_date && new Date(r.due_date) < new Date()) :
+      r.payment_status === statusFilter;
+
+    const matchesProvider = providerFilter === 'ALL' || r.bill_type === providerFilter;
+    const matchesMonth = monthFilter === 'ALL' || r.billing_month === monthFilter;
+
+    return matchesSearch && matchesStatus && matchesProvider && matchesMonth;
+  });
+
+  function openNewBill() {
+    setEditModal({
+      site_id: '',
+      site_code: '',
+      location: '',
+      size: '',
+      meter_no: '',
+      service_number: '',
+      t_number: '',
+      bill_type: 'UGVCL',
+      billing_month: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      bill_date: new Date().toISOString().slice(0, 10),
+      due_date: '',
+      units: '',
+      rate: '',
+      other_charges: 0,
+      amount: '',
+      payment_status: 'Pending',
+      paid_date: '',
+      payment_reference: '',
+      notes: ''
+    });
+  }
+
+  function handleSiteChange(siteIdentifier) {
+    const s = sites.find(x => String(x.id) === String(siteIdentifier) || String(x.site_code).trim() === String(siteIdentifier).trim());
+    if (s) {
+      setEditModal(prev => ({
+        ...prev,
+        site_id: s.id || '',
+        site_code: s.site_code || '',
+        location: s.address || s.area || s.city || '',
+        size: s.size || (s.width && s.height ? `${s.width}x${s.height} ft` : ''),
+        meter_no: s.meter_no || prev.meter_no || '',
+        service_number: s.service_number || prev.service_number || '',
+        t_number: s.t_number || prev.t_number || ''
+      }));
+    }
+  }
+
+  function calculateBillAmount(units, rate, other = 0) {
+    const u = parseFloat(units);
+    const r = parseFloat(rate);
+    const o = parseFloat(other) || 0;
+    if (!isNaN(u) && !isNaN(r)) {
+      return (u * r + o).toFixed(2);
+    }
+    return '';
+  }
+
+  async function saveBill(e) {
+    e.preventDefault();
+    setSaving(true);
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+    const payload = Object.fromEntries(formData.entries());
+
+    if (!payload.site_code && !payload.site_id) {
+      alert('Please select or specify a Site Code.');
+      setSaving(false);
+      return;
+    }
+
+    const amt = Number(payload.amount || payload.payment_amount || 0);
+    payload.amount = amt;
+    payload.payment_amount = amt;
+
+    try {
+      if (editModal?.id) {
+        await api.put(`/electricity/${editModal.id}`, payload);
+        setBanner('✓ Electricity bill updated successfully!');
+      } else {
+        await api.post('/electricity', payload);
+        setBanner('✓ New electricity bill logged successfully!');
+      }
+      setEditModal(null);
+      await loadData();
+      setTimeout(() => setBanner(''), 4000);
+    } catch (err) {
+      alert('Failed to save bill: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleQuickPay(e) {
+    e.preventDefault();
+    if (!payModal?.id) return;
+    setSaving(true);
+    const formData = new FormData(e.currentTarget);
+    const paid_date = formData.get('paid_date') || new Date().toISOString().slice(0, 10);
+    const payment_reference = formData.get('payment_reference') || '';
+
+    try {
+      await api.put(`/electricity/${payModal.id}`, {
+        payment_status: 'Paid',
+        paid_date,
+        payment_reference
+      });
+      setPayModal(null);
+      setBanner(`✓ Bill for ${payModal.site_code || 'Site'} marked as Paid!`);
+      await loadData();
+      setTimeout(() => setBanner(''), 4000);
+    } catch (err) {
+      alert('Failed to update status: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteBill(id) {
+    if (confirm('Archive this electricity bill record?')) {
+      try {
+        await api.delete(`/electricity/${id}`);
+        setBanner('✓ Electricity bill archived.');
+        await loadData();
+        setTimeout(() => setBanner(''), 3000);
+      } catch (err) {
+        alert('Failed to archive bill: ' + (err.response?.data?.message || err.message));
+      }
+    }
+  }
+
+  return (
+    <>
+      <div className="scooh-pagehead">
+        <div>
+          <div style={{ fontSize: '11px', fontWeight: 800, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>
+            Media Buzz — OOH Workspace
+          </div>
+          <h1 style={{ fontSize: '26px', fontWeight: 900, margin: 0, color: '#fff', letterSpacing: '-0.02em' }}>
+            Electricity Tracker
+          </h1>
+          <p style={{ margin: '6px 0 0', color: '#94a3b8', fontSize: '13px' }}>
+            Every electricity bill, tracked independently of campaign activity so no payment due date is missed.
+          </p>
+        </div>
+        <div className="scooh-headactions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button type="button" className="scooh-btn ghost" onClick={loadData}>
+            🔄 Refresh
+          </button>
+          <button type="button" className="scooh-btn ghost" onClick={() => exportElectricityExcel(filtered)}>
+            📥 Export Excel
+          </button>
+          <button type="button" className="scooh-btn purple-btn" onClick={openNewBill}>
+            + Add bill
+          </button>
+        </div>
+      </div>
+
+      {banner && (
+        <div className="scooh-banner" style={{ display: 'block', marginBottom: '16px', background: 'rgba(34,197,94,0.15)', border: '1px solid #22c55e', color: '#4ade80' }}>
+          {banner}
+        </div>
+      )}
+
+      {/* Financial & Operational KPI Cards */}
+      <div className="scooh-kpirow" style={{ marginBottom: '22px' }}>
+        <div className="scooh-kpi alert">
+          <div className="n">{money(totalExpense)}</div>
+          <div className="l">Total Electricity Expense</div>
+          <div className="scooh-kpi-note" style={{ color: '#94a3b8' }}>{rows.length} total bills logged</div>
+        </div>
+        <div className="scooh-kpi good">
+          <div className="n">{money(paidExpense)}</div>
+          <div className="l">Paid Bills</div>
+          <div className="scooh-kpi-note" style={{ color: '#4ade80' }}>
+            {rows.filter(r => r.payment_status === 'Paid').length} bills cleared
+          </div>
+        </div>
+        <div className={`scooh-kpi ${overdueCount > 0 ? 'danger' : 'alert'}`}>
+          <div className="n">{money(pendingExpense)}</div>
+          <div className="l">Pending / Due Bills</div>
+          <div className="scooh-kpi-note" style={{ color: overdueCount > 0 ? '#ef4444' : '#fbbf24' }}>
+            {overdueCount > 0 ? `⚠ ${overdueCount} overdue bills` : `${rows.filter(r => r.payment_status !== 'Paid').length} awaiting payment`}
+          </div>
+        </div>
+        <div className="scooh-kpi alert">
+          <div className="n">{sites.length || 57}</div>
+          <div className="l">Total Sites Monitored</div>
+          <div className="scooh-kpi-note" style={{ color: '#94a3b8' }}>UGVCL, Torrent Power & PGVCL</div>
+        </div>
+      </div>
+
+      {/* Main Section */}
+      <div className="scooh-electricity-section">
+        <div className="scooh-sectionbar">
+          <div>
+            <h2 style={{ fontSize: '16px', fontWeight: 800, color: '#f8fafc' }}>
+              Electricity Bills & Payment Due Dates
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+              All imported and newly added electricity bills are shown here with site and meter details.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className="scooh-btn purple-btn" onClick={openNewBill}>
+              + Add bill
+            </button>
+          </div>
+        </div>
+
+        {/* Filters Toolbar */}
+        <div className="scooh-toolbar" style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            className="scooh-search"
+            style={{ flex: '1 1 240px', minWidth: '200px' }}
+            placeholder="Search by site code, location, meter, consumer no, provider…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
+          >
+            <option value="ALL">All Statuses ({rows.length})</option>
+            <option value="Pending">Pending</option>
+            <option value="Paid">Paid</option>
+            <option value="Overdue">Overdue ({overdueCount})</option>
+          </select>
+          {providers.length > 0 && (
+            <select
+              value={providerFilter}
+              onChange={e => setProviderFilter(e.target.value)}
+              style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
+            >
+              <option value="ALL">All Providers ({providers.length})</option>
+              {providers.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          )}
+          {months.length > 0 && (
+            <select
+              value={monthFilter}
+              onChange={e => setMonthFilter(e.target.value)}
+              style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
+            >
+              <option value="ALL">All Billing Months ({months.length})</option>
+              {months.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          )}
+          {(search || statusFilter !== 'ALL' || providerFilter !== 'ALL' || monthFilter !== 'ALL') && (
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              style={{ fontSize: '11px', padding: '6px 10px' }}
+              onClick={() => { setSearch(''); setStatusFilter('ALL'); setProviderFilter('ALL'); setMonthFilter('ALL'); }}
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+
+        {/* Table */}
+        <div className="scooh-tablewrap">
+          <table className="scooh-table">
+            <thead>
+              <tr>
+                <th style={{ minWidth: '110px' }}>SITE CODE</th>
+                <th style={{ minWidth: '180px' }}>LOCATION</th>
+                <th style={{ minWidth: '85px' }}>SIZE</th>
+                <th style={{ minWidth: '140px' }}>METER / SERVICE</th>
+                <th style={{ minWidth: '100px' }}>T NUMBER</th>
+                <th style={{ minWidth: '120px' }}>BILL / PROVIDER</th>
+                <th style={{ minWidth: '110px' }}>BILLING MONTH</th>
+                <th style={{ minWidth: '110px' }}>DUE DATE</th>
+                <th style={{ minWidth: '120px', textAlign: 'right' }}>PAYMENT AMOUNT</th>
+                <th style={{ minWidth: '95px', textAlign: 'center' }}>STATUS</th>
+                <th style={{ minWidth: '140px', textAlign: 'center' }}>ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan="11" className="scooh-empty" style={{ padding: '36px 20px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No electricity bills match your query</div>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Click "+ Add bill" to record a new electricity bill for any hoarding site.</div>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map(r => {
+                  const isOverdue = r.payment_status !== 'Paid' && r.due_date && new Date(r.due_date) < new Date();
+                  return (
+                    <tr key={r.id}>
+                      <td>
+                        <span className="scooh-plate" style={{ fontSize: '11.5px', fontWeight: 800 }}>
+                          {r.site_code || '—'}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 700, color: '#edf2f6', fontSize: '12.5px', lineHeight: 1.35 }}>
+                          {r.location || '—'}
+                        </div>
+                      </td>
+                      <td style={{ color: '#cbd5e1', fontSize: '12px' }}>
+                        {r.size || '—'}
+                      </td>
+                      <td>
+                        <div style={{ fontSize: '11.5px', color: '#f1f5f9', fontWeight: 600 }}>
+                          {r.meter_no ? `Mtr: ${r.meter_no}` : (r.service_number ? `Srv: ${r.service_number}` : '—')}
+                        </div>
+                        {r.service_number && r.meter_no && (
+                          <div style={{ fontSize: '10.5px', color: '#94a3b8', marginTop: '2px' }}>
+                            Srv: {r.service_number}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ color: '#cbd5e1', fontSize: '12px' }}>
+                        {r.t_number || '—'}
+                      </td>
+                      <td>
+                        <span
+                          className="scooh-badgechip"
+                          style={{
+                            background: r.bill_type === 'Torrent Power' ? 'rgba(56,189,248,0.16)' : 'rgba(251,191,36,0.16)',
+                            color: r.bill_type === 'Torrent Power' ? '#38bdf8' : '#fbbf24',
+                            fontWeight: 800,
+                            fontSize: '10.5px'
+                          }}
+                        >
+                          {r.bill_type || 'General'}
+                        </span>
+                      </td>
+                      <td style={{ color: '#cbd5e1', fontSize: '12px', fontWeight: 600 }}>
+                        {r.billing_month || '—'}
+                      </td>
+                      <td>
+                        <div style={{ fontSize: '12px', color: isOverdue ? '#f87171' : '#cbd5e1', fontWeight: isOverdue ? 800 : 500 }}>
+                          {formatDate(r.due_date)}
+                        </div>
+                        {isOverdue && (
+                          <span style={{ display: 'inline-block', marginTop: '2px', fontSize: '9.5px', fontWeight: 800, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            ⚠ Overdue
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <b style={{ fontSize: '13px', color: '#f8fafc', letterSpacing: '0.01em' }}>
+                          {money(r.amount || r.payment_amount)}
+                        </b>
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className={`scooh-pill ${r.payment_status === 'Paid' ? 'active' : r.payment_status === 'Pending' ? 'watch' : 'vacant'}`}>
+                          {r.payment_status || 'Pending'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="scooh-rowactions" style={{ justifyContent: 'center', gap: '6px' }}>
+                          {r.payment_status !== 'Paid' && (
+                            <button
+                              type="button"
+                              className="scooh-btn"
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                background: 'rgba(34,197,94,0.18)',
+                                color: '#4ade80',
+                                border: '1px solid rgba(34,197,94,0.35)',
+                                borderRadius: '6px'
+                              }}
+                              onClick={() => setPayModal(r)}
+                              title="Mark this bill as Paid"
+                            >
+                              ✓ Pay
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="scooh-iconbtn scooh-text-action"
+                            onClick={() => setEditModal(r)}
+                            title="Edit Bill"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="scooh-iconbtn danger-icon"
+                            onClick={() => deleteBill(r.id)}
+                            title="Delete Bill"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add / Edit Bill Modal */}
+      {editModal && (
+        <div className="scooh-modal-overlay">
+          <div className="scooh-modal" style={{ maxWidth: '640px' }}>
+            <div className="scooh-modalhead">
+              <div>
+                <h2>{editModal.id ? 'Edit Electricity Bill' : 'Add Electricity Bill'}</h2>
+                <span className="scooh-modal-subtitle">Auto-fill site metadata and manage payment tracking</span>
+              </div>
+              <button type="button" className="scooh-modal-close" onClick={() => setEditModal(null)}>×</button>
+            </div>
+            <form onSubmit={saveBill}>
+              <div className="scooh-modalbody">
+                {/* Site Selection Quick Picker */}
+                <div className="scooh-field" style={{ gridColumn: '1 / -1', background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <label style={{ color: '#c4b5fd', fontWeight: 800 }}>⚡ QUICK AUTO-FILL FROM SITE INVENTORY</label>
+                  <select
+                    value={editModal.site_id || editModal.site_code || ''}
+                    onChange={e => handleSiteChange(e.target.value)}
+                    style={{ marginTop: '6px' }}
+                  >
+                    <option value="">-- Select a Site to Auto-Fill Location, Size & Meter --</option>
+                    {sites.map(s => (
+                      <option key={s.id || s.site_code} value={s.id || s.site_code}>
+                        {s.site_code} — {s.area || s.address || s.city} ({s.size || 'Standard'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="scooh-grid2">
+                  <div className="scooh-field">
+                    <label>Site Code *</label>
+                    <input
+                      name="site_code"
+                      value={editModal.site_code ?? ''}
+                      onChange={e => setEditModal({ ...editModal, site_code: e.target.value })}
+                      placeholder="e.g. AMD-GT-001"
+                      required
+                    />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Site Size</label>
+                    <input
+                      name="size"
+                      value={editModal.size ?? ''}
+                      onChange={e => setEditModal({ ...editModal, size: e.target.value })}
+                      placeholder="e.g. 30x10 ft"
+                    />
+                  </div>
+                  <div className="scooh-field" style={{ gridColumn: '1 / -1' }}>
+                    <label>Location / Address *</label>
+                    <input
+                      name="location"
+                      value={editModal.location ?? ''}
+                      onChange={e => setEditModal({ ...editModal, location: e.target.value })}
+                      placeholder="e.g. Shivranjani Cross Roads, Ahmedabad"
+                      required
+                    />
+                  </div>
+
+                  <div className="scooh-field">
+                    <label>Bill Provider / Type</label>
+                    <select
+                      name="bill_type"
+                      value={editModal.bill_type ?? 'UGVCL'}
+                      onChange={e => setEditModal({ ...editModal, bill_type: e.target.value })}
+                    >
+                      <option value="UGVCL">UGVCL</option>
+                      <option value="Torrent Power">Torrent Power</option>
+                      <option value="PGVCL">PGVCL</option>
+                      <option value="DGVCL">DGVCL</option>
+                      <option value="MGVCL">MGVCL</option>
+                      <option value="Other">Other Utility</option>
+                    </select>
+                  </div>
+                  <div className="scooh-field">
+                    <label>Billing Month</label>
+                    <input
+                      name="billing_month"
+                      value={editModal.billing_month ?? ''}
+                      onChange={e => setEditModal({ ...editModal, billing_month: e.target.value })}
+                      placeholder="e.g. Aug 2026"
+                    />
+                  </div>
+
+                  <div className="scooh-field">
+                    <label>Meter Number</label>
+                    <input
+                      name="meter_no"
+                      value={editModal.meter_no ?? ''}
+                      onChange={e => setEditModal({ ...editModal, meter_no: e.target.value })}
+                      placeholder="e.g. MTR-UGVCL-8841"
+                    />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Service Number</label>
+                    <input
+                      name="service_number"
+                      value={editModal.service_number ?? ''}
+                      onChange={e => setEditModal({ ...editModal, service_number: e.target.value })}
+                      placeholder="e.g. SRV-998241"
+                    />
+                  </div>
+
+                  <div className="scooh-field">
+                    <label>T Number</label>
+                    <input
+                      name="t_number"
+                      value={editModal.t_number ?? ''}
+                      onChange={e => setEditModal({ ...editModal, t_number: e.target.value })}
+                      placeholder="e.g. T-4401"
+                    />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Bill Date</label>
+                    <input
+                      type="date"
+                      name="bill_date"
+                      defaultValue={editModal.bill_date ? editModal.bill_date.slice(0, 10) : ''}
+                    />
+                  </div>
+
+                  <div className="scooh-field">
+                    <label>Payment Due Date *</label>
+                    <input
+                      type="date"
+                      name="due_date"
+                      defaultValue={editModal.due_date ? editModal.due_date.slice(0, 10) : ''}
+                      required
+                    />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Units Consumed (kWh)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      name="units"
+                      value={editModal.units ?? ''}
+                      onChange={e => {
+                        const u = e.target.value;
+                        const calc = calculateBillAmount(u, editModal.rate, editModal.other_charges);
+                        setEditModal(prev => ({
+                          ...prev,
+                          units: u,
+                          amount: calc || prev.amount
+                        }));
+                      }}
+                      placeholder="e.g. 850"
+                    />
+                  </div>
+
+                  <div className="scooh-field">
+                    <label>Rate per Unit (₹)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      name="rate"
+                      value={editModal.rate ?? ''}
+                      onChange={e => {
+                        const r = e.target.value;
+                        const calc = calculateBillAmount(editModal.units, r, editModal.other_charges);
+                        setEditModal(prev => ({
+                          ...prev,
+                          rate: r,
+                          amount: calc || prev.amount
+                        }));
+                      }}
+                      placeholder="e.g. 9.23"
+                    />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Other Charges (₹)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      name="other_charges"
+                      value={editModal.other_charges ?? ''}
+                      onChange={e => {
+                        const o = e.target.value;
+                        const calc = calculateBillAmount(editModal.units, editModal.rate, o);
+                        setEditModal(prev => ({
+                          ...prev,
+                          other_charges: o,
+                          amount: calc || prev.amount
+                        }));
+                      }}
+                      placeholder="0.00"
+                    />
+                  </div>
+
+                  <div className="scooh-field" style={{ gridColumn: '1 / -1', background: 'rgba(139,92,246,0.06)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(139,92,246,0.2)' }}>
+                    <label style={{ color: '#c4b5fd', fontWeight: 900, fontSize: '12px' }}>BILL / PAYMENT AMOUNT (₹) *</label>
+                    <input
+                      type="number"
+                      step="any"
+                      name="amount"
+                      value={editModal.amount ?? ''}
+                      onChange={e => setEditModal({ ...editModal, amount: e.target.value })}
+                      placeholder="e.g. 7850"
+                      style={{ fontSize: '15px', fontWeight: 800 }}
+                      required
+                    />
+                  </div>
+
+                  <div className="scooh-field">
+                    <label>Payment Status</label>
+                    <select
+                      name="payment_status"
+                      value={editModal.payment_status ?? 'Pending'}
+                      onChange={e => setEditModal({ ...editModal, payment_status: e.target.value })}
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="Paid">Paid</option>
+                      <option value="Overdue">Overdue</option>
+                      <option value="Partial">Partial</option>
+                    </select>
+                  </div>
+                  <div className="scooh-field">
+                    <label>Paid Date</label>
+                    <input
+                      type="date"
+                      name="paid_date"
+                      defaultValue={editModal.paid_date ? editModal.paid_date.slice(0, 10) : ''}
+                    />
+                  </div>
+
+                  <div className="scooh-field" style={{ gridColumn: '1 / -1' }}>
+                    <label>Payment Reference / Transaction ID</label>
+                    <input
+                      name="payment_reference"
+                      value={editModal.payment_reference ?? ''}
+                      onChange={e => setEditModal({ ...editModal, payment_reference: e.target.value })}
+                      placeholder="e.g. UPI-9923847291 / NEFT / Cheque #4412"
+                    />
+                  </div>
+
+                  <div className="scooh-field" style={{ gridColumn: '1 / -1' }}>
+                    <label>Operational Notes</label>
+                    <textarea
+                      name="notes"
+                      value={editModal.notes ?? ''}
+                      onChange={e => setEditModal({ ...editModal, notes: e.target.value })}
+                      placeholder="Any notes on meter reading, meter seal, or utility dispatch…"
+                      rows={2}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="scooh-modalfoot">
+                <button type="button" className="scooh-btn ghost" onClick={() => setEditModal(null)}>Cancel</button>
+                <button type="submit" className="scooh-btn purple-btn" disabled={saving}>
+                  {saving ? 'Saving…' : editModal.id ? 'Update Electricity Bill' : 'Save Electricity Bill'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Mark Paid Modal */}
+      {payModal && (
+        <div className="scooh-modal-overlay">
+          <div className="scooh-modal" style={{ maxWidth: '440px' }}>
+            <div className="scooh-modalhead">
+              <div>
+                <h2>Mark Bill as Paid</h2>
+                <span className="scooh-modal-subtitle">{payModal.site_code} — {payModal.location || 'Site Bill'}</span>
+              </div>
+              <button type="button" className="scooh-modal-close" onClick={() => setPayModal(null)}>×</button>
+            </div>
+            <form onSubmit={handleQuickPay}>
+              <div className="scooh-modalbody">
+                <div style={{ padding: '12px', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '8px', marginBottom: '14px' }}>
+                  <div style={{ fontSize: '11px', color: '#94a3b8' }}>BILL AMOUNT</div>
+                  <div style={{ fontSize: '20px', fontWeight: 900, color: '#4ade80', marginTop: '2px' }}>
+                    {money(payModal.amount || payModal.payment_amount)}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '4px' }}>
+                    Month: {payModal.billing_month || 'Current'} | Provider: {payModal.bill_type || 'General'}
+                  </div>
+                </div>
+
+                <div className="scooh-field">
+                  <label>Paid Date *</label>
+                  <input
+                    type="date"
+                    name="paid_date"
+                    defaultValue={new Date().toISOString().slice(0, 10)}
+                    required
+                  />
+                </div>
+                <div className="scooh-field">
+                  <label>Payment Reference / UTR / Mode</label>
+                  <input
+                    name="payment_reference"
+                    placeholder="e.g. UPI-9923847291 / NetBanking / Cheque"
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="scooh-modalfoot">
+                <button type="button" className="scooh-btn ghost" onClick={() => setPayModal(null)}>Cancel</button>
+                <button type="submit" className="scooh-btn purple-btn" style={{ background: '#22c55e', borderColor: '#22c55e' }} disabled={saving}>
+                  {saving ? 'Updating…' : 'Confirm Paid'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }
