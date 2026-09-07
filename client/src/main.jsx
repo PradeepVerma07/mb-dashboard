@@ -1870,10 +1870,10 @@ function ProposalsView() {
             <div className="scooh-proposal-accent"></div>
 
             <section className="scooh-proposal-intro">
-              <div>
+              <div className="scooh-proposal-client-info">
                 <div className="scooh-doc-eyebrow">MEDIA PLAN</div>
-                <h2>{campaignName || 'Outdoor Media Campaign'}</h2>
-                <p>Prepared for <strong>{clientName || 'Prospective Client'}</strong></p>
+                <h2 className="scooh-proposal-campaign-title">{campaignName || 'Outdoor Media Campaign'}</h2>
+                <p className="scooh-proposal-client-name">Prepared for <strong>{clientName || 'Prospective Client'}</strong></p>
               </div>
               <div className="scooh-proposal-period">
                 <span>Campaign period</span>
