@@ -277,7 +277,23 @@ body {
 @media(max-width:520px){.scooh-kpirow{grid-template-columns:1fr}.scooh-kpi{min-height:108px}.scooh-pagehead h1{font-size:25px}.scooh-headactions .scooh-btn{flex:1}.scooh-filters{display:grid;grid-template-columns:1fr 1fr}.scooh-filters select{width:100%;min-width:0}.scooh-table{min-width:700px}.scooh-user-avatar{width:32px;height:32px}.scooh-topbar-context{display:none}.scooh-modalfoot-left,.scooh-modalfoot-actions{width:100%}.scooh-modalfoot-actions{margin-left:0}.scooh-modalfoot-actions .scooh-btn{flex:1}.scooh-proposal-logo{max-width:58%}}
 
 /* Print proposal only */
-@media print{body *{visibility:hidden!important}.scooh-doc,.scooh-doc *{visibility:visible!important}.scooh-doc{position:absolute!important;left:0!important;top:0!important;width:100%!important;min-height:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding:20mm!important;background:#fff!important}.scooh-proposal-logo{width:170px!important}.scooh-sidebar,.scooh-topbar,.scooh-pagehead,.scooh-proposal-controls,.scooh-banner,#wpadminbar,#adminmenumain,#wpfooter{display:none!important}}
+@media print{
+  html, body{background:#fff!important;color:#000!important;margin:0!important;padding:0!important;height:auto!important;min-height:0!important;overflow:visible!important}
+  body *{visibility:hidden!important}
+  .scooh-proposal-document,
+  .scooh-proposal-document *,
+  .scooh-proposal-paper,
+  .scooh-proposal-paper *,
+  .scooh-doc,
+  .scooh-doc *{visibility:visible!important}
+  .scooh-proposal-document{position:absolute!important;left:0!important;top:0!important;width:100%!important;margin:0!important;padding:0!important;background:#fff!important;display:block!important}
+  .scooh-proposal-paper,
+  .scooh-doc{position:relative!important;left:0!important;top:0!important;width:100%!important;min-height:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding:12mm 15mm!important;background:#fff!important;color:#1c2630!important;display:block!important}
+  .scooh-proposal-logo{width:170px!important;height:auto!important}
+  .scooh-doc-table th{background:#1c2630!important;color:#fff!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  .scooh-proposal-accent,.scooh-proposal-period{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  .scooh-sidebar,.scooh-topbar,.scooh-pagehead,.scooh-proposal-controls,.scooh-banner,.scooh-saved-proposals-panel,.scooh-proposal-actions,#wpadminbar,#adminmenumain,#wpfooter{display:none!important}
+}
 
 .scooh-confirm-copy{margin:0;color:#aab4bf;line-height:1.65;font-size:11.5px}
 

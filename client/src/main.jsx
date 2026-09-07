@@ -1509,6 +1509,22 @@ function ProposalsView() {
   const [selectedSites, setSelectedSites] = useState({});
   const [search, setSearch] = useState('');
   const [savedBanner, setSavedBanner] = useState(false);
+  const [savedProposals, setSavedProposals] = useState([]);
+  const [loadingProposals, setLoadingProposals] = useState(false);
+
+  async function loadProposals() {
+    setLoadingProposals(true);
+    try {
+      const res = await api.get('/proposals');
+      if (Array.isArray(res.data)) {
+        setSavedProposals(res.data);
+      }
+    } catch (e) {
+      console.error('Failed to load proposals:', e);
+    } finally {
+      setLoadingProposals(false);
+    }
+  }
 
   useEffect(() => {
     api.get('/sites').then(res => {
@@ -1516,6 +1532,7 @@ function ProposalsView() {
         setSites(res.data.map(unpackSite));
       }
     }).catch(() => {});
+    loadProposals();
   }, []);
 
   const filteredSites = sites.filter(s => {
@@ -1570,8 +1587,57 @@ function ProposalsView() {
       });
       setSavedBanner(true);
       setTimeout(() => setSavedBanner(false), 3500);
+      loadProposals();
     } catch (e) {
-      alert('Proposal saved locally! (Printable document ready)');
+      alert('Proposal saved! (Check Archive below)');
+      loadProposals();
+    }
+  }
+
+  function loadSavedProposal(p) {
+    if (!p) return;
+    setClientName(p.client_name || '');
+    setCampaignName(p.campaign_name || '');
+    if (p.proposal_date || p.start_date) setStartDate((p.proposal_date || p.start_date).slice(0, 10));
+    if (p.duration_days) setDurationDays(Number(p.duration_days));
+    if (p.validity_days) setValidityDays(Number(p.validity_days));
+    if (p.discount_percent != null) setDiscountPercent(Number(p.discount_percent));
+    if (p.tax_percent != null) setTaxPercent(Number(p.tax_percent));
+    if (p.terms) setTerms(p.terms);
+
+    if (p.notes) {
+      try {
+        const parsedSites = typeof p.notes === 'string' ? JSON.parse(p.notes) : p.notes;
+        if (Array.isArray(parsedSites)) {
+          const nextSel = {};
+          parsedSites.forEach(st => {
+            const key = st.id || st.site_code;
+            if (key) {
+              nextSel[key] = {
+                checked: true,
+                mediaRate: Number(st.mediaRate ?? st.monthly_rate ?? 0),
+                vendorRate: Number(st.vendorRate ?? 0),
+                printingRate: Number(st.printingRate ?? 0),
+                mountingRate: Number(st.mountingRate ?? 0)
+              };
+            }
+          });
+          setSelectedSites(nextSel);
+        }
+      } catch (err) {
+        console.warn('Could not parse proposal sites notes:', err);
+      }
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function deleteProposal(id) {
+    if (!window.confirm('Are you sure you want to delete this saved proposal?')) return;
+    try {
+      await api.delete(`/proposals/${id}`);
+      loadProposals();
+    } catch (e) {
+      alert('Failed to delete proposal: ' + (e.response?.data?.message || e.message));
     }
   }
 
@@ -1895,6 +1961,95 @@ function ProposalsView() {
           </article>
         </div>
       </div>
+
+      {/* Saved Proposals Section Below Builder */}
+      <section className="scooh-panel scooh-saved-proposals-panel" style={{ marginTop: '28px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800 }}>Saved Proposals Archive</h3>
+            <p className="scooh-footnote" style={{ margin: '4px 0 0', color: 'var(--mb-muted)' }}>
+              All saved client proposals with complete financial breakdown, custom rates, and selected media sites.
+            </p>
+          </div>
+          <button type="button" className="scooh-btn ghost" onClick={loadProposals} disabled={loadingProposals}>
+            {loadingProposals ? 'Loading…' : '🔄 Refresh Proposals'}
+          </button>
+        </div>
+
+        <div className="scooh-tablewrap">
+          <table className="scooh-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Client / Brand</th>
+                <th>Campaign</th>
+                <th>Proposal Date</th>
+                <th>Duration</th>
+                <th>Subtotal</th>
+                <th>GST (18%)</th>
+                <th>Grand Total</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {savedProposals.length === 0 ? (
+                <tr>
+                  <td colSpan="9" className="scooh-empty" style={{ padding: '30px', textAlign: 'center' }}>
+                    No saved proposals yet. Click <strong>"Save Proposal"</strong> above to archive quotes.
+                  </td>
+                </tr>
+              ) : (
+                savedProposals.map(p => (
+                  <tr key={p.id || p.proposal_code}>
+                    <td><span className="scooh-plate">{p.proposal_code}</span></td>
+                    <td><strong>{p.client_name || 'Client'}</strong></td>
+                    <td>{p.campaign_name || 'Outdoor Campaign'}</td>
+                    <td>{formatDate(p.proposal_date || p.start_date || p.created_at)}</td>
+                    <td>{p.duration_days || 30} days</td>
+                    <td>{money(p.subtotal)}</td>
+                    <td>{money((Number(p.subtotal || 0) * (Number(p.tax_percent || 18)) / 100))}</td>
+                    <td><strong style={{ color: 'var(--mb-primary)' }}>{money(p.total)}</strong></td>
+                    <td style={{ textAlign: 'right' }}>
+                      <div className="scooh-rowactions" style={{ justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          className="scooh-btn purple-btn"
+                          style={{ minHeight: '30px', padding: '0 10px', fontSize: '11px' }}
+                          onClick={() => loadSavedProposal(p)}
+                          title="Load into builder to view/edit"
+                        >
+                          Load
+                        </button>
+                        <button
+                          type="button"
+                          className="scooh-btn ghost"
+                          style={{ minHeight: '30px', padding: '0 10px', fontSize: '11px' }}
+                          onClick={() => {
+                            loadSavedProposal(p);
+                            setTimeout(() => window.print(), 350);
+                          }}
+                          title="Print this proposal"
+                        >
+                          🖨️ Print
+                        </button>
+                        <button
+                          type="button"
+                          className="scooh-iconbtn danger-icon"
+                          style={{ minHeight: '30px', width: '30px' }}
+                          onClick={() => deleteProposal(p.id)}
+                          title="Delete Proposal"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </>
   );
 }
