@@ -1241,6 +1241,7 @@ function PptView() {
   const [areaFilter, setAreaFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
 
   async function load() {
     try {
@@ -1261,18 +1262,36 @@ function PptView() {
 
   const areas = useMemo(() => Array.from(new Set(sites.map(s => s.area).filter(Boolean))).sort(), [sites]);
 
-  const filtered = sites.filter(s => {
-    const hay = [s.site_code, s.address, s.city, s.area, s.media_type].filter(Boolean).join(' ').toLowerCase();
-    if (query && !hay.includes(query.toLowerCase().trim())) return false;
-    if (areaFilter && s.area !== areaFilter) return false;
-    if (dateFilter) {
-      const av = String(s.ppt_availability || s.availability || '').toLowerCase().trim();
-      if (av !== 'available' && av !== 'immediate' && av !== 'long term') {
-        if (av > dateFilter) return false;
+  function handleSort(key) {
+    setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+
+  const filtered = useMemo(() => {
+    const list = sites.filter(s => {
+      const hay = [s.site_code, s.address, s.city, s.area, s.media_type].filter(Boolean).join(' ').toLowerCase();
+      if (query && !hay.includes(query.toLowerCase().trim())) return false;
+      if (areaFilter && s.area !== areaFilter) return false;
+      if (dateFilter) {
+        const av = String(s.ppt_availability || s.availability || '').toLowerCase().trim();
+        if (av !== 'available' && av !== 'immediate' && av !== 'long term') {
+          if (av > dateFilter) return false;
+        }
       }
+      return true;
+    });
+    if (sortState.key) {
+      list.sort((a, b) => {
+        let valA = a[sortState.key];
+        let valB = b[sortState.key];
+        if (sortState.key === 'monthly_rate') {
+          valA = Number(a.ppt_rate || a.monthly_rate || 0);
+          valB = Number(b.ppt_rate || b.monthly_rate || 0);
+        }
+        return universalCompare(valA, valB, sortState.dir);
+      });
     }
-    return true;
-  });
+    return list;
+  }, [sites, query, areaFilter, dateFilter, sortState]);
 
   async function uploadPage(k, file) {
     try {
@@ -1492,6 +1511,41 @@ function PptView() {
               autoComplete="off"
             />
           </div>
+
+          {/* Sort controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+            <select
+              value={sortState.key}
+              onChange={e => handleSort(e.target.value)}
+              style={{
+                height: '44px',
+                padding: '0 12px',
+                borderRadius: '8px',
+                border: '1px solid #344258',
+                background: '#111720',
+                color: '#e2eaf4',
+                fontSize: '12.5px',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="site_code">Sort: Site Code</option>
+              <option value="area">Sort: Area</option>
+              <option value="city">Sort: City</option>
+              <option value="media_type">Sort: Media Type</option>
+              <option value="monthly_rate">Sort: Rate</option>
+              <option value="availability">Sort: Availability</option>
+            </select>
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={() => setSortState(prev => ({ ...prev, dir: prev.dir === 'asc' ? 'desc' : 'asc' }))}
+              title={sortState.dir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
+              style={{ minHeight: '44px', padding: '0 12px', fontSize: '14px', whiteSpace: 'nowrap' }}
+            >
+              {sortState.dir === 'asc' ? '↑ A–Z' : '↓ Z–A'}
+            </button>
+          </div>
+
           <div
             className="scooh-ppt-select-actions"
             style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}
