@@ -134,6 +134,62 @@ const label = s => String(s).replaceAll('_', ' ').replace(/\b\w/g, m => m.toUppe
 const money = v => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 const formatDate = v => v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
+function universalCompare(valA, valB, dir = 'asc') {
+  if (valA === valB) return 0;
+  if (valA === null || valA === undefined || valA === '' || valA === '—') return 1;
+  if (valB === null || valB === undefined || valB === '' || valB === '—') return -1;
+
+  // Try parsing as number
+  const numA = typeof valA === 'number' ? valA : (typeof valA === 'string' && /^-?\d+(\.\d+)?$/.test(valA.trim()) ? parseFloat(valA) : NaN);
+  const numB = typeof valB === 'number' ? valB : (typeof valB === 'string' && /^-?\d+(\.\d+)?$/.test(valB.trim()) ? parseFloat(valB) : NaN);
+
+  let res = 0;
+  if (!isNaN(numA) && !isNaN(numB)) {
+    res = numA - numB;
+  } else {
+    // Try parsing as date
+    const isDateStr = str => typeof str === 'string' && (/^\d{4}-\d{2}-\d{2}/.test(str) || (!isNaN(Date.parse(str)) && !/^\d+$/.test(str)));
+    if (isDateStr(valA) && isDateStr(valB)) {
+      const timeA = new Date(valA).getTime();
+      const timeB = new Date(valB).getTime();
+      if (!isNaN(timeA) && !isNaN(timeB)) {
+        res = timeA - timeB;
+      } else {
+        res = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
+      }
+    } else {
+      res = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
+    }
+  }
+
+  return dir === 'desc' ? -res : res;
+}
+
+function SortHeader({ label, sortKey, currentSort, onSort, align = 'left', style = {} }) {
+  const isSorted = currentSort && currentSort.key === sortKey;
+  const icon = !isSorted ? ' ⇅' : (currentSort.dir === 'asc' ? ' ▲' : ' ▼');
+  return (
+    <th
+      onClick={() => onSort(sortKey)}
+      style={{
+        cursor: 'pointer',
+        userSelect: 'none',
+        textAlign: align,
+        color: isSorted ? '#c4b5fd' : undefined,
+        whiteSpace: 'nowrap',
+        transition: 'color 0.15s ease, background 0.15s ease',
+        ...style
+      }}
+      title={`Click to sort by ${label} (${isSorted && currentSort.dir === 'asc' ? 'Descending' : 'Ascending'})`}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+        <span>{label}</span>
+        <span style={{ fontSize: '10px', opacity: isSorted ? 1 : 0.45, color: isSorted ? '#a78bfa' : 'inherit' }}>{icon}</span>
+      </span>
+    </th>
+  );
+}
+
 function unpackSite(s) {
   let f = s.flags;
   try {
@@ -815,6 +871,9 @@ function SitesView() {
   const [search, setSearch] = useState('');
   const [cityFilter, setCityFilter] = useState('');
   const [mediaFilter, setMediaFilter] = useState('');
+  const [availFilter, setAvailFilter] = useState('');
+  const [lightingFilter, setLightingFilter] = useState('');
+  const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
   const [edit, setEdit] = useState(null);
   const [imageModalSite, setImageModalSite] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -838,14 +897,41 @@ function SitesView() {
 
   const cities = useMemo(() => Array.from(new Set(sites.map(s => s.city).filter(Boolean))), [sites]);
   const mediaTypes = useMemo(() => Array.from(new Set(sites.map(s => s.media_type).filter(Boolean))), [sites]);
+  const availabilities = useMemo(() => Array.from(new Set(sites.map(s => s.ppt_availability || s.availability).filter(Boolean))), [sites]);
+  const lightings = useMemo(() => Array.from(new Set(sites.map(s => s.lighting).filter(Boolean))), [sites]);
 
-  const filtered = sites.filter(s => {
-    const text = JSON.stringify(s).toLowerCase();
-    const matchesQuery = text.includes(search.toLowerCase());
-    const matchesCity = !cityFilter || s.city === cityFilter;
-    const matchesMedia = !mediaFilter || s.media_type === mediaFilter;
-    return matchesQuery && matchesCity && matchesMedia;
-  });
+  function handleSort(key) {
+    setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+
+  const filtered = useMemo(() => {
+    const list = sites.filter(s => {
+      const text = JSON.stringify(s).toLowerCase();
+      const matchesQuery = text.includes(search.toLowerCase());
+      const matchesCity = !cityFilter || s.city === cityFilter;
+      const matchesMedia = !mediaFilter || s.media_type === mediaFilter;
+      const matchesAvail = !availFilter || (s.ppt_availability || s.availability) === availFilter;
+      const matchesLighting = !lightingFilter || s.lighting === lightingFilter;
+      return matchesQuery && matchesCity && matchesMedia && matchesAvail && matchesLighting;
+    });
+
+    if (sortState.key) {
+      list.sort((a, b) => {
+        let valA = a[sortState.key];
+        let valB = b[sortState.key];
+        if (sortState.key === 'monthly_rate') {
+          valA = Number(a.ppt_rate || a.monthly_rate || 0);
+          valB = Number(b.ppt_rate || b.monthly_rate || 0);
+        }
+        if (sortState.key === 'availability') {
+          valA = a.ppt_availability || a.availability || '';
+          valB = b.ppt_availability || b.availability || '';
+        }
+        return universalCompare(valA, valB, sortState.dir);
+      });
+    }
+    return list;
+  }, [sites, search, cityFilter, mediaFilter, availFilter, lightingFilter, sortState]);
 
   async function save(e) {
     e.preventDefault();
@@ -890,14 +976,15 @@ function SitesView() {
         }
       />
 
-      <div className="scooh-toolbar">
+      <div className="scooh-toolbar" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
         <input
           className="scooh-search"
+          style={{ flex: '1 1 220px', minWidth: '180px' }}
           placeholder="Search site ID, location, landmark…"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <div className="scooh-filters">
+        <div className="scooh-filters" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           <select value={cityFilter} onChange={e => setCityFilter(e.target.value)}>
             <option value="">All Cities ({cities.length})</option>
             {cities.map(c => <option key={c} value={c}>{c}</option>)}
@@ -906,6 +993,52 @@ function SitesView() {
             <option value="">All Media Types ({mediaTypes.length})</option>
             {mediaTypes.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
+          {availabilities.length > 0 && (
+            <select value={availFilter} onChange={e => setAvailFilter(e.target.value)}>
+              <option value="">All Availability ({availabilities.length})</option>
+              {availabilities.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          )}
+          {lightings.length > 0 && (
+            <select value={lightingFilter} onChange={e => setLightingFilter(e.target.value)}>
+              <option value="">All Lighting ({lightings.length})</option>
+              {lightings.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          )}
+          <select
+            value={`${sortState.key}:${sortState.dir}`}
+            onChange={e => {
+              const [k, d] = e.target.value.split(':');
+              setSortState({ key: k, dir: d });
+            }}
+            style={{ fontWeight: 600 }}
+          >
+            <option value="site_code:asc">Sort: Site Code (A-Z)</option>
+            <option value="site_code:desc">Sort: Site Code (Z-A)</option>
+            <option value="area:asc">Sort: Area (A-Z)</option>
+            <option value="area:desc">Sort: Area (Z-A)</option>
+            <option value="monthly_rate:asc">Sort: Rate (Low to High)</option>
+            <option value="monthly_rate:desc">Sort: Rate (High to Low)</option>
+            <option value="availability:asc">Sort: Availability (A-Z)</option>
+            <option value="size:asc">Sort: Size</option>
+          </select>
+          {(search || cityFilter || mediaFilter || availFilter || lightingFilter || sortState.key !== 'site_code' || sortState.dir !== 'asc') && (
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              style={{ padding: '6px 10px', fontSize: '11px' }}
+              onClick={() => {
+                setSearch('');
+                setCityFilter('');
+                setMediaFilter('');
+                setAvailFilter('');
+                setLightingFilter('');
+                setSortState({ key: 'site_code', dir: 'asc' });
+              }}
+            >
+              Reset
+            </button>
+          )}
         </div>
       </div>
 
@@ -913,13 +1046,13 @@ function SitesView() {
         <table className="scooh-table">
           <thead>
             <tr>
-              <th>Site Code</th>
-              <th>Area / Landmark</th>
-              <th>Media</th>
-              <th>Size</th>
-              <th>Lighting</th>
-              <th>Availability</th>
-              <th>Rate / Mo</th>
+              <SortHeader label="Site Code" sortKey="site_code" currentSort={sortState} onSort={handleSort} />
+              <SortHeader label="Area / Landmark" sortKey="area" currentSort={sortState} onSort={handleSort} />
+              <SortHeader label="Media" sortKey="media_type" currentSort={sortState} onSort={handleSort} />
+              <SortHeader label="Size" sortKey="size" currentSort={sortState} onSort={handleSort} />
+              <SortHeader label="Lighting" sortKey="lighting" currentSort={sortState} onSort={handleSort} />
+              <SortHeader label="Availability" sortKey="availability" currentSort={sortState} onSort={handleSort} />
+              <SortHeader label="Rate / Mo" sortKey="monthly_rate" currentSort={sortState} onSort={handleSort} />
               <th>Photos</th>
               <th>Actions</th>
             </tr>
@@ -1512,8 +1645,11 @@ function ProposalsView() {
   );
   const [selectedSites, setSelectedSites] = useState({});
   const [search, setSearch] = useState('');
+  const [siteSort, setSiteSort] = useState({ key: 'site_code', dir: 'asc' });
   const [savedBanner, setSavedBanner] = useState(false);
   const [savedProposals, setSavedProposals] = useState([]);
+  const [propSearch, setPropSearch] = useState('');
+  const [propSort, setPropSort] = useState({ key: 'id', dir: 'desc' });
   const [loadingProposals, setLoadingProposals] = useState(false);
 
   async function loadProposals() {
@@ -1539,10 +1675,55 @@ function ProposalsView() {
     loadProposals();
   }, []);
 
-  const filteredSites = sites.filter(s => {
-    const hay = [s.site_code, s.area, s.city, s.media_type, s.size].filter(Boolean).join(' ').toLowerCase();
-    return !search || hay.includes(search.toLowerCase().trim());
-  });
+  function handlePropSort(key) {
+    setPropSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+
+  const filteredSites = useMemo(() => {
+    const list = sites.filter(s => {
+      const hay = [s.site_code, s.area, s.city, s.media_type, s.size].filter(Boolean).join(' ').toLowerCase();
+      return !search || hay.includes(search.toLowerCase().trim());
+    });
+
+    if (siteSort.key) {
+      list.sort((a, b) => {
+        let valA = a[siteSort.key];
+        let valB = b[siteSort.key];
+        if (siteSort.key === 'monthly_rate') {
+          valA = Number(a.ppt_rate || a.monthly_rate || 0);
+          valB = Number(b.ppt_rate || b.monthly_rate || 0);
+        }
+        return universalCompare(valA, valB, siteSort.dir);
+      });
+    }
+    return list;
+  }, [sites, search, siteSort]);
+
+  const filteredProposals = useMemo(() => {
+    const q = propSearch.trim().toLowerCase();
+    const list = savedProposals.filter(p => {
+      if (!q) return true;
+      const hay = [p.proposal_code, p.client_name, p.campaign_name, p.terms, p.notes].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+
+    if (propSort.key) {
+      list.sort((a, b) => {
+        let valA = a[propSort.key];
+        let valB = b[propSort.key];
+        if (propSort.key === 'proposal_date') {
+          valA = a.proposal_date || a.start_date || a.created_at || '';
+          valB = b.proposal_date || b.start_date || b.created_at || '';
+        }
+        if (propSort.key === 'total' || propSort.key === 'subtotal') {
+          valA = Number(a[propSort.key] || 0);
+          valB = Number(b[propSort.key] || 0);
+        }
+        return universalCompare(valA, valB, propSort.dir);
+      });
+    }
+    return list;
+  }, [savedProposals, propSearch, propSort]);
 
   const chosenSites = sites.filter(s => selectedSites[s.id || s.site_code]?.checked).map(s => {
     const rates = selectedSites[s.id || s.site_code] || {};
@@ -1703,11 +1884,28 @@ function ProposalsView() {
             </div>
           </div>
 
-          <h3 className="scooh-proposal-step" style={{ marginTop: '20px' }}>2. Select sites</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '20px', marginBottom: '8px', gap: '10px', flexWrap: 'wrap' }}>
+            <h3 className="scooh-proposal-step" style={{ margin: 0, padding: 0, border: 'none' }}>2. Select sites</h3>
+            <select
+              value={`${siteSort.key}:${siteSort.dir}`}
+              onChange={e => {
+                const [k, d] = e.target.value.split(':');
+                setSiteSort({ key: k, dir: d });
+              }}
+              style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '6px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155' }}
+            >
+              <option value="site_code:asc">Sort: Site Code (A-Z)</option>
+              <option value="site_code:desc">Sort: Site Code (Z-A)</option>
+              <option value="area:asc">Sort: Area (A-Z)</option>
+              <option value="monthly_rate:asc">Sort: Rate (Low to High)</option>
+              <option value="monthly_rate:desc">Sort: Rate (High to Low)</option>
+              <option value="size:asc">Sort: Size</option>
+            </select>
+          </div>
           <div className="scooh-field">
             <input
               type="search"
-              placeholder="Filter sites..."
+              placeholder="Filter sites by code, area, landmark, media..."
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -1972,38 +2170,82 @@ function ProposalsView() {
           <div>
             <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800 }}>Saved Proposals Archive</h3>
             <p className="scooh-footnote" style={{ margin: '4px 0 0', color: 'var(--mb-muted)' }}>
-              All saved client proposals with complete financial breakdown, custom rates, and selected media sites.
+              All saved client proposals ({filteredProposals.length} shown) with complete financial breakdown, custom rates, and selected media sites.
             </p>
           </div>
-          <button type="button" className="scooh-btn ghost" onClick={loadProposals} disabled={loadingProposals}>
-            {loadingProposals ? 'Loading…' : '🔄 Refresh Proposals'}
-          </button>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className="scooh-btn ghost" onClick={loadProposals} disabled={loadingProposals}>
+              {loadingProposals ? 'Loading…' : '🔄 Refresh Proposals'}
+            </button>
+          </div>
+        </div>
+
+        {/* Toolbar for Proposals Archive */}
+        <div className="scooh-toolbar" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px' }}>
+          <input
+            className="scooh-search"
+            style={{ flex: '1 1 240px', minWidth: '200px' }}
+            placeholder="Search saved proposals by code, client, campaign…"
+            value={propSearch}
+            onChange={e => setPropSearch(e.target.value)}
+          />
+          <select
+            value={`${propSort.key}:${propSort.dir}`}
+            onChange={e => {
+              const [k, d] = e.target.value.split(':');
+              setPropSort({ key: k, dir: d });
+            }}
+            style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px', fontWeight: 600 }}
+          >
+            <option value="id:desc">Sort: Date (Newest First)</option>
+            <option value="id:asc">Sort: Date (Oldest First)</option>
+            <option value="total:desc">Sort: Grand Total (High to Low)</option>
+            <option value="total:asc">Sort: Grand Total (Low to High)</option>
+            <option value="client_name:asc">Sort: Client Name (A-Z)</option>
+            <option value="client_name:desc">Sort: Client Name (Z-A)</option>
+            <option value="campaign_name:asc">Sort: Campaign (A-Z)</option>
+            <option value="proposal_code:asc">Sort: Proposal Code (A-Z)</option>
+          </select>
+          {(propSearch || propSort.key !== 'id' || propSort.dir !== 'desc') && (
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              style={{ padding: '6px 10px', fontSize: '11px' }}
+              onClick={() => { setPropSearch(''); setPropSort({ key: 'id', dir: 'desc' }); }}
+            >
+              Reset
+            </button>
+          )}
         </div>
 
         <div className="scooh-tablewrap">
           <table className="scooh-table">
             <thead>
               <tr>
-                <th>Code</th>
-                <th>Client / Brand</th>
-                <th>Campaign</th>
-                <th>Proposal Date</th>
-                <th>Duration</th>
-                <th>Subtotal</th>
-                <th>GST (18%)</th>
-                <th>Grand Total</th>
+                <SortHeader label="Code" sortKey="proposal_code" currentSort={propSort} onSort={handlePropSort} />
+                <SortHeader label="Client / Brand" sortKey="client_name" currentSort={propSort} onSort={handlePropSort} />
+                <SortHeader label="Campaign" sortKey="campaign_name" currentSort={propSort} onSort={handlePropSort} />
+                <SortHeader label="Proposal Date" sortKey="proposal_date" currentSort={propSort} onSort={handlePropSort} />
+                <SortHeader label="Duration" sortKey="duration_days" currentSort={propSort} onSort={handlePropSort} />
+                <SortHeader label="Subtotal" sortKey="subtotal" currentSort={propSort} onSort={handlePropSort} />
+                <SortHeader label="GST (18%)" sortKey="tax_percent" currentSort={propSort} onSort={handlePropSort} />
+                <SortHeader label="Grand Total" sortKey="total" currentSort={propSort} onSort={handlePropSort} />
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {savedProposals.length === 0 ? (
+              {filteredProposals.length === 0 ? (
                 <tr>
                   <td colSpan="9" className="scooh-empty" style={{ padding: '30px', textAlign: 'center' }}>
-                    No saved proposals yet. Click <strong>"Save Proposal"</strong> above to archive quotes.
+                    {savedProposals.length === 0 ? (
+                      <>No saved proposals yet. Click <strong>"Save Proposal"</strong> above to archive quotes.</>
+                    ) : (
+                      <>No saved proposals match your search query.</>
+                    )}
                   </td>
                 </tr>
               ) : (
-                savedProposals.map(p => (
+                filteredProposals.map(p => (
                   <tr key={p.id || p.proposal_code}>
                     <td><span className="scooh-plate">{p.proposal_code}</span></td>
                     <td><strong>{p.client_name || 'Client'}</strong></td>
@@ -2060,6 +2302,8 @@ function ProposalsView() {
 
 function OccupancyView() {
   const [rows, setRows] = useState([]);
+  const [search, setSearch] = useState('');
+  const [sortState, setSortState] = useState({ key: 'pct', dir: 'desc' });
 
   useEffect(() => {
     Promise.all([api.get('/sites'), api.get('/campaigns')]).then(([s, c]) => {
@@ -2082,45 +2326,111 @@ function OccupancyView() {
           occupied: Math.round(days),
           pct: Math.min(100, Math.round((days / 365) * 100))
         };
-      }).sort((a, b) => b.pct - a.pct);
+      });
       setRows(calculated);
     }).catch(() => {
       setRows(defaultSites.map(s => ({ site_code: s.site_code, city: s.city, area: s.area, occupied: 0, pct: 0 })));
     });
   }, []);
 
+  function handleSort(key) {
+    setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = rows.filter(r => {
+      if (!q) return true;
+      return [r.site_code, r.city, r.area].some(v => String(v || '').toLowerCase().includes(q));
+    });
+
+    if (sortState.key) {
+      list.sort((a, b) => {
+        let valA = a[sortState.key];
+        let valB = b[sortState.key];
+        if (sortState.key === 'occupied' || sortState.key === 'pct') {
+          valA = Number(valA || 0);
+          valB = Number(valB || 0);
+        }
+        return universalCompare(valA, valB, sortState.dir);
+      });
+    }
+    return list;
+  }, [rows, search, sortState]);
+
   return (
     <>
       <PageHead title="Occupancy & Utilization" desc="Rolling 365-day site occupancy calculations and performance breakdown." />
       <section className="scooh-panel">
+        <div className="scooh-toolbar" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px' }}>
+          <input
+            className="scooh-search"
+            style={{ flex: '1 1 240px', minWidth: '200px' }}
+            placeholder="Search by site code, city, area…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <select
+            value={`${sortState.key}:${sortState.dir}`}
+            onChange={e => {
+              const [k, d] = e.target.value.split(':');
+              setSortState({ key: k, dir: d });
+            }}
+            style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px', fontWeight: 600 }}
+          >
+            <option value="pct:desc">Sort: Occupancy % (High to Low)</option>
+            <option value="pct:asc">Sort: Occupancy % (Low to High)</option>
+            <option value="occupied:desc">Sort: Occupied Days (High to Low)</option>
+            <option value="occupied:asc">Sort: Occupied Days (Low to High)</option>
+            <option value="site_code:asc">Sort: Site ID (A-Z)</option>
+            <option value="site_code:desc">Sort: Site ID (Z-A)</option>
+            <option value="area:asc">Sort: Area (A-Z)</option>
+            <option value="city:asc">Sort: City (A-Z)</option>
+          </select>
+          {(search || sortState.key !== 'pct' || sortState.dir !== 'desc') && (
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              style={{ padding: '6px 10px', fontSize: '11px' }}
+              onClick={() => { setSearch(''); setSortState({ key: 'pct', dir: 'desc' }); }}
+            >
+              Reset
+            </button>
+          )}
+        </div>
+
         <div className="scooh-tablewrap">
           <table className="scooh-table">
             <thead>
               <tr>
-                <th>Site ID</th>
-                <th>City</th>
-                <th>Area</th>
-                <th>Occupied Days (365d)</th>
-                <th>Occupancy %</th>
+                <SortHeader label="Site ID" sortKey="site_code" currentSort={sortState} onSort={handleSort} />
+                <SortHeader label="City" sortKey="city" currentSort={sortState} onSort={handleSort} />
+                <SortHeader label="Area" sortKey="area" currentSort={sortState} onSort={handleSort} />
+                <SortHeader label="Occupied Days (365d)" sortKey="occupied" currentSort={sortState} onSort={handleSort} />
+                <SortHeader label="Occupancy %" sortKey="pct" currentSort={sortState} onSort={handleSort} />
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => (
-                <tr key={r.site_code}>
-                  <td><span className="scooh-plate">{r.site_code}</span></td>
-                  <td>{r.city}</td>
-                  <td><b>{r.area}</b></td>
-                  <td>{r.occupied} days</td>
-                  <td>
-                    <div className="scooh-occ-cell">
-                      <div className="scooh-occbar">
-                        <span style={{ width: r.pct + '%', background: r.pct > 70 ? '#48c79a' : r.pct > 30 ? '#e8a94b' : '#f06a6a' }} />
+              {filtered.length === 0 ? (
+                <tr><td colSpan="5" className="scooh-empty">No sites match the search filter</td></tr>
+              ) : (
+                filtered.map(r => (
+                  <tr key={r.site_code}>
+                    <td><span className="scooh-plate">{r.site_code}</span></td>
+                    <td>{r.city}</td>
+                    <td><b>{r.area}</b></td>
+                    <td>{r.occupied} days</td>
+                    <td>
+                      <div className="scooh-occ-cell">
+                        <div className="scooh-occbar">
+                          <span style={{ width: r.pct + '%', background: r.pct > 70 ? '#48c79a' : r.pct > 30 ? '#e8a94b' : '#f06a6a' }} />
+                        </div>
+                        <b>{r.pct}%</b>
                       </div>
-                      <b>{r.pct}%</b>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -2224,6 +2534,7 @@ function ElectricityView() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [providerFilter, setProviderFilter] = useState('ALL');
   const [monthFilter, setMonthFilter] = useState('ALL');
+  const [sortState, setSortState] = useState({ key: 'due_date', dir: 'asc' });
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState('');
 
@@ -2283,30 +2594,49 @@ function ElectricityView() {
   const months = Array.from(new Set(rows.map(r => r.billing_month).filter(Boolean)));
   const providers = Array.from(new Set(rows.map(r => r.bill_type).filter(Boolean)));
 
-  const filtered = rows.filter(r => {
-    const q = search.trim().toLowerCase();
-    const matchesSearch = !q || [
-      r.site_code,
-      r.location,
-      r.size,
-      r.meter_no,
-      r.service_number,
-      r.t_number,
-      r.bill_type,
-      r.billing_month,
-      r.payment_status,
-      r.notes
-    ].some(v => String(v || '').toLowerCase().includes(q));
+  function handleSort(key) {
+    setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
 
-    const matchesStatus = statusFilter === 'ALL' ? true :
-      statusFilter === 'Overdue' ? (r.payment_status !== 'Paid' && r.due_date && new Date(r.due_date) < new Date()) :
-      r.payment_status === statusFilter;
+  const filtered = useMemo(() => {
+    const list = rows.filter(r => {
+      const q = search.trim().toLowerCase();
+      const matchesSearch = !q || [
+        r.site_code,
+        r.location,
+        r.size,
+        r.meter_no,
+        r.service_number,
+        r.t_number,
+        r.bill_type,
+        r.billing_month,
+        r.payment_status,
+        r.notes
+      ].some(v => String(v || '').toLowerCase().includes(q));
 
-    const matchesProvider = providerFilter === 'ALL' || r.bill_type === providerFilter;
-    const matchesMonth = monthFilter === 'ALL' || r.billing_month === monthFilter;
+      const matchesStatus = statusFilter === 'ALL' ? true :
+        statusFilter === 'Overdue' ? (r.payment_status !== 'Paid' && r.due_date && new Date(r.due_date) < new Date()) :
+        r.payment_status === statusFilter;
 
-    return matchesSearch && matchesStatus && matchesProvider && matchesMonth;
-  });
+      const matchesProvider = providerFilter === 'ALL' || r.bill_type === providerFilter;
+      const matchesMonth = monthFilter === 'ALL' || r.billing_month === monthFilter;
+
+      return matchesSearch && matchesStatus && matchesProvider && matchesMonth;
+    });
+
+    if (sortState.key) {
+      list.sort((a, b) => {
+        let valA = a[sortState.key];
+        let valB = b[sortState.key];
+        if (sortState.key === 'amount') {
+          valA = Number(a.amount || a.payment_amount || 0);
+          valB = Number(b.amount || b.payment_amount || 0);
+        }
+        return universalCompare(valA, valB, sortState.dir);
+      });
+    }
+    return list;
+  }, [rows, search, statusFilter, providerFilter, monthFilter, sortState]);
 
   function openNewBill() {
     setEditModal({
@@ -2553,12 +2883,30 @@ function ElectricityView() {
               ))}
             </select>
           )}
-          {(search || statusFilter !== 'ALL' || providerFilter !== 'ALL' || monthFilter !== 'ALL') && (
+          <select
+            value={`${sortState.key}:${sortState.dir}`}
+            onChange={e => {
+              const [k, d] = e.target.value.split(':');
+              setSortState({ key: k, dir: d });
+            }}
+            style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px', fontWeight: 600 }}
+          >
+            <option value="due_date:asc">Sort: Due Date (Earliest First)</option>
+            <option value="due_date:desc">Sort: Due Date (Latest First)</option>
+            <option value="amount:desc">Sort: Amount (High to Low)</option>
+            <option value="amount:asc">Sort: Amount (Low to High)</option>
+            <option value="site_code:asc">Sort: Site Code (A-Z)</option>
+            <option value="site_code:desc">Sort: Site Code (Z-A)</option>
+            <option value="location:asc">Sort: Location (A-Z)</option>
+            <option value="payment_status:asc">Sort: Status (A-Z)</option>
+            <option value="billing_month:desc">Sort: Billing Month</option>
+          </select>
+          {(search || statusFilter !== 'ALL' || providerFilter !== 'ALL' || monthFilter !== 'ALL' || sortState.key !== 'due_date' || sortState.dir !== 'asc') && (
             <button
               type="button"
               className="scooh-btn ghost"
               style={{ fontSize: '11px', padding: '6px 10px' }}
-              onClick={() => { setSearch(''); setStatusFilter('ALL'); setProviderFilter('ALL'); setMonthFilter('ALL'); }}
+              onClick={() => { setSearch(''); setStatusFilter('ALL'); setProviderFilter('ALL'); setMonthFilter('ALL'); setSortState({ key: 'due_date', dir: 'asc' }); }}
             >
               Reset Filters
             </button>
@@ -2570,16 +2918,16 @@ function ElectricityView() {
           <table className="scooh-table">
             <thead>
               <tr>
-                <th style={{ minWidth: '110px' }}>SITE CODE</th>
-                <th style={{ minWidth: '180px' }}>LOCATION</th>
-                <th style={{ minWidth: '85px' }}>SIZE</th>
-                <th style={{ minWidth: '140px' }}>METER / SERVICE</th>
-                <th style={{ minWidth: '100px' }}>T NUMBER</th>
-                <th style={{ minWidth: '120px' }}>BILL / PROVIDER</th>
-                <th style={{ minWidth: '110px' }}>BILLING MONTH</th>
-                <th style={{ minWidth: '110px' }}>DUE DATE</th>
-                <th style={{ minWidth: '120px', textAlign: 'right' }}>PAYMENT AMOUNT</th>
-                <th style={{ minWidth: '95px', textAlign: 'center' }}>STATUS</th>
+                <SortHeader label="SITE CODE" sortKey="site_code" currentSort={sortState} onSort={handleSort} style={{ minWidth: '110px' }} />
+                <SortHeader label="LOCATION" sortKey="location" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
+                <SortHeader label="SIZE" sortKey="size" currentSort={sortState} onSort={handleSort} style={{ minWidth: '85px' }} />
+                <SortHeader label="METER / SERVICE" sortKey="meter_no" currentSort={sortState} onSort={handleSort} style={{ minWidth: '140px' }} />
+                <SortHeader label="T NUMBER" sortKey="t_number" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
+                <SortHeader label="BILL / PROVIDER" sortKey="bill_type" currentSort={sortState} onSort={handleSort} style={{ minWidth: '120px' }} />
+                <SortHeader label="BILLING MONTH" sortKey="billing_month" currentSort={sortState} onSort={handleSort} style={{ minWidth: '110px' }} />
+                <SortHeader label="DUE DATE" sortKey="due_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '110px' }} />
+                <SortHeader label="PAYMENT AMOUNT" sortKey="amount" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '120px' }} />
+                <SortHeader label="STATUS" sortKey="payment_status" currentSort={sortState} onSort={handleSort} align="center" style={{ minWidth: '95px' }} />
                 <th style={{ minWidth: '140px', textAlign: 'center' }}>ACTIONS</th>
               </tr>
             </thead>
@@ -4007,6 +4355,7 @@ function Crud({ entity, title }) {
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(null);
   const [search, setSearch] = useState('');
+  const [sortState, setSortState] = useState({ key: '', dir: 'asc' });
   const [saving, setSaving] = useState(false);
   const [saveBanner, setSaveBanner] = useState('');
   const fs = fields[entity] || [];
@@ -4026,7 +4375,17 @@ function Crud({ entity, title }) {
     return () => clearInterval(interval);
   }, [entity]);
 
-  const shown = (Array.isArray(rows) ? rows : []).filter(r => JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
+  function handleSort(key) {
+    setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+
+  const shown = useMemo(() => {
+    const list = (Array.isArray(rows) ? rows : []).filter(r => JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
+    if (sortState.key) {
+      list.sort((a, b) => universalCompare(a[sortState.key], b[sortState.key], sortState.dir));
+    }
+    return list;
+  }, [rows, search, sortState]);
 
   async function save(e) {
     e.preventDefault();
@@ -4071,20 +4430,51 @@ function Crud({ entity, title }) {
 
       {saveBanner && <div className="scooh-banner" style={{ display: 'block', marginBottom: '14px' }}>{saveBanner}</div>}
 
-      <div className="scooh-toolbar">
+      <div className="scooh-toolbar" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
         <input
           className="scooh-search"
+          style={{ flex: '1 1 240px', minWidth: '200px' }}
           placeholder={`Search ${title.toLowerCase()}…`}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
+        {fs.length > 0 && (
+          <select
+            value={`${sortState.key}:${sortState.dir}`}
+            onChange={e => {
+              const [k, d] = e.target.value.split(':');
+              setSortState({ key: k, dir: d });
+            }}
+            style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px', fontWeight: 600 }}
+          >
+            <option value=":asc">Default Sorting</option>
+            {fs.slice(0, 8).map(f => (
+              <React.Fragment key={f}>
+                <option value={`${f}:asc`}>{label(f)} (A-Z / Low-High)</option>
+                <option value={`${f}:desc`}>{label(f)} (Z-A / High-Low)</option>
+              </React.Fragment>
+            ))}
+          </select>
+        )}
+        {(search || sortState.key) && (
+          <button
+            type="button"
+            className="scooh-btn ghost"
+            style={{ padding: '6px 10px', fontSize: '11px' }}
+            onClick={() => { setSearch(''); setSortState({ key: '', dir: 'asc' }); }}
+          >
+            Reset
+          </button>
+        )}
       </div>
 
       <div className="scooh-tablewrap">
         <table className="scooh-table">
           <thead>
             <tr>
-              {fs.slice(0, 8).map(f => <th key={f}>{label(f)}</th>)}
+              {fs.slice(0, 8).map(f => (
+                <SortHeader key={f} label={label(f)} sortKey={f} currentSort={sortState} onSort={handleSort} />
+              ))}
               <th>Actions</th>
             </tr>
           </thead>

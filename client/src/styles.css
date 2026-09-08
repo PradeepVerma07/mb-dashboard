@@ -319,6 +319,18 @@ body {
     .scooh-table td > .scooh-text-action { min-width: 50px; }
 }
 
+/* Sortable table header interactive styling */
+.scooh-table th {
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.scooh-table th[title]:hover {
+    background: rgba(139, 92, 246, 0.15) !important;
+    color: #ffffff !important;
+}
+.scooh-table th[title]:active {
+    background: rgba(139, 92, 246, 0.25) !important;
+}
+
 
 /* v2.1.2 top bar cleanup */
 .scooh-topbar{background:#0f141b!important;}
