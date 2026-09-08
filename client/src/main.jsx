@@ -1512,8 +1512,26 @@ function PptView() {
             />
           </div>
 
-          {/* Sort controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+          <div
+            className="scooh-ppt-select-actions"
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}
+          >
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={selectAllVisible}
+              style={{ minHeight: '44px', padding: '0 16px', fontSize: '12.5px', whiteSpace: 'nowrap' }}
+            >
+              Select all visible
+            </button>
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={deselectAll}
+              style={{ minHeight: '44px', padding: '0 16px', fontSize: '12.5px', whiteSpace: 'nowrap' }}
+            >
+              Deselect all
+            </button>
             <select
               value={sortState.key}
               onChange={e => handleSort(e.target.value)}
@@ -1543,28 +1561,6 @@ function PptView() {
               style={{ minHeight: '44px', padding: '0 12px', fontSize: '14px', whiteSpace: 'nowrap' }}
             >
               {sortState.dir === 'asc' ? '↑ A–Z' : '↓ Z–A'}
-            </button>
-          </div>
-
-          <div
-            className="scooh-ppt-select-actions"
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}
-          >
-            <button
-              type="button"
-              className="scooh-btn ghost"
-              onClick={selectAllVisible}
-              style={{ minHeight: '44px', padding: '0 16px', fontSize: '12.5px', whiteSpace: 'nowrap' }}
-            >
-              Select all visible
-            </button>
-            <button
-              type="button"
-              className="scooh-btn ghost"
-              onClick={deselectAll}
-              style={{ minHeight: '44px', padding: '0 16px', fontSize: '12.5px', whiteSpace: 'nowrap' }}
-            >
-              Deselect all
             </button>
           </div>
         </div>
