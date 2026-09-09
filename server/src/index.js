@@ -15,6 +15,42 @@ async function tableColumns(table){const rows=await q(`SHOW COLUMNS FROM \`${tab
 async function cleanData(table,body){const cols=await tableColumns(table),out={};for(const [k,v] of Object.entries(body||{})){if(cols.has(k)&&!blocked.has(k)){if(typeof v==='object'&&v!==null)out[k]=JSON.stringify(v);else out[k]=v===''?null:v}}return out}
 async function audit(user,action,type,id,before=null,after=null){try{await q('INSERT INTO activity_log (user_id,user_name,action,object_type,object_id,old_value,new_value,created_at) VALUES (?,?,?,?,?,?,?,NOW())',[user?.id||null,user?.name||'',action,type,id||null,before?JSON.stringify(before):null,after?JSON.stringify(after):null])}catch{}}
 
+export async function ensureCampaignColumns() {
+  try {
+    const existingCols = await tableColumns('campaigns');
+    const colsToAdd = [
+      { name: 'month', type: 'VARCHAR(60) NOT NULL DEFAULT ""' },
+      { name: 'display', type: 'VARCHAR(190) NOT NULL DEFAULT ""' },
+      { name: 'vendor_name', type: 'VARCHAR(190) NOT NULL DEFAULT ""' },
+      { name: 'location', type: 'VARCHAR(255) NOT NULL DEFAULT ""' },
+      { name: 'width', type: 'DECIMAL(10,2) NULL' },
+      { name: 'height', type: 'DECIMAL(10,2) NULL' },
+      { name: 'size', type: 'VARCHAR(60) NOT NULL DEFAULT ""' },
+      { name: 'type', type: 'VARCHAR(80) NOT NULL DEFAULT "Hoarding"' },
+      { name: 'days', type: 'INT NOT NULL DEFAULT 30' },
+      { name: 'advt_fees', type: 'DECIMAL(15,2) NOT NULL DEFAULT 0' },
+      { name: 'printing_mounting_cost', type: 'DECIMAL(15,2) NOT NULL DEFAULT 0' },
+      { name: 'total_amount', type: 'DECIMAL(15,2) NOT NULL DEFAULT 0' },
+      { name: 'po', type: 'VARCHAR(100) NOT NULL DEFAULT ""' },
+      { name: 'bill', type: 'VARCHAR(100) NOT NULL DEFAULT ""' },
+      { name: 'pending', type: 'DECIMAL(15,2) NOT NULL DEFAULT 0' },
+      { name: 'occupancy', type: 'VARCHAR(100) NOT NULL DEFAULT ""' }
+    ];
+    for (const c of colsToAdd) {
+      if (!existingCols.has(c.name)) {
+        try {
+          await q(`ALTER TABLE campaigns ADD COLUMN \`${c.name}\` ${c.type}`);
+          console.log(`[Schema Migration] Added column \`${c.name}\` to campaigns table.`);
+        } catch (err) {
+          console.warn(`[Schema Migration] Notice adding \`${c.name}\`:`, err.message);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Schema Migration] ensureCampaignColumns notice:', err.message);
+  }
+}
+
 /**
  * syncSiteAvailability() – Recalculates and persists availability for ALL sites
  * based on currently active campaigns. Uses the physical panel conflict map
@@ -1272,9 +1308,17 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
       candidateSheets.push({ name: wb.SheetNames[0], sheet: wb.Sheets[wb.SheetNames[0]], headerIdx: 0, score: 0 });
     }
 
+    await ensureCampaignColumns();
+    const campCols = await tableColumns('campaigns');
+
     let updatedCount = 0, newCount = 0;
     const existingSites = await q('SELECT id, site_code, address, area, width, height, size FROM sites WHERE record_status="active"');
-    const existingCampaigns = await q('SELECT id, site_code, month, booking_date, client, display, vendor_name, location, start_date, end_date, po FROM campaigns WHERE record_status="active"');
+
+    const selectCols = ['id', 'site_code', 'client', 'start_date', 'end_date'];
+    ['month', 'booking_date', 'display', 'vendor_name', 'location', 'po'].forEach(c => {
+      if (campCols.has(c)) selectCols.push(c);
+    });
+    const existingCampaigns = await q(`SELECT ${selectCols.join(', ')} FROM campaigns WHERE record_status="active"`);
 
     for (const cs of candidateSheets) {
       const rows = XLSX.utils.sheet_to_json(cs.sheet, { range: cs.headerIdx, defval: '', raw: true });
@@ -1410,40 +1454,38 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
         });
 
         if (matched) {
-          await q(`UPDATE campaigns SET
-            site_id = COALESCE(?, site_id),
-            site_code = COALESCE(NULLIF(?, ''), site_code),
-            month = COALESCE(NULLIF(?, ''), month),
-            booking_date = COALESCE(?, booking_date),
-            client = COALESCE(NULLIF(?, ''), client),
-            display = COALESCE(NULLIF(?, ''), display),
-            campaign_name = COALESCE(NULLIF(?, ''), campaign_name),
-            brand = COALESCE(NULLIF(?, ''), brand),
-            vendor_name = COALESCE(NULLIF(?, ''), vendor_name),
-            location = COALESCE(NULLIF(?, ''), location),
-            width = COALESCE(?, width),
-            height = COALESCE(?, height),
-            size = COALESCE(NULLIF(?, ''), size),
-            type = COALESCE(NULLIF(?, ''), type),
-            start_date = COALESCE(?, start_date),
-            end_date = COALESCE(?, end_date),
-            days = ?,
-            advt_fees = ?,
-            printing_mounting_cost = ?,
-            total_amount = ?,
-            revenue = ?,
-            po = COALESCE(NULLIF(?, ''), po),
-            bill = COALESCE(NULLIF(?, ''), bill),
-            pending = ?,
-            record_status = 'active',
-            updated_at = NOW()
-            WHERE id = ?`, [
-            finalSiteId, finalSiteCode,
-            month, dateVal, client, display, display, client, vendorName, location,
-            width || null, height || null, size, type, startDate, endDate,
-            days, advtFees, printingMounting, totalAmount, totalAmount,
-            po, bill, pending, matched.id
-          ]);
+          const updateFields = [
+            'site_id = COALESCE(?, site_id)',
+            'site_code = COALESCE(NULLIF(?, ""), site_code)'
+          ];
+          const updateVals = [finalSiteId, finalSiteCode];
+
+          if (campCols.has('month')) { updateFields.push('month = COALESCE(NULLIF(?, ""), month)'); updateVals.push(month); }
+          if (campCols.has('booking_date')) { updateFields.push('booking_date = COALESCE(?, booking_date)'); updateVals.push(dateVal); }
+          if (campCols.has('client')) { updateFields.push('client = COALESCE(NULLIF(?, ""), client)'); updateVals.push(client); }
+          if (campCols.has('display')) { updateFields.push('display = COALESCE(NULLIF(?, ""), display)'); updateVals.push(display); }
+          if (campCols.has('campaign_name')) { updateFields.push('campaign_name = COALESCE(NULLIF(?, ""), campaign_name)'); updateVals.push(display); }
+          if (campCols.has('brand')) { updateFields.push('brand = COALESCE(NULLIF(?, ""), brand)'); updateVals.push(client); }
+          if (campCols.has('vendor_name')) { updateFields.push('vendor_name = COALESCE(NULLIF(?, ""), vendor_name)'); updateVals.push(vendorName); }
+          if (campCols.has('location')) { updateFields.push('location = COALESCE(NULLIF(?, ""), location)'); updateVals.push(location); }
+          if (campCols.has('width')) { updateFields.push('width = COALESCE(?, width)'); updateVals.push(width || null); }
+          if (campCols.has('height')) { updateFields.push('height = COALESCE(?, height)'); updateVals.push(height || null); }
+          if (campCols.has('size')) { updateFields.push('size = COALESCE(NULLIF(?, ""), size)'); updateVals.push(size); }
+          if (campCols.has('type')) { updateFields.push('type = COALESCE(NULLIF(?, ""), type)'); updateVals.push(type); }
+          if (campCols.has('start_date')) { updateFields.push('start_date = COALESCE(?, start_date)'); updateVals.push(startDate); }
+          if (campCols.has('end_date')) { updateFields.push('end_date = COALESCE(?, end_date)'); updateVals.push(endDate); }
+          if (campCols.has('days')) { updateFields.push('days = ?'); updateVals.push(days); }
+          if (campCols.has('advt_fees')) { updateFields.push('advt_fees = ?'); updateVals.push(advtFees); }
+          if (campCols.has('printing_mounting_cost')) { updateFields.push('printing_mounting_cost = ?'); updateVals.push(printingMounting); }
+          if (campCols.has('total_amount')) { updateFields.push('total_amount = ?'); updateVals.push(totalAmount); }
+          if (campCols.has('revenue')) { updateFields.push('revenue = ?'); updateVals.push(totalAmount); }
+          if (campCols.has('po')) { updateFields.push('po = COALESCE(NULLIF(?, ""), po)'); updateVals.push(po); }
+          if (campCols.has('bill')) { updateFields.push('bill = COALESCE(NULLIF(?, ""), bill)'); updateVals.push(bill); }
+          if (campCols.has('pending')) { updateFields.push('pending = ?'); updateVals.push(pending); }
+          updateFields.push('record_status = "active"', 'updated_at = NOW()');
+          updateVals.push(matched.id);
+
+          await q(`UPDATE campaigns SET ${updateFields.join(', ')} WHERE id = ?`, updateVals);
           matched.site_code = finalSiteCode;
           matched.start_date = startDate;
           matched.end_date = endDate;
@@ -1451,16 +1493,42 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
           updatedCount++;
         } else {
           const bookingCode = `MB-BK-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-          const insertRes = await q(`INSERT INTO campaigns (
-            booking_code, site_id, site_code, month, booking_date, client, display, campaign_name, brand, vendor_name,
-            location, width, height, size, type, start_date, end_date, days,
-            advt_fees, printing_mounting_cost, total_amount, revenue, po, bill, pending,
-            record_status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
-            bookingCode, finalSiteId, finalSiteCode, month, dateVal, client, display, display, client, vendorName,
-            location, width || null, height || null, size, type, startDate, endDate, days,
-            advtFees, printingMounting, totalAmount, totalAmount, po, bill, pending
-          ]);
+          const insertData = {
+            booking_code: bookingCode,
+            site_id: finalSiteId,
+            site_code: finalSiteCode,
+            record_status: 'active'
+          };
+          if (campCols.has('month')) insertData.month = month;
+          if (campCols.has('booking_date')) insertData.booking_date = dateVal;
+          if (campCols.has('client')) insertData.client = client;
+          if (campCols.has('display')) insertData.display = display;
+          if (campCols.has('campaign_name')) insertData.campaign_name = display;
+          if (campCols.has('brand')) insertData.brand = client;
+          if (campCols.has('vendor_name')) insertData.vendor_name = vendorName;
+          if (campCols.has('location')) insertData.location = location;
+          if (campCols.has('width')) insertData.width = width || null;
+          if (campCols.has('height')) insertData.height = height || null;
+          if (campCols.has('size')) insertData.size = size;
+          if (campCols.has('type')) insertData.type = type;
+          if (campCols.has('start_date')) insertData.start_date = startDate;
+          if (campCols.has('end_date')) insertData.end_date = endDate;
+          if (campCols.has('days')) insertData.days = days;
+          if (campCols.has('advt_fees')) insertData.advt_fees = advtFees;
+          if (campCols.has('printing_mounting_cost')) insertData.printing_mounting_cost = printingMounting;
+          if (campCols.has('total_amount')) insertData.total_amount = totalAmount;
+          if (campCols.has('revenue')) insertData.revenue = totalAmount;
+          if (campCols.has('po')) insertData.po = po;
+          if (campCols.has('bill')) insertData.bill = bill;
+          if (campCols.has('pending')) insertData.pending = pending;
+
+          const cols = Object.keys(insertData);
+          const placeholders = cols.map(() => '?').join(', ');
+          const vals = cols.map(c => insertData[c]);
+          const insertRes = await q(
+            `INSERT INTO campaigns (${cols.map(c => '`' + c + '`').join(', ')}, created_at, updated_at) VALUES (${placeholders}, NOW(), NOW())`,
+            vals
+          );
           existingCampaigns.push({
             id: insertRes?.insertId,
             site_code: finalSiteCode,
@@ -2053,6 +2121,8 @@ async function initDb() {
       await q('ALTER TABLE electricity MODIFY due_date DATE NULL DEFAULT NULL');
       await q('ALTER TABLE campaigns MODIFY start_date DATE NULL DEFAULT NULL, MODIFY end_date DATE NULL DEFAULT NULL');
     } catch (_) {}
+
+    await ensureCampaignColumns();
 
     // Auto-seed initial Media Buzz sites & settings if empty
     try {
