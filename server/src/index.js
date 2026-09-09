@@ -103,7 +103,14 @@ async function syncSiteAvailability() {
     console.error('[syncSiteAvailability] Error:', err.message);
   }
 }
-app.get('/api/health',async(req,res)=>{try{await q('SELECT 1');res.json({ok:true})}catch(e){res.status(500).json({ok:false,message:e.message})}});
+app.get('/api/health', async (req, res) => {
+  try {
+    await q('SELECT 1');
+    res.json({ ok: true, version: '2026.09.09-no-nullif', timestamp: new Date().toISOString() });
+  } catch (e) {
+    res.status(500).json({ ok: false, message: e.message });
+  }
+});
 app.post('/api/auth/login', async (req, res) => {
   try {
     const {email, password} = req.body || {};
