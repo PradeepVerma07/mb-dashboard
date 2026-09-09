@@ -23,11 +23,13 @@ export const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
   decimalNumbers: true,
+  charset: 'utf8mb4',
   ssl: String(process.env.DB_SSL).toLowerCase() === 'true' ? {} : undefined
 });
 
 export async function q(sql, params = []) {
-  const [rows] = await pool.execute(sql, params);
+  const sanitized = (params || []).map(p => p === undefined ? null : p);
+  const [rows] = await pool.execute(sql, sanitized);
   return rows;
 }
 

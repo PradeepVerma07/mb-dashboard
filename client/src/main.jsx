@@ -4585,10 +4585,10 @@ function CampaignTrackerView() {
           <button type="button" className="scooh-btn ghost" onClick={loadData}>
             🔄 Refresh
           </button>
-          {canDelete && (
-            <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Import campaigns from Excel spreadsheet">
+          {(canAdd || canDelete) && (
+            <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Import campaigns from Excel or CSV spreadsheet">
               <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
-              <input type="file" accept=".xlsx,.xls" hidden disabled={importingExcel} onChange={handleCampaignsExcelImport} />
+              <input type="file" accept=".xlsx,.xls,.csv,.xlsm,.ods" hidden disabled={importingExcel} onChange={handleCampaignsExcelImport} />
             </label>
           )}
           <button type="button" className="scooh-btn ghost" onClick={() => exportCampaignsExcel(filtered)}>
