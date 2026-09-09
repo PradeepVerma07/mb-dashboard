@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState, useRef, Component } from 'react';
+import React, { useEffect, useMemo, useState, useRef, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -2223,7 +2223,7 @@ function PptView() {
       }
       if (pRes.data) setPages(pRes.data);
       // Build site_code → active campaign map from Campaign Tracker
-      // Primary campaigns take precedence, then latest start_date desc
+      // Primary campaigns take precedence, then latest end_date / start_date / id desc
       if (Array.isArray(cRes.data)) {
         const map = {};
         const sorted = cRes.data
@@ -2232,7 +2232,13 @@ function PptView() {
             const isLinkedA = String(a.parent_campaign || '').startsWith('LINKED:');
             const isLinkedB = String(b.parent_campaign || '').startsWith('LINKED:');
             if (isLinkedA !== isLinkedB) return isLinkedA ? 1 : -1; // primary first
-            return new Date(b.start_date || 0) - new Date(a.start_date || 0);
+            const endA = new Date(a.end_date || 0).getTime();
+            const endB = new Date(b.end_date || 0).getTime();
+            if (endA !== endB && endA > 0 && endB > 0) return endB - endA;
+            const startA = new Date(a.start_date || 0).getTime();
+            const startB = new Date(b.start_date || 0).getTime();
+            if (startA !== startB && startA > 0 && startB > 0) return startB - startA;
+            return (b.id || 0) - (a.id || 0);
           });
         for (const c of sorted) {
           const code = String(c.site_code || '').toUpperCase().trim();
@@ -4178,21 +4184,69 @@ function CampaignTrackerView() {
     }
   }, [location.search]);
 
-  const months = Array.from(new Set(rows.map(r => r.month).filter(Boolean)));
-  const types = Array.from(new Set(['Hoarding', 'Gantry', 'Unipole', 'Billboard', 'DOOH', ...rows.map(r => r.type).filter(Boolean)]));
-  const vendors = Array.from(new Set(rows.map(r => r.vendor_name).filter(Boolean)));
+  const [latestOnly, setLatestOnly] = useState(true);
 
-  const totalAmountSum = rows.reduce((acc, r) => acc + Number(r.total_amount || r.revenue || 0), 0);
-  const totalAdvtFeesSum = rows.reduce((acc, r) => acc + Number(r.advt_fees || 0), 0);
-  const totalPMSum = rows.reduce((acc, r) => acc + Number(r.printing_mounting_cost || (Number(r.printing_cost || 0) + Number(r.mounting_cost || 0))), 0);
-  const totalPendingSum = rows.reduce((acc, r) => acc + Number(r.pending || 0), 0);
+  // Group by site_code: take latest entry per site and prevent repeating entries
+  const processedRows = useMemo(() => {
+    if (!latestOnly) return rows;
+
+    const siteMap = new Map();
+    const otherRows = [];
+
+    for (const r of rows) {
+      const code = String(r.site_code || '').toUpperCase().trim();
+      if (!code) {
+        otherRows.push(r);
+        continue;
+      }
+      const prev = siteMap.get(code);
+      if (!prev) {
+        siteMap.set(code, r);
+      } else {
+        const isLinkedNew = String(r.parent_campaign || '').startsWith('LINKED:');
+        const isLinkedPrev = String(prev.parent_campaign || '').startsWith('LINKED:');
+
+        const endNew = new Date(r.end_date || 0).getTime();
+        const endPrev = new Date(prev.end_date || 0).getTime();
+
+        const startNew = new Date(r.start_date || 0).getTime();
+        const startPrev = new Date(prev.start_date || 0).getTime();
+
+        let takeNew = false;
+        if (endNew !== endPrev && endNew > 0 && endPrev > 0) {
+          takeNew = endNew > endPrev;
+        } else if (startNew !== startPrev && startNew > 0 && startPrev > 0) {
+          takeNew = startNew > startPrev;
+        } else if (isLinkedNew !== isLinkedPrev) {
+          takeNew = !isLinkedNew && isLinkedPrev; // prefer primary campaign over auto-linked
+        } else {
+          takeNew = (r.id || 0) > (prev.id || 0);
+        }
+
+        if (takeNew) {
+          siteMap.set(code, r);
+        }
+      }
+    }
+
+    return [...siteMap.values(), ...otherRows];
+  }, [rows, latestOnly]);
+
+  const months = Array.from(new Set(processedRows.map(r => r.month).filter(Boolean)));
+  const types = Array.from(new Set(['Hoarding', 'Gantry', 'Unipole', 'Billboard', 'DOOH', ...processedRows.map(r => r.type).filter(Boolean)]));
+  const vendors = Array.from(new Set(processedRows.map(r => r.vendor_name).filter(Boolean)));
+
+  const totalAmountSum = processedRows.reduce((acc, r) => acc + Number(r.total_amount || r.revenue || 0), 0);
+  const totalAdvtFeesSum = processedRows.reduce((acc, r) => acc + Number(r.advt_fees || 0), 0);
+  const totalPMSum = processedRows.reduce((acc, r) => acc + Number(r.printing_mounting_cost || (Number(r.printing_cost || 0) + Number(r.mounting_cost || 0))), 0);
+  const totalPendingSum = processedRows.reduce((acc, r) => acc + Number(r.pending || 0), 0);
 
   function handleSort(key) {
     setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   }
 
   const filtered = useMemo(() => {
-    const list = rows.filter(r => {
+    const list = processedRows.filter(r => {
       const q = search.trim().toLowerCase();
       let matchesSearch = !q;
       if (q) {
@@ -4235,7 +4289,7 @@ function CampaignTrackerView() {
       });
     }
     return list;
-  }, [rows, search, monthFilter, typeFilter, vendorFilter, statusFilter, sortState]);
+  }, [processedRows, search, monthFilter, typeFilter, vendorFilter, statusFilter, sortState]);
 
   function toggleSelect(id) {
     setSelectedIds(prev => {
@@ -4488,7 +4542,7 @@ function CampaignTrackerView() {
               Outdoor Campaigns & Commercial Tracker
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
-              Showing {filtered.length} of {rows.length} campaigns.
+              Showing {filtered.length} {latestOnly ? 'unique sites (latest entry per site, no repeats)' : 'campaign entries'}{latestOnly && rows.length > processedRows.length ? ` (${rows.length - processedRows.length} older entries hidden)` : ''}.
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -4550,9 +4604,49 @@ function CampaignTrackerView() {
 
         {/* Toolbar */}
         <div className="scooh-toolbar" style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Latest Entry (No Repeat) Toggle Button Group */}
+          <div style={{ display: 'inline-flex', background: '#0a121e', padding: '3px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+            <button
+              type="button"
+              onClick={() => setLatestOnly(true)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '11.5px',
+                fontWeight: 700,
+                background: latestOnly ? '#f2c94c' : 'transparent',
+                color: latestOnly ? '#0b101a' : '#94a3b8',
+                transition: 'all .15s'
+              }}
+              title="Take latest entry per site - hides repeated past entries"
+            >
+              ⚡ Latest Entry (No Repeat)
+            </button>
+            <button
+              type="button"
+              onClick={() => setLatestOnly(false)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '11.5px',
+                fontWeight: 700,
+                background: !latestOnly ? '#38bdf8' : 'transparent',
+                color: !latestOnly ? '#0b101a' : '#94a3b8',
+                transition: 'all .15s'
+              }}
+              title="Show all recorded campaign entries"
+            >
+              📋 All History ({rows.length})
+            </button>
+          </div>
+
           <input
             className="scooh-search"
-            style={{ flex: '1 1 240px', minWidth: '200px' }}
+            style={{ flex: '1 1 200px', minWidth: '180px' }}
             placeholder="Search client, display, vendor, location, PO, bill…"
             value={search}
             onChange={e => setSearch(e.target.value)}

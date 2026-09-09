@@ -1398,10 +1398,10 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
         const finalSiteId = matchedSite?.id || null;
         const finalSiteCode = siteCode || matchedSite?.site_code || '';
 
-        // Match existing campaign
+        // Match existing campaign - take latest entry per site and do not create repeated entries
         const matched = existingCampaigns.find(c => {
           if (po && c.po && String(c.po).toLowerCase() === po.toLowerCase()) return true;
-          if (finalSiteCode && c.site_code && String(c.site_code).toLowerCase() === finalSiteCode.toLowerCase() && month && c.month === month) return true;
+          if (finalSiteCode && c.site_code && String(c.site_code).toLowerCase() === finalSiteCode.toLowerCase()) return true;
           if (client && display && location &&
               String(c.client || '').toLowerCase() === client.toLowerCase() &&
               String(c.display || '').toLowerCase() === display.toLowerCase() &&
@@ -1444,10 +1444,14 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
             days, advtFees, printingMounting, totalAmount, totalAmount,
             po, bill, pending, matched.id
           ]);
+          matched.site_code = finalSiteCode;
+          matched.start_date = startDate;
+          matched.end_date = endDate;
+          matched.month = month;
           updatedCount++;
         } else {
           const bookingCode = `MB-BK-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-          await q(`INSERT INTO campaigns (
+          const insertRes = await q(`INSERT INTO campaigns (
             booking_code, site_id, site_code, month, booking_date, client, display, campaign_name, brand, vendor_name,
             location, width, height, size, type, start_date, end_date, days,
             advt_fees, printing_mounting_cost, total_amount, revenue, po, bill, pending,
@@ -1457,6 +1461,14 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
             location, width || null, height || null, size, type, startDate, endDate, days,
             advtFees, printingMounting, totalAmount, totalAmount, po, bill, pending
           ]);
+          existingCampaigns.push({
+            id: insertRes?.insertId,
+            site_code: finalSiteCode,
+            start_date: startDate,
+            end_date: endDate,
+            month,
+            po, client, display, location
+          });
           newCount++;
         }
       }
