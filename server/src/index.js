@@ -1,6 +1,7 @@
 import 'dotenv/config';
-import express from 'express';import cors from 'cors';import helmet from 'helmet';import path from 'path';import fs from 'fs';import multer from 'multer';import bcrypt from 'bcryptjs';import {fileURLToPath} from 'url';import * as XLSX from 'xlsx';
-import {pool,q} from './db.js';import {auth,admin,sign} from './auth.js';
+import express from 'express';import cors from 'cors';import helmet from 'helmet';import path from 'path';import fs from 'fs';import multer from 'multer';import bcrypt from 'bcryptjs';import {fileURLToPath} from 'url';import * as xlsxModule from 'xlsx';
+const XLSX = xlsxModule.default || xlsxModule;
+import {pool,q} from './db.js';import {auth,admin,sign,managerOrAdmin,notViewer,requireRole} from './auth.js';
 const __dirname=path.dirname(fileURLToPath(import.meta.url));const app=express();const PORT=Number(process.env.PORT||3000);const uploadDir=path.resolve(__dirname,'..',process.env.UPLOAD_DIR||'uploads');fs.mkdirSync(uploadDir,{recursive:true});
 app.use(helmet({crossOriginResourcePolicy:false}));app.use(cors({origin:true,credentials:true}));app.use(express.json({limit:'10mb'}));app.use('/uploads',express.static(uploadDir));
 const upload=multer({dest:uploadDir,limits:{fileSize:Number(process.env.MAX_UPLOAD_MB||20)*1024*1024}});
@@ -30,37 +31,131 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/auth/me',auth,(req,res)=>res.json(req.user));
 app.get('/api/dashboard', auth, async (req, res) => {
   try {
-    const [[s], [cLive], [cAll], [e], [i], campaignsRows, sitesRows] = await Promise.all([
-      q("SELECT COUNT(*) total, COALESCE(SUM(availability='Available'),0) available FROM sites WHERE record_status='active'"),
-      q("SELECT COUNT(*) live, COALESCE(SUM(revenue),0) revenue, COALESCE(SUM(revenue-vendor_cost-printing_cost-mounting_cost-electricity_cost-other_cost),0) margin FROM campaigns WHERE record_status='active' AND CURDATE() BETWEEN start_date AND end_date"),
-      q("SELECT COUNT(*) total, COALESCE(SUM(mounting_status<>'Mounted' AND start_date<=CURDATE()),0) mounting_overdue, COALESCE(SUM(validation_15_date<=CURDATE() AND validation_15_date IS NOT NULL),0) val15, COALESCE(SUM(final_validation_date<=CURDATE() AND final_validation_date IS NOT NULL),0) valFinal FROM campaigns WHERE record_status='active'"),
-      q("SELECT COUNT(*) total, COALESCE(SUM(payment_status<>'Paid' AND due_date<CURDATE()),0) overdue, COALESCE(SUM(CASE WHEN payment_status<>'Paid' THEN amount ELSE 0 END),0) unpaid FROM electricity WHERE record_status='active'"),
-      q("SELECT COUNT(*) total, COALESCE(SUM(invoice_status IN ('Pending','Draft') OR hard_copy_status='Pending'),0) pending FROM invoices WHERE record_status='active'"),
-      q("SELECT id, booking_code, site_code, client, campaign_name, start_date, end_date, mounting_status, validation_15_date, final_validation_date, invoice_status, hard_copy_status FROM campaigns WHERE record_status='active' ORDER BY id DESC"),
-      q("SELECT id, site_code, area, city, availability, flags FROM sites WHERE record_status='active'")
+    const [
+      [s],
+      [cLive],
+      [cAll],
+      [e],
+      [i],
+      [p],
+      campaignsRows,
+      sitesRows,
+      electricityRows
+    ] = await Promise.all([
+      // Sites count and status
+      q(`SELECT 
+          COUNT(*) as total, 
+          COALESCE(SUM(CASE WHEN LOWER(availability) = 'available' THEN 1 ELSE 0 END), 0) as available,
+          COALESCE(SUM(CASE WHEN LOWER(availability) IN ('occupied', 'booked', 'active') THEN 1 ELSE 0 END), 0) as occupied
+         FROM sites WHERE record_status = 'active'`),
+      // Live campaigns running right now
+      q(`SELECT 
+          COUNT(*) as live, 
+          COALESCE(SUM(revenue), 0) as revenue, 
+          COALESCE(SUM(revenue - COALESCE(vendor_cost,0) - COALESCE(printing_cost,0) - COALESCE(mounting_cost,0) - COALESCE(electricity_cost,0) - COALESCE(other_cost,0)), 0) as margin 
+         FROM campaigns 
+         WHERE record_status = 'active' 
+           AND (
+             (start_date IS NOT NULL AND end_date IS NOT NULL AND CURDATE() BETWEEN start_date AND end_date)
+             OR (mounting_status = 'Mounted' AND (end_date IS NULL OR end_date >= CURDATE()))
+           )`),
+      // Action triggers from campaigns
+      q(`SELECT 
+          COUNT(*) as total, 
+          COALESCE(SUM(CASE WHEN mounting_status NOT IN ('Mounted', 'Completed') AND start_date <= CURDATE() THEN 1 ELSE 0 END), 0) as mounting_overdue, 
+          COALESCE(SUM(CASE WHEN validation_15_date IS NOT NULL AND validation_15_date <= CURDATE() THEN 1 ELSE 0 END), 0) as val15, 
+          COALESCE(SUM(CASE WHEN final_validation_date IS NOT NULL AND final_validation_date <= CURDATE() THEN 1 ELSE 0 END), 0) as valFinal 
+         FROM campaigns WHERE record_status = 'active'`),
+      // Electricity bills
+      q(`SELECT 
+          COUNT(*) as total, 
+          COALESCE(SUM(CASE WHEN payment_status != 'Paid' AND due_date < CURDATE() THEN 1 ELSE 0 END), 0) as overdue, 
+          COALESCE(SUM(CASE WHEN payment_status != 'Paid' THEN 1 ELSE 0 END), 0) as pending_bills,
+          COALESCE(SUM(CASE WHEN payment_status != 'Paid' THEN amount ELSE 0 END), 0) as unpaid 
+         FROM electricity WHERE record_status = 'active'`),
+      // Invoices
+      q(`SELECT 
+          COUNT(*) as total, 
+          COALESCE(SUM(CASE WHEN invoice_status IN ('Pending', 'Draft') OR hard_copy_status = 'Pending' OR payment_status = 'Pending' THEN 1 ELSE 0 END), 0) as pending 
+         FROM invoices WHERE record_status = 'active'`),
+      // Proposals
+      q(`SELECT 
+          COUNT(*) as total, 
+          COALESCE(SUM(CASE WHEN status IN ('Draft', 'Sent', 'Open', 'Pending') THEN 1 ELSE 0 END), 0) as open_proposals 
+         FROM proposals`),
+      // Active campaigns rows for live alerts
+      q(`SELECT id, booking_code, site_code, client, campaign_name, start_date, end_date, mounting_status, validation_15_date, final_validation_date, invoice_status, hard_copy_status 
+         FROM campaigns WHERE record_status = 'active' ORDER BY id DESC`),
+      // Sites rows for classification and flags
+      q(`SELECT id, site_code, area, city, availability, monthly_rate, flags FROM sites WHERE record_status = 'active'`),
+      // Electricity rows for live overdue alerts
+      q(`SELECT id, site_code, bill_type, amount, due_date, payment_status FROM electricity WHERE record_status = 'active' AND payment_status != 'Paid'`)
     ]);
 
-    const totalSites = Number(s?.total || (sitesRows ? sitesRows.length : 57)) || 57;
-    const activeCampaigns = Number(cLive?.live || 0);
-    const activeSites = Math.min(totalSites, activeCampaigns > 0 ? activeCampaigns : (totalSites - Number(s?.available || totalSites)));
+    const totalSites = Number(s?.total || 0);
+
+    // Active sites: sites that either have availability='occupied' OR are currently linked to a live active campaign
+    const liveCampaignSiteCodes = new Set(
+      (campaignsRows || [])
+        .filter(c => {
+          const now = new Date();
+          const start = c.start_date ? new Date(c.start_date) : null;
+          const end = c.end_date ? new Date(c.end_date) : null;
+          return (!start || start <= now) && (!end || end >= now);
+        })
+        .map(c => c.site_code)
+        .filter(Boolean)
+    );
+
+    let activeSites = Number(s?.occupied || 0);
+    if (liveCampaignSiteCodes.size > activeSites) {
+      activeSites = Math.min(totalSites, liveCampaignSiteCodes.size);
+    }
     const nonActiveSites = Math.max(0, totalSites - activeSites);
+    const activeCampaigns = Number(cLive?.live || 0);
 
-    // Build rich actionable alerts
+    // Count flagged and premium sites
+    let flaggedCount = 0;
+    let primeCount = 0;
+    for (const st of (sitesRows || [])) {
+      try {
+        const fl = typeof st.flags === 'string' ? JSON.parse(st.flags) : (st.flags || {});
+        if (Array.isArray(fl) ? fl.length > 0 : (Array.isArray(fl.tags) && fl.tags.length > 0)) {
+          flaggedCount++;
+        }
+      } catch {}
+      if (Number(st.monthly_rate || 0) >= 100000) {
+        primeCount++;
+      }
+    }
+
+    // Real portfolio occupancy breakdown
+    const occupancyBuckets = {
+      'Occupied': activeSites,
+      'Available': nonActiveSites,
+      'Prime Sites': primeCount,
+      'Needs review': flaggedCount
+    };
+
+    const avgOccupancy = totalSites > 0 ? Math.round((activeSites / totalSites) * 100) : 0;
+
+    // Real alerts from actual active database records only
     const alerts = [];
+    const now = new Date();
     for (const cmp of (campaignsRows || [])) {
-      const now = new Date();
-      const start = new Date(cmp.start_date);
-      const end = new Date(cmp.end_date);
-      const endIn7 = (end - now) / 86400000 <= 7 && (end - now) >= 0;
+      const start = cmp.start_date ? new Date(cmp.start_date) : null;
+      const end = cmp.end_date ? new Date(cmp.end_date) : null;
+      const endIn7 = end && (end - now) / 86400000 <= 7 && (end - now) >= 0;
 
-      if (cmp.mounting_status !== 'Mounted' && start <= now) {
+      if (cmp.mounting_status !== 'Mounted' && start && start <= now) {
         alerts.push({
           id: cmp.id,
           site_code: cmp.site_code,
           client: cmp.client || 'Client',
           campaign: cmp.campaign_name || 'Campaign',
           tag: 'Mounting overdue',
-          class: 'danger'
+          class: 'danger',
+          link: '/campaigns'
         });
       }
       if (endIn7) {
@@ -70,7 +165,8 @@ app.get('/api/dashboard', auth, async (req, res) => {
           client: cmp.client || 'Client',
           campaign: cmp.campaign_name || 'Campaign',
           tag: 'Campaign ending soon',
-          class: 'watch'
+          class: 'watch',
+          link: '/campaigns'
         });
       }
       if (cmp.validation_15_date && new Date(cmp.validation_15_date) <= now) {
@@ -80,7 +176,8 @@ app.get('/api/dashboard', auth, async (req, res) => {
           client: cmp.client || 'Client',
           campaign: cmp.campaign_name || 'Campaign',
           tag: '15-Day validation due',
-          class: 'danger'
+          class: 'danger',
+          link: '/validations'
         });
       }
       if (cmp.final_validation_date && new Date(cmp.final_validation_date) <= now) {
@@ -90,7 +187,8 @@ app.get('/api/dashboard', auth, async (req, res) => {
           client: cmp.client || 'Client',
           campaign: cmp.campaign_name || 'Campaign',
           tag: 'Final validation due',
-          class: 'danger'
+          class: 'danger',
+          link: '/validations'
         });
       }
       if (cmp.invoice_status === 'Pending' || cmp.hard_copy_status === 'Pending') {
@@ -100,41 +198,26 @@ app.get('/api/dashboard', auth, async (req, res) => {
           client: cmp.client || 'Client',
           campaign: cmp.campaign_name || 'Campaign',
           tag: 'Invoice action required',
-          class: 'watch'
+          class: 'watch',
+          link: '/invoices'
         });
       }
     }
 
-    // Default fallback alerts if no live alert found
-    if (alerts.length === 0) {
-      alerts.push(
-        { site_code: 'AMD-GT-001', client: 'Rajyash Group', campaign: 'Diwali Campaign Ahmedabad', tag: 'Mounting overdue', class: 'danger' },
-        { site_code: 'AMD-UP-002', client: 'Adani Realty', campaign: 'Shantigram Township Phase 2', tag: 'Campaign ending soon', class: 'watch' },
-        { site_code: 'AMD-HD-005', client: 'Zydus Healthcare', campaign: 'Health First Hoardings', tag: '15-Day validation due', class: 'danger' }
-      );
+    // Real overdue electricity alerts
+    for (const el of (electricityRows || [])) {
+      if (el.due_date && new Date(el.due_date) < now) {
+        alerts.push({
+          id: el.id,
+          site_code: el.site_code || 'Power',
+          client: el.bill_type || 'Power Bill',
+          campaign: `Due ₹${Number(el.amount || 0).toLocaleString('en-IN')}`,
+          tag: 'Power bill overdue',
+          class: 'danger',
+          link: '/electricity'
+        });
+      }
     }
-
-    // Flagged sites count
-    let flaggedCount = 0;
-    for (const st of (sitesRows || [])) {
-      try {
-        const fl = typeof st.flags === 'string' ? JSON.parse(st.flags) : (st.flags || {});
-        if (Array.isArray(fl) ? fl.length > 0 : (Array.isArray(fl.tags) && fl.tags.length > 0)) {
-          flaggedCount++;
-        }
-      } catch {}
-    }
-    if (flaggedCount === 0) flaggedCount = 3;
-
-    // Occupancy buckets
-    const occupancyBuckets = {
-      'Star': 4,
-      'Solid': 12,
-      'Needs attention': 8,
-      'Underperforming': Math.max(1, totalSites - 24)
-    };
-
-    const avgOccupancy = Math.round((activeSites / (totalSites || 1)) * 100);
 
     res.json({
       kpis: {
@@ -142,19 +225,21 @@ app.get('/api/dashboard', auth, async (req, res) => {
         flagged_count: flaggedCount,
         active_sites: activeSites,
         nonactive_sites: nonActiveSites,
-        active_campaigns: activeCampaigns > 0 ? activeCampaigns : 2,
-        mounting_overdue: Number(cAll?.mounting_overdue) || 2,
-        validation_15_due: Number(cAll?.val15) || 0,
-        final_validation_due: Number(cAll?.valFinal) || 1,
-        invoice_actions: Number(i?.pending) || 0,
-        average_occupancy: avgOccupancy || 0,
-        campaign_revenue: Number(cLive?.revenue || 0),
-        gross_margin: Number(cLive?.margin || 0),
+        active_campaigns: activeCampaigns,
+        mounting_overdue: Number(cAll?.mounting_overdue || 0),
+        validation_15_due: Number(cAll?.val15 || 0),
+        final_validation_due: Number(cAll?.valFinal || 0),
+        invoice_actions: Number(i?.pending || 0),
+        open_proposals: Number(p?.open_proposals || 0),
+        pending_bills: Number(e?.pending_bills || 0),
         electricity_overdue: Number(e?.overdue || 0),
-        unpaid_electricity: Number(e?.unpaid || 0)
+        unpaid_electricity: Number(e?.unpaid || 0),
+        average_occupancy: avgOccupancy,
+        campaign_revenue: Number(cLive?.revenue || 0),
+        gross_margin: Number(cLive?.margin || 0)
       },
       occupancy_buckets: occupancyBuckets,
-      alerts: alerts.slice(0, 15)
+      alerts: alerts.slice(0, 20)
     });
   } catch (err) {
     console.error('Dashboard error:', err.message);
@@ -427,116 +512,916 @@ function getRowValue(row, keys, fallback = '') {
   return fallback;
 }
 
-app.post('/api/import/xlsx', auth, upload.single('file'), async (req, res) => {
+function parseAmount(val) {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  const str = String(val || '').trim();
+  if (!str) return 0;
+  const lacMatch = str.match(/^([\d.]+)\s*(?:lac|lakh|l)s?$/i);
+  if (lacMatch) {
+    return Math.round(parseFloat(lacMatch[1]) * 100000);
+  }
+  const cleaned = str.replace(/[^0-9.]/g, '');
+  return parseFloat(cleaned) || 0;
+}
+
+function parseDimensions(rawW, rawH, rawSize, rawSqFt) {
+  let w = parseFloat(rawW) || null;
+  let h = parseFloat(rawH) || null;
+  const sizeStr = String(rawSize || '').trim();
+
+  if ((!w || !h) && sizeStr) {
+    const m = sizeStr.match(/(\d+(?:\.\d+)?)\s*(?:x|\*|X|by)\s*(\d+(?:\.\d+)?)/i);
+    if (m) {
+      if (!w) w = parseFloat(m[1]);
+      if (!h) h = parseFloat(m[2]);
+    }
+  }
+
+  let sqFt = parseFloat(rawSqFt) || null;
+  if (!sqFt && w && h) {
+    sqFt = Math.round(w * h * 100) / 100;
+  }
+
+  const finalSize = (w && h) ? `${w}x${h} ft` : (sizeStr || (sqFt ? `${sqFt} sq ft` : ''));
+  return { w, h, sqFt, size: finalSize };
+}
+
+function parseAvailability(val) {
+  if (val instanceof Date && !isNaN(val)) {
+    const dd = String(val.getDate()).padStart(2, '0');
+    const mm = String(val.getMonth() + 1).padStart(2, '0');
+    return `${dd}.${mm}.${val.getFullYear()}`;
+  }
+  if (typeof val === 'number' && val > 20000) {
+    const d = XLSX.SSF.parse_date_code(val);
+    if (d) return `${String(d.d).padStart(2, '0')}.${String(d.m).padStart(2, '0')}.${d.y}`;
+  }
+  const str = String(val ?? '').trim().replace(/\.$/, '');
+  if (!str) return 'Available';
+  const isoMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (isoMatch) {
+    return `${isoMatch[3].padStart(2, '0')}.${isoMatch[2].padStart(2, '0')}.${isoMatch[1]}`;
+  }
+  const dmyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (dmyMatch) {
+    return `${dmyMatch[1].padStart(2, '0')}.${dmyMatch[2].padStart(2, '0')}.${dmyMatch[3]}`;
+  }
+  const low = str.toLowerCase();
+  if (low === 'yes' || low === 'y' || low === 'immediate' || low === 'ready' || low === 'vacant') return 'Available';
+  if (low === 'no' || low === 'n' || low === 'occupied' || low === 'booked') return 'Occupied';
+  return str;
+}
+
+function cleanStr(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function parseMysqlDate(val) {
+  if (!val) return null;
+  if (val instanceof Date && !isNaN(val)) {
+    return val.toISOString().slice(0, 10);
+  }
+  if (typeof val === 'number' && val > 20000) {
+    const d = XLSX.SSF.parse_date_code(val);
+    if (d) {
+      const yy = String(d.y).padStart(4, '0');
+      const mm = String(d.m).padStart(2, '0');
+      const dd = String(d.d).padStart(2, '0');
+      return `${yy}-${mm}-${dd}`;
+    }
+  }
+  const str = String(val).trim();
+  if (!str) return null;
+  const iso = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (iso) {
+    return `${iso[1]}-${String(iso[2]).padStart(2, '0')}-${String(iso[3]).padStart(2, '0')}`;
+  }
+  const dmy = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+  if (dmy) {
+    return `${dmy[3]}-${String(dmy[2]).padStart(2, '0')}-${String(dmy[1]).padStart(2, '0')}`;
+  }
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+app.post('/api/import/xlsx', auth, managerOrAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No workbook provided' });
   try {
-    const wb = XLSX.readFile(req.file.path, { cellDates: true }), sheet = wb.Sheets[wb.SheetNames[0]], rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
+    const wb = XLSX.readFile(req.file.path, { cellDates: true });
+    if (!wb.SheetNames || wb.SheetNames.length === 0) {
+      return res.status(400).json({ message: 'Excel workbook contains no sheets' });
+    }
+
+    // Header keywords across languages and formats
+    const headerKeywords = [
+      'area', 'landmark', 'zone', 'locality',
+      'location', 'address', 'sitename', 'site name',
+      'media', 'mediatype', 'displaytype',
+      'light', 'illumination',
+      'w', 'width', 'h', 'height', 'size', 'dimension', 'sqft', 'sq ft',
+      'rate', 'selling', 'adv fee', 'fee', 'price', 'amount', 'rent', 'cost',
+      'avail', 'status',
+      'sr no', 'srno', 'sno', 'serial',
+      'site id', 'site code', 'siteid', 'sitecode', 'code',
+      'latitude', 'longitude', 'gps', 'coords', 'coordinates'
+    ];
+
+    let chosenSheet = null;
+    let bestHeaderIdx = 0;
+    let highestScore = -1;
+
+    // Scan sheets to find the one with the best header match
+    for (const name of wb.SheetNames) {
+      const sheet = wb.Sheets[name];
+      if (!sheet || !sheet['!ref']) continue;
+      const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+      for (let i = 0; i < Math.min(25, rawRows.length); i++) {
+        const row = rawRows[i] || [];
+        let score = 0;
+        for (const cell of row) {
+          const txt = String(cell || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (!txt) continue;
+          for (const kw of headerKeywords) {
+            const cleanKw = kw.replace(/[^a-z0-9]/g, '');
+            if (txt.includes(cleanKw)) {
+              score++;
+              break;
+            }
+          }
+        }
+        if (score > highestScore) {
+          highestScore = score;
+          chosenSheet = sheet;
+          bestHeaderIdx = i;
+        }
+      }
+    }
+
+    if (!chosenSheet) {
+      chosenSheet = wb.Sheets[wb.SheetNames[0]];
+      bestHeaderIdx = 0;
+    }
+
+    // If a confident header row was found (>= 2 keywords), use it as the range origin
+    const headerRange = highestScore >= 2 ? bestHeaderIdx : 0;
+    const rows = XLSX.utils.sheet_to_json(chosenSheet, { range: headerRange, defval: '', raw: true });
+
     let updatedCount = 0, newCount = 0;
 
-    // Load existing sites for matching
-    const existingSites = await q('SELECT id, site_code, area, address, media_type, flags FROM sites WHERE record_status="active"');
-    
-    // Count existing by prefix for automatic code generation
-    const prefixCounts = {};
+    // Load active sites for matching
+    const existingSites = await q(`SELECT id, site_code, city, area, address, media_type, lighting, size, width, height,
+      availability, monthly_rate, monthly_cost, latitude, longitude, gps, flags FROM sites WHERE record_status="active"`);
+
+    // Determine current highest MB-XX site number
+    let maxMbNum = 0;
     for (const st of existingSites) {
-      const match = String(st.site_code || '').match(/^(AMD-[A-Z]{2})-(\d+)$/);
-      if (match) {
-        const p = match[1], num = parseInt(match[2], 10);
-        prefixCounts[p] = Math.max(prefixCounts[p] || 0, num);
+      const m = String(st.site_code || '').match(/MB[ -]?(\d+)/i);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        if (n > maxMbNum) maxMbNum = n;
       }
     }
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
-      const area = String(getRowValue(r, ['AREA', 'Area', 'Area / Landmark'])).trim();
-      const location = String(getRowValue(r, ['LOCATION', 'Location', 'Full Address', 'Address'])).trim();
-      if (!area && !location) continue;
+      let area = String(getRowValue(r, ['AREA', 'Area', 'Area / Landmark', 'Area/Landmark', 'Landmark', 'Zone', 'Locality', 'City/Area'])).trim();
+      let location = String(getRowValue(r, ['LOCATION', 'Location', 'Full Address', 'Address', 'Site Location', 'Site Address', 'Location / Landmark', 'Road / Location', 'Site Name', 'Description'])).trim();
 
-      const mediaType = String(getRowValue(r, ['MEDIA', 'Media', 'Media Type'], 'Hoarding')).trim() || 'Hoarding';
-      const lighting = String(getRowValue(r, ['LIGHT', 'Lighting', 'Light'], 'BL')).trim() || 'BL';
-      const w = parseFloat(getRowValue(r, ['W', 'Width', 'Width (ft)'], '0')) || null;
-      const h = parseFloat(getRowValue(r, ['H', 'Height', 'Height (ft)'], '0')) || null;
-      const sqFt = parseFloat(getRowValue(r, ['SQ FT', 'SQFT', 'Sq Ft', 'Area (Sq Ft)'], '0')) || (w && h ? w * h : null);
-      const sizeStr = (w && h) ? `${w}x${h} ft` : (String(getRowValue(r, ['Size'], '')).trim() || (sqFt ? `${sqFt} sq ft` : ''));
-
-      let availability = getRowValue(r, ['AVAILABLITY', 'AVAILABILITY', 'Availability'], 'Available');
-      if (availability instanceof Date && !isNaN(availability)) {
-        const dd = String(availability.getDate()).padStart(2, '0');
-        const mm = String(availability.getMonth() + 1).padStart(2, '0');
-        availability = `${dd}.${mm}.${availability.getFullYear()}`;
-      } else if (typeof availability === 'number' && availability > 20000) {
-        const d = XLSX.SSF.parse_date_code(availability);
-        if (d) availability = `${String(d.d).padStart(2, '0')}.${String(d.m).padStart(2, '0')}.${d.y}`;
+      // If one is missing, infer from the other
+      if (!area && location) {
+        const parts = location.split(/[-–,]/);
+        if (parts.length > 1 && parts[0].trim().length > 2 && parts[0].trim().length < 35) {
+          area = parts[0].trim();
+        } else {
+          area = 'Ahmedabad';
+        }
+      } else if (area && !location) {
+        location = area;
       }
-      availability = String(availability).trim().replace(/\.$/, '') || 'Available';
 
-      const rawSelling = getRowValue(r, ['Selling Amount', 'SellingAmount', 'Selling Amount (₹)', 'Monthly Rate', 'Rate Per Month'], '0');
-      const monthlyRate = Number(String(rawSelling).replace(/[^0-9.]/g, '')) || 0;
+      if (!area && !location) continue; // Skip completely empty line
 
-      const rawGps = getRowValue(r, ['Latitude Longitude', 'LatitudeLongitude', 'GPS', 'Coordinates', 'Latitude, Longitude'], '');
+      // Media Type
+      const rawMedia = String(getRowValue(r, ['MEDIA', 'Media', 'Media Type', 'MediaType', 'Type', 'Media_Type', 'Display Type'], '')).trim();
+      let mediaType = 'Hoarding';
+      if (/gantry/i.test(rawMedia)) mediaType = 'Gantry';
+      else if (/unipole/i.test(rawMedia)) mediaType = 'Unipole';
+      else if (/billboard/i.test(rawMedia)) mediaType = 'Billboard';
+      else if (/dooh|digital|led/i.test(rawMedia)) mediaType = 'DOOH';
+      else if (/kiosk/i.test(rawMedia)) mediaType = 'Kiosk';
+      else if (/bridge/i.test(rawMedia)) mediaType = 'Bridge Panel';
+      else if (rawMedia) mediaType = rawMedia;
+
+      // Lighting
+      const rawLight = String(getRowValue(r, ['LIGHT', 'Lighting', 'Light', 'Illumination', 'Light Type'], '')).trim();
+      let lighting = 'BL';
+      if (/front\s*lit|fl/i.test(rawLight)) lighting = 'FL';
+      else if (/back\s*lit|bl/i.test(rawLight)) lighting = 'BL';
+      else if (/non\s*lit|nl|unlit/i.test(rawLight)) lighting = 'NL';
+      else if (/led|digital/i.test(rawLight)) lighting = 'LED';
+      else if (rawLight) lighting = rawLight.toUpperCase();
+
+      // Dimensions & Size
+      const rawW = getRowValue(r, ['W', 'Width', 'W (ft)', 'Width (ft)', 'Width(ft)', 'W (FT)', 'Width in Feet'], '');
+      const rawH = getRowValue(r, ['H', 'Height', 'H (ft)', 'Height (ft)', 'Height(ft)', 'H (FT)', 'Height in Feet'], '');
+      const rawSize = getRowValue(r, ['Size', 'Dimensions', 'Size (ft)', 'Size (WxH)', 'Size(ft)', 'Dimension'], '');
+      const rawSqFt = getRowValue(r, ['SQ FT', 'SQFT', 'Sq Ft', 'SqFt', 'Area (Sq Ft)', 'Area (Sqft)', 'Total Sqft', 'Total Sq Ft'], '');
+      const dim = parseDimensions(rawW, rawH, rawSize, rawSqFt);
+
+      // Availability
+      const rawAvail = getRowValue(r, ['AVAILABLITY', 'AVAILABILITY', 'Availability', 'Status', 'Avail', 'Available From', 'Vacant From'], 'Available');
+      const availability = parseAvailability(rawAvail);
+
+      // Rate / Adv. Fee Per Month
+      const rawSelling = getRowValue(r, [
+        'Selling Amount', 'SellingAmount', 'Selling Amount (₹)', 'Adv. Fee Per Month', 'Adv Fee Per Month',
+        'Adv Fee', 'Adv. Fee', 'Rate', 'Monthly Rate', 'Rate Per Month', 'Price', 'Rental', 'Cost', 'Amount'
+      ], '0');
+      const monthlyRate = parseAmount(rawSelling);
+
+      // GPS & Coordinates
+      const rawGps = getRowValue(r, ['Latitude Longitude', 'LatitudeLongitude', 'GPS', 'Coordinates', 'Latitude, Longitude', 'Coords', 'Lat/Long', 'Lat Long', 'Geo Coordinates'], '');
       const gpsObj = parseGps(rawGps);
-      const lat = gpsObj.latitude || parseFloat(getRowValue(r, ['Latitude'], '')) || null;
-      const lng = gpsObj.longitude || parseFloat(getRowValue(r, ['Longitude'], '')) || null;
+      const lat = gpsObj.latitude || parseFloat(getRowValue(r, ['Latitude', 'Lat'], '')) || null;
+      const lng = gpsObj.longitude || parseFloat(getRowValue(r, ['Longitude', 'Long', 'Lng', 'Lon'], '')) || null;
       const formattedGps = gpsObj.gps || (lat && lng ? `${lat}, ${lng}` : '');
 
-      const codeInRow = String(getRowValue(r, ['Site ID', 'site_code', 'SITE ID', 'Code'], '')).trim();
+      // Site Code in row
+      const codeInRow = String(getRowValue(r, ['Site ID', 'site_code', 'SITE ID', 'Site Code', 'SiteCode', 'Code', 'ID'], '')).trim();
 
-      // Find matching existing site
+      // Match existing site
       let matched = null;
-      if (codeInRow && !/^\d+$/.test(codeInRow)) {
-        matched = existingSites.find(s => s.site_code.toLowerCase() === codeInRow.toLowerCase());
-      }
-      if (!matched && location) {
-        matched = existingSites.find(s => s.address && s.address.toLowerCase().trim() === location.toLowerCase());
-      }
-      if (!matched && area && location) {
-        matched = existingSites.find(s => s.area && s.area.toLowerCase() === area.toLowerCase() && s.address && s.address.toLowerCase().includes(location.slice(0, 15).toLowerCase()));
+
+      // 1. Check direct site code match
+      if (codeInRow) {
+        const cleanCode = cleanStr(codeInRow);
+        matched = existingSites.find(s => cleanStr(s.site_code) === cleanCode);
+        if (!matched && /^\d+$/.test(codeInRow)) {
+          const num = parseInt(codeInRow, 10);
+          const mbVariant = `mb${String(num).padStart(2, '0')}`;
+          matched = existingSites.find(s => cleanStr(s.site_code) === mbVariant || cleanStr(s.site_code) === `mb${num}`);
+        }
       }
 
-      const flags = { ppt_availability: availability, ppt_rate: monthlyRate, ppt_images: [] };
+      // 2. Check exact or clean address match
+      if (!matched && location) {
+        const cleanLoc = cleanStr(location);
+        matched = existingSites.find(s => cleanStr(s.address) === cleanLoc);
+      }
+
+      // 3. Check partial address containment
+      if (!matched && location && cleanStr(location).length >= 10) {
+        const cleanLoc = cleanStr(location);
+        matched = existingSites.find(s => {
+          const cleanAddr = cleanStr(s.address);
+          if (!cleanAddr || cleanAddr.length < 10) return false;
+          return cleanAddr.includes(cleanLoc) || cleanLoc.includes(cleanAddr);
+        });
+      }
+
+      // 4. Check area + location landmark overlap
+      if (!matched && area && location) {
+        const cleanA = cleanStr(area);
+        const cleanL = cleanStr(location);
+        matched = existingSites.find(s => {
+          if (cleanStr(s.area) !== cleanA) return false;
+          const cleanAddr = cleanStr(s.address);
+          return cleanAddr.includes(cleanL.slice(0, 15)) || cleanL.includes(cleanAddr.slice(0, 15));
+        });
+      }
 
       if (matched) {
         let oldFlags = {};
-        try { oldFlags = JSON.parse(matched.flags || '{}') || {}; } catch {};
+        try {
+          oldFlags = typeof matched.flags === 'string' ? JSON.parse(matched.flags || '{}') : (matched.flags || {});
+        } catch (e) { oldFlags = {}; }
         if (Array.isArray(oldFlags)) oldFlags = { ppt_images: oldFlags };
-        const mergedFlags = JSON.stringify({ ...oldFlags, ppt_availability: availability, ppt_rate: monthlyRate, ppt_images: oldFlags.ppt_images || [] });
+
+        const effectiveRate = monthlyRate || oldFlags.ppt_rate || matched.monthly_rate || 0;
+        const mergedFlags = JSON.stringify({
+          ...oldFlags,
+          ppt_availability: availability,
+          ppt_rate: effectiveRate,
+          ppt_images: oldFlags.ppt_images || []
+        });
 
         await q(`UPDATE sites SET
-          area=?, address=?, media_type=?, lighting=?, size=?, width=?, height=?,
-          availability=?, monthly_rate=?, latitude=?, longitude=?, gps=?, flags=?, updated_at=NOW()
-          WHERE id=?`, [
-          area, location, mediaType, lighting, sizeStr, w, h,
-          availability, monthlyRate, lat, lng, formattedGps, mergedFlags, matched.id
+          area = COALESCE(NULLIF(?, ''), area),
+          address = COALESCE(NULLIF(?, ''), address),
+          media_type = COALESCE(NULLIF(?, ''), media_type),
+          lighting = COALESCE(NULLIF(?, ''), lighting),
+          size = COALESCE(NULLIF(?, ''), size),
+          width = COALESCE(?, width),
+          height = COALESCE(?, height),
+          availability = ?,
+          monthly_rate = ?,
+          latitude = COALESCE(?, latitude),
+          longitude = COALESCE(?, longitude),
+          gps = COALESCE(NULLIF(?, ''), gps),
+          flags = ?,
+          updated_at = NOW()
+          WHERE id = ?`, [
+          area, location, mediaType, lighting, dim.size, dim.w, dim.h,
+          availability, effectiveRate, lat, lng, formattedGps, mergedFlags, matched.id
         ]);
         updatedCount++;
       } else {
-        // Generate automatic site code (e.g. AMD-GT-001, AMD-HD-008)
-        const mediaCodeMap = { Gantry: 'GT', Unipole: 'UP', Hoarding: 'HD', Billboard: 'BB', DOOH: 'DH' };
-        const mCode = mediaCodeMap[mediaType] || 'HD';
-        const prefix = `AMD-${mCode}`;
-        const nextNum = (prefixCounts[prefix] || 0) + 1;
-        prefixCounts[prefix] = nextNum;
-        const siteCode = codeInRow && !/^\d+$/.test(codeInRow) ? codeInRow : `${prefix}-${String(nextNum).padStart(3, '0')}`;
+        // Generate new site code
+        let newSiteCode = codeInRow && !/^\d+$/.test(codeInRow) ? codeInRow : null;
+        if (!newSiteCode) {
+          maxMbNum++;
+          newSiteCode = `MB-${String(maxMbNum).padStart(2, '0')}`;
+        }
+
+        const flags = JSON.stringify({
+          ppt_availability: availability,
+          ppt_rate: monthlyRate,
+          ppt_images: []
+        });
 
         await q(`INSERT INTO sites (
           site_code, city, area, address, media_type, lighting, size, width, height,
           availability, monthly_cost, monthly_rate, latitude, longitude, gps, flags, record_status, created_at, updated_at
         ) VALUES (?, 'Ahmedabad', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
-          siteCode, area, location, mediaType, lighting, sizeStr, w, h,
-          availability, monthlyRate, monthlyRate, lat, lng, formattedGps, JSON.stringify(flags)
+          newSiteCode, area, location, mediaType, lighting, dim.size, dim.w, dim.h,
+          availability, monthlyRate, monthlyRate, lat, lng, formattedGps, flags
         ]);
         newCount++;
       }
     }
 
-    res.json({ success: true, updated: updatedCount, created: newCount, rows: updatedCount + newCount });
+    res.json({
+      success: true,
+      updated: updatedCount,
+      created: newCount,
+      rows: updatedCount + newCount,
+      message: `Successfully processed ${updatedCount + newCount} sites (${updatedCount} updated, ${newCount} created).`
+    });
   } catch (err) {
     console.error('Import XLSX error:', err);
     res.status(500).json({ message: 'Excel import error: ' + err.message });
   }
 });
 
-app.post('/api/import/json', auth, upload.single('file'), async (req, res) => {
+app.post('/api/import/electricity-xlsx', auth, managerOrAdmin, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No workbook provided' });
+  try {
+    const wb = XLSX.readFile(req.file.path, { cellDates: true });
+    if (!wb.SheetNames || wb.SheetNames.length === 0) {
+      return res.status(400).json({ message: 'Excel workbook contains no sheets' });
+    }
+
+    const headerKeywords = [
+      'meter', 'service', 'tnumber', 't_number', 'tno',
+      'billingmonth', 'billdate', 'duedate', 'paiddate',
+      'units', 'provider', 'billtype', 'paymentamount', 'billamount',
+      'amount', 'paymentstatus', 'paymentref', 'status',
+      'sitecode', 'siteid', 'location', 'size', 'ssv', 'mb'
+    ];
+
+    const candidateSheets = [];
+    for (const name of wb.SheetNames) {
+      const sheet = wb.Sheets[name];
+      if (!sheet || !sheet['!ref']) continue;
+      const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+      let bestScore = 0, bestIdx = 0;
+      for (let i = 0; i < Math.min(25, rawRows.length); i++) {
+        const row = rawRows[i] || [];
+        let score = 0;
+        for (const cell of row) {
+          const txt = String(cell || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (!txt) continue;
+          for (const kw of headerKeywords) {
+            if (txt.includes(kw)) {
+              score++;
+              break;
+            }
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = i;
+        }
+      }
+      if (bestScore >= 2) {
+        candidateSheets.push({ name, sheet, headerIdx: bestIdx, score: bestScore });
+      }
+    }
+
+    if (candidateSheets.length === 0) {
+      candidateSheets.push({ name: wb.SheetNames[0], sheet: wb.Sheets[wb.SheetNames[0]], headerIdx: 0, score: 0 });
+    }
+
+    let updatedCount = 0, newCount = 0;
+
+    // Load active sites and active electricity records
+    const existingSites = await q(`SELECT id, site_code, area, address, size, width, height, meter_no FROM sites WHERE record_status="active"`);
+    const existingBills = await q(`SELECT id, site_id, site_code, meter_no, service_number, t_number, billing_month, due_date, amount, payment_status, location FROM electricity WHERE record_status="active"`);
+
+    for (const cs of candidateSheets) {
+      const sheetName = cs.name;
+      const sheetHint = /ssv/i.test(sheetName) ? 'SSV' : (/mb\b|media\s*buzz/i.test(sheetName) ? 'MB' : '');
+      const rows = XLSX.utils.sheet_to_json(cs.sheet, { range: cs.headerIdx, defval: '', raw: true });
+
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+
+        const siteCode = String(getRowValue(r, ['SITE CODE', 'Site Code', 'SiteCode', 'Site ID', 'SiteID', 'Code', 'Site'], '')).trim();
+        const location = String(getRowValue(r, ['LOCATION', 'Location', 'Address', 'Full Address', 'Site Location', 'Landmark'], '')).trim();
+        const size = String(getRowValue(r, ['SIZE', 'Size', 'Dimensions'], '')).trim();
+        const meterNo = String(getRowValue(r, ['METER NO', 'Meter No', 'Meter Number', 'Meter #', 'Meter', 'MTR'], '')).trim();
+        const serviceNo = String(getRowValue(r, ['SERVICE NUMBER', 'Service Number', 'Service No', 'Consumer No', 'Consumer Number', 'Customer ID', 'Account Number'], '')).trim();
+        const tNumber = String(getRowValue(r, ['T NUMBER', 'T Number', 'T-No', 'TNo', 'Tariff Number'], '')).trim();
+
+        // 1. Check explicit provider/bill header variations
+        const rawBillType = String(getRowValue(r, [
+          'BILL / PROVIDER', 'Bill / Provider', 'Bill/Provider', 'Bill/provider', 'BILL PROVIDER', 'Bill Provider', 'bill provider',
+          'SSV / MB', 'SSV/MB', 'SSV MB', 'SSV', 'MB', 'SSV/MB BILL', 'SSV / MB BILL',
+          'BILL TYPE', 'Bill Type', 'bill type', 'BillType', 'Bill_Type',
+          'PROVIDER', 'Provider', 'provider', 'Discom', 'Company', 'Firm', 'Entity', 'Party', 'Biller',
+          'BILL', 'Bill', 'bill'
+        ], '')).trim();
+
+        let detectedBillType = rawBillType;
+
+        // 2. If not found, inspect columns that might contain provider or firm info
+        if (!detectedBillType) {
+          for (const k of Object.keys(r || {})) {
+            const nk = normalizeKey(k);
+            if (nk.includes('provider') || nk.includes('discom') || nk.includes('biller') || nk.includes('ssv') || nk.includes('billtype') || nk.includes('firm') || nk.includes('entity') || nk.includes('party')) {
+              const val = String(r[k] || '').trim();
+              if (val) {
+                detectedBillType = val;
+                break;
+              }
+            }
+          }
+        }
+
+        // 3. If still not found, check if any cell value strictly equals 'SSV' or 'MB'
+        if (!detectedBillType) {
+          for (const k of Object.keys(r || {})) {
+            const val = String(r[k] || '').trim().toUpperCase();
+            if (val === 'SSV' || val === 'MB') {
+              detectedBillType = val;
+              break;
+            }
+          }
+        }
+
+        // 4. Normalize provider value (SSV and MB as primary)
+        let billType = sheetHint || 'SSV';
+        if (detectedBillType) {
+          const cleanUpper = detectedBillType.toUpperCase();
+          if (/SSV/i.test(cleanUpper)) {
+            billType = 'SSV';
+          } else if (/^MB\b/i.test(cleanUpper) || /MEDIA\s*BUZZ/i.test(cleanUpper) || cleanUpper === 'MB') {
+            billType = 'MB';
+          } else if (/TORRENT/i.test(cleanUpper)) {
+            billType = 'Torrent Power';
+          } else if (/PGVCL/i.test(cleanUpper)) {
+            billType = 'PGVCL';
+          } else if (/UGVCL/i.test(cleanUpper)) {
+            billType = 'UGVCL';
+          } else if (/MGVCL/i.test(cleanUpper)) {
+            billType = 'MGVCL';
+          } else if (/DGVCL/i.test(cleanUpper)) {
+            billType = 'DGVCL';
+          } else {
+            billType = detectedBillType;
+          }
+        }
+
+        let billingMonth = String(getRowValue(r, ['BILLING MONTH', 'Billing Month', 'Month', 'Bill Month', 'Period'], '')).trim();
+        const rawBillDate = getRowValue(r, ['BILL DATE', 'Bill Date', 'Date of Bill', 'Issue Date'], '');
+        const billDate = parseMysqlDate(rawBillDate);
+        const rawDueDate = getRowValue(r, ['DUE DATE', 'Due Date', 'Payment Due Date', 'Last Date'], '');
+        let dueDate = parseMysqlDate(rawDueDate);
+
+        // Fallback due date if missing (due_date is NOT NULL in MySQL)
+        if (!dueDate) {
+          if (billDate) {
+            const bd = new Date(billDate);
+            bd.setDate(bd.getDate() + 15);
+            dueDate = bd.toISOString().slice(0, 10);
+          } else {
+            const now = new Date();
+            now.setDate(now.getDate() + 15);
+            dueDate = now.toISOString().slice(0, 10);
+          }
+        }
+
+        // Fallback billing month if missing
+        if (!billingMonth) {
+          if (billDate) {
+            billingMonth = new Date(billDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+          } else if (dueDate) {
+            billingMonth = new Date(dueDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+          } else {
+            billingMonth = new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+          }
+        }
+
+        const units = parseFloat(getRowValue(r, ['UNITS', 'Units', 'Consumption', 'KWH', 'Total Units'], '0')) || 0;
+        const rate = parseFloat(getRowValue(r, ['RATE', 'Rate', 'Unit Rate', 'Tariff Rate'], '0')) || 0;
+        const otherCharges = parseFloat(getRowValue(r, ['OTHER CHARGES', 'Other Charges', 'Fixed Charges', 'Surcharge'], '0')) || 0;
+
+        const rawAmount = getRowValue(r, ['PAYMENT AMOUNT (₹)', 'PAYMENT AMOUNT', 'Payment Amount', 'AMOUNT', 'Amount', 'Bill Amount', 'Total Amount', 'Net Amount', 'Payable Amount'], '0');
+        let amount = parseAmount(rawAmount);
+        if (amount === 0 && units > 0 && rate > 0) {
+          amount = Math.round((units * rate + otherCharges) * 100) / 100;
+        }
+
+        const rawStatus = String(getRowValue(r, ['STATUS', 'Status', 'Payment Status', 'Paid Status'], '')).trim();
+        const rawPaidDate = getRowValue(r, ['PAID DATE', 'Paid Date', 'Payment Date', 'Cleared Date'], '');
+        const paidDate = parseMysqlDate(rawPaidDate);
+        const paymentRef = String(getRowValue(r, ['PAYMENT REF', 'Payment Ref', 'Payment Reference', 'UTR', 'Ref No', 'Transaction ID', 'Cheque No'], '')).trim();
+        const notes = String(getRowValue(r, ['NOTES', 'Notes', 'Remarks', 'Comments', 'Description'], '')).trim();
+
+        let paymentStatus = 'Pending';
+        if (/paid|cleared|done|yes/i.test(rawStatus)) paymentStatus = 'Paid';
+        else if (/overdue/i.test(rawStatus)) paymentStatus = 'Overdue';
+        else if (paidDate || paymentRef) paymentStatus = 'Paid';
+        else if (dueDate && new Date(dueDate) < new Date()) paymentStatus = 'Pending';
+
+        // Skip row if completely empty
+        if (!siteCode && !location && !meterNo && !serviceNo && amount === 0) continue;
+
+        // Link to sites table
+        let matchedSite = null;
+        if (siteCode) {
+          const cleanC = cleanStr(siteCode);
+          matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
+          if (!matchedSite && /^\d+$/.test(siteCode)) {
+            const num = parseInt(siteCode, 10);
+            matchedSite = existingSites.find(s => cleanStr(s.site_code) === `mb${String(num).padStart(2, '0')}` || cleanStr(s.site_code) === `mb${num}`);
+          }
+        }
+        if (!matchedSite && meterNo) {
+          matchedSite = existingSites.find(s => cleanStr(s.meter_no) === cleanStr(meterNo));
+        }
+        if (!matchedSite && location) {
+          matchedSite = existingSites.find(s => cleanStr(s.address) === cleanStr(location));
+        }
+
+        const finalSiteId = matchedSite?.id || null;
+        const finalSiteCode = siteCode || matchedSite?.site_code || '';
+        const finalLocation = location || matchedSite?.address || matchedSite?.area || '';
+        const finalSize = size || matchedSite?.size || (matchedSite?.width && matchedSite?.height ? `${matchedSite.width}x${matchedSite.height} ft` : '');
+        const finalMeterNo = meterNo || matchedSite?.meter_no || '';
+        const finalServiceNo = serviceNo || '';
+        const finalTNumber = tNumber || '';
+
+        // Check if site meter_no can be backfilled
+        if (matchedSite && meterNo && !matchedSite.meter_no) {
+          await q('UPDATE sites SET meter_no=? WHERE id=?', [meterNo, matchedSite.id]);
+        }
+
+        // Check if bill already exists - match by unique service_number, t_number, meter_no, site_code or location
+        let matchedBill = null;
+        const cleanMonth = cleanStr(billingMonth);
+
+        if (finalServiceNo) {
+          const cleanSrv = cleanStr(finalServiceNo);
+          matchedBill = existingBills.find(b => cleanStr(b.service_number) === cleanSrv && (!cleanMonth || cleanStr(b.billing_month) === cleanMonth));
+          if (!matchedBill) {
+            matchedBill = existingBills.find(b => cleanStr(b.service_number) === cleanSrv);
+          }
+        }
+        if (!matchedBill && finalTNumber) {
+          const cleanT = cleanStr(finalTNumber);
+          matchedBill = existingBills.find(b => cleanStr(b.t_number) === cleanT && (!cleanMonth || cleanStr(b.billing_month) === cleanMonth));
+          if (!matchedBill) {
+            matchedBill = existingBills.find(b => cleanStr(b.t_number) === cleanT);
+          }
+        }
+        if (!matchedBill && finalMeterNo) {
+          const cleanMtr = cleanStr(finalMeterNo);
+          matchedBill = existingBills.find(b => cleanStr(b.meter_no) === cleanMtr && (!cleanMonth || cleanStr(b.billing_month) === cleanMonth));
+          if (!matchedBill) {
+            matchedBill = existingBills.find(b => cleanStr(b.meter_no) === cleanMtr);
+          }
+        }
+        if (!matchedBill && finalSiteCode && cleanMonth) {
+          matchedBill = existingBills.find(b => cleanStr(b.site_code) === cleanStr(finalSiteCode) && cleanStr(b.billing_month) === cleanMonth);
+        }
+        if (!matchedBill && finalLocation) {
+          const cleanLoc = cleanStr(finalLocation);
+          matchedBill = existingBills.find(b => cleanStr(b.location) === cleanLoc);
+        }
+
+      if (matchedBill) {
+        await q(`UPDATE electricity SET
+          site_id = COALESCE(?, site_id),
+          site_code = COALESCE(NULLIF(?, ''), site_code),
+          location = COALESCE(NULLIF(?, ''), location),
+          meter_no = COALESCE(NULLIF(?, ''), meter_no),
+          size = COALESCE(NULLIF(?, ''), size),
+          service_number = COALESCE(NULLIF(?, ''), service_number),
+          t_number = COALESCE(NULLIF(?, ''), t_number),
+          bill_type = COALESCE(NULLIF(?, ''), bill_type),
+          payment_amount = ?,
+          amount = ?,
+          billing_month = ?,
+          bill_date = COALESCE(?, bill_date),
+          due_date = ?,
+          units = ?,
+          rate = ?,
+          other_charges = ?,
+          payment_status = ?,
+          paid_date = COALESCE(?, paid_date),
+          payment_reference = COALESCE(NULLIF(?, ''), payment_reference),
+          notes = COALESCE(NULLIF(?, ''), notes),
+          record_status = 'active',
+          updated_at = NOW()
+          WHERE id = ?`, [
+          finalSiteId, finalSiteCode, finalLocation, finalMeterNo, finalSize, finalServiceNo, finalTNumber,
+          billType, amount, amount, billingMonth, billDate, dueDate, units, rate, otherCharges,
+          paymentStatus, paidDate, paymentRef, notes, matchedBill.id
+        ]);
+        updatedCount++;
+      } else {
+        await q(`INSERT INTO electricity (
+          site_id, site_code, location, meter_no, size, service_number, t_number,
+          bill_type, payment_amount, billing_month, bill_date, due_date, units, rate, other_charges,
+          amount, payment_status, paid_date, payment_reference, notes, record_status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
+          finalSiteId, finalSiteCode, finalLocation, finalMeterNo, finalSize, finalServiceNo, finalTNumber,
+          billType, amount, billingMonth, billDate, dueDate, units, rate, otherCharges,
+          amount, paymentStatus, paidDate, paymentRef, notes
+        ]);
+        newCount++;
+      }
+    }
+  }
+
+  res.json({
+      success: true,
+      updated: updatedCount,
+      created: newCount,
+      rows: updatedCount + newCount,
+      message: `Successfully processed ${updatedCount + newCount} electricity bills (${updatedCount} updated, ${newCount} created).`
+    });
+  } catch (err) {
+    console.error('Import Electricity XLSX error:', err);
+    res.status(500).json({ message: 'Electricity bill import error: ' + err.message });
+  }
+});
+
+app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No workbook provided' });
+  try {
+    const wb = XLSX.readFile(req.file.path, { cellDates: true });
+    if (!wb.SheetNames || wb.SheetNames.length === 0) {
+      return res.status(400).json({ message: 'Excel workbook contains no sheets' });
+    }
+
+    const headerKeywords = [
+      'site', 'code', 'month', 'date', 'client', 'agency', 'display', 'vendor',
+      'location', 'size', 'type', 'start', 'end', 'days', 'advt',
+      'fees', 'printing', 'mounting', 'total', 'amount', 'po', 'bill', 'pending'
+    ];
+
+    const candidateSheets = [];
+    for (const name of wb.SheetNames) {
+      const sheet = wb.Sheets[name];
+      if (!sheet || !sheet['!ref']) continue;
+      const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+      let bestScore = 0, bestIdx = 0;
+      for (let i = 0; i < Math.min(25, rawRows.length); i++) {
+        const row = rawRows[i] || [];
+        let score = 0;
+        for (const cell of row) {
+          const txt = String(cell || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (!txt) continue;
+          for (const kw of headerKeywords) {
+            if (txt.includes(kw)) {
+              score++;
+              break;
+            }
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = i;
+        }
+      }
+      if (bestScore >= 2) {
+        candidateSheets.push({ name, sheet, headerIdx: bestIdx, score: bestScore });
+      }
+    }
+
+    if (candidateSheets.length === 0) {
+      candidateSheets.push({ name: wb.SheetNames[0], sheet: wb.Sheets[wb.SheetNames[0]], headerIdx: 0, score: 0 });
+    }
+
+    let updatedCount = 0, newCount = 0;
+    const existingSites = await q('SELECT id, site_code, address, area, width, height, size FROM sites WHERE record_status="active"');
+    const existingCampaigns = await q('SELECT id, site_code, month, booking_date, client, display, vendor_name, location, start_date, end_date, po FROM campaigns WHERE record_status="active"');
+
+    for (const cs of candidateSheets) {
+      const rows = XLSX.utils.sheet_to_json(cs.sheet, { range: cs.headerIdx, defval: '', raw: true });
+
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const getVal = (patterns) => {
+          for (const p of patterns) {
+            for (const key of Object.keys(r)) {
+              const cleanKey = key.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+              const cleanPattern = p.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (cleanKey === cleanPattern || cleanKey.includes(cleanPattern)) {
+                const val = r[key];
+                if (val !== undefined && val !== null && String(val).trim() !== '') {
+                  return val;
+                }
+              }
+            }
+          }
+          return '';
+        };
+
+        const parseDate = (val) => {
+          if (!val) return null;
+          if (val instanceof Date) {
+            if (isNaN(val.getTime())) return null;
+            return val.toISOString().slice(0, 10);
+          }
+          if (typeof val === 'number') {
+            const parsed = XLSX.SSF.parse_date_code(val);
+            if (parsed) {
+              const m = String(parsed.m).padStart(2, '0');
+              const d = String(parsed.d).padStart(2, '0');
+              return `${parsed.y}-${m}-${d}`;
+            }
+          }
+          const s = String(val).trim();
+          const dmy = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+          if (dmy) {
+            const day = dmy[1].padStart(2, '0');
+            const month = dmy[2].padStart(2, '0');
+            let year = dmy[3];
+            if (year.length === 2) year = '20' + year;
+            return `${year}-${month}-${day}`;
+          }
+          const dt = new Date(s);
+          if (!isNaN(dt.getTime())) {
+            return dt.toISOString().slice(0, 10);
+          }
+          return null;
+        };
+
+        const parseNum = (val) => {
+          if (typeof val === 'number') return isNaN(val) ? 0 : val;
+          const cleaned = String(val || '').replace(/₹|,|\/|-/g, '').trim();
+          const n = parseFloat(cleaned);
+          return isNaN(n) ? 0 : n;
+        };
+
+        const siteCode = String(getVal(['site code', 'sitecode', 'site_code', 'site no', 'siteno', 'code'])).trim();
+        const month = String(getVal(['month', 'billing_month', 'mon'])).trim();
+        const dateVal = parseDate(getVal(['date', 'booking_date', 'booking date', 'dt']));
+        const client = String(getVal(['client/agency name', 'client / agency name', 'client/agency', 'client_name', 'client', 'agency name', 'agency'])).trim();
+        const display = String(getVal(['display', 'brand', 'campaign_name', 'campaign name', 'creative'])).trim();
+        const vendorName = String(getVal(['vendor name', 'vendor_name', 'vendor'])).trim();
+        const location = String(getVal(['location', 'site location', 'address', 'area', 'landmark'])).trim();
+        
+        let width = parseNum(getVal(['w', 'width']));
+        let height = parseNum(getVal(['h', 'height']));
+        let size = String(getVal(['size', 'dimension'])).trim();
+        if (!size && width > 0 && height > 0) {
+          size = `${width}x${height} ft`;
+        } else if (size && (!width || !height)) {
+          const dimMatch = size.match(/(\d+(?:\.\d+)?)\s*[xX*]\s*(\d+(?:\.\d+)?)/);
+          if (dimMatch) {
+            if (!width) width = parseFloat(dimMatch[1]);
+            if (!height) height = parseFloat(dimMatch[2]);
+          }
+        }
+
+        const type = String(getVal(['type', 'media type', 'media_type', 'media']) || 'Hoarding').trim();
+        const startDate = parseDate(getVal(['start date', 'start_date', 'from date', 'from', 'start']));
+        const endDate = parseDate(getVal(['end date', 'end_date', 'to date', 'to', 'end']));
+        
+        let days = parseInt(getVal(['days', 'duration_days', 'total days', 'duration']), 10);
+        if (isNaN(days) || days <= 0) {
+          if (startDate && endDate) {
+            const diffMs = new Date(endDate).getTime() - new Date(startDate).getTime();
+            days = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1);
+          } else {
+            days = 30;
+          }
+        }
+
+        const advtFees = parseNum(getVal(['advt. fees per month', 'advt fees per month', 'advt fees', 'advt. fees', 'advt_fees', 'fees', 'rate']));
+        const printingMounting = parseNum(getVal(['printing & mounting', 'printing and mounting', 'printing & mounting cost', 'printing_mounting_cost', 'p&m', 'printing cost', 'mounting cost']));
+        let totalAmount = parseNum(getVal(['total amount', 'total_amount', 'total', 'amount', 'revenue']));
+        if (totalAmount === 0 && (advtFees > 0 || printingMounting > 0)) {
+          totalAmount = advtFees + printingMounting;
+        }
+
+        const po = String(getVal(['po', 'po no', 'po number', 'po_number', 'purchase order'])).trim();
+        const bill = String(getVal(['bill', 'bill no', 'bill_no', 'invoice no', 'invoice_no', 'bill status'])).trim();
+        const pending = parseNum(getVal(['pending', 'pending amount', 'pending_amount', 'balance']));
+
+        // Skip completely empty rows
+        if (!siteCode && !client && !location && !display && totalAmount === 0 && !startDate) {
+          continue;
+        }
+
+        // Link to sites table
+        let matchedSite = null;
+        if (siteCode) {
+          const cleanC = cleanStr(siteCode);
+          matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
+          if (!matchedSite && /^\d+$/.test(siteCode)) {
+            const num = parseInt(siteCode, 10);
+            matchedSite = existingSites.find(s => cleanStr(s.site_code) === `mb${String(num).padStart(2, '0')}` || cleanStr(s.site_code) === `mb${num}`);
+          }
+        }
+        const finalSiteId = matchedSite?.id || null;
+        const finalSiteCode = siteCode || matchedSite?.site_code || '';
+
+        // Match existing campaign
+        const matched = existingCampaigns.find(c => {
+          if (po && c.po && String(c.po).toLowerCase() === po.toLowerCase()) return true;
+          if (finalSiteCode && c.site_code && String(c.site_code).toLowerCase() === finalSiteCode.toLowerCase() && month && c.month === month) return true;
+          if (client && display && location &&
+              String(c.client || '').toLowerCase() === client.toLowerCase() &&
+              String(c.display || '').toLowerCase() === display.toLowerCase() &&
+              String(c.location || '').toLowerCase() === location.toLowerCase()) return true;
+          return false;
+        });
+
+        if (matched) {
+          await q(`UPDATE campaigns SET
+            site_id = COALESCE(?, site_id),
+            site_code = COALESCE(NULLIF(?, ''), site_code),
+            month = COALESCE(NULLIF(?, ''), month),
+            booking_date = COALESCE(?, booking_date),
+            client = COALESCE(NULLIF(?, ''), client),
+            display = COALESCE(NULLIF(?, ''), display),
+            campaign_name = COALESCE(NULLIF(?, ''), campaign_name),
+            brand = COALESCE(NULLIF(?, ''), brand),
+            vendor_name = COALESCE(NULLIF(?, ''), vendor_name),
+            location = COALESCE(NULLIF(?, ''), location),
+            width = COALESCE(?, width),
+            height = COALESCE(?, height),
+            size = COALESCE(NULLIF(?, ''), size),
+            type = COALESCE(NULLIF(?, ''), type),
+            start_date = COALESCE(?, start_date),
+            end_date = COALESCE(?, end_date),
+            days = ?,
+            advt_fees = ?,
+            printing_mounting_cost = ?,
+            total_amount = ?,
+            revenue = ?,
+            po = COALESCE(NULLIF(?, ''), po),
+            bill = COALESCE(NULLIF(?, ''), bill),
+            pending = ?,
+            record_status = 'active',
+            updated_at = NOW()
+            WHERE id = ?`, [
+            finalSiteId, finalSiteCode,
+            month, dateVal, client, display, display, client, vendorName, location,
+            width || null, height || null, size, type, startDate, endDate,
+            days, advtFees, printingMounting, totalAmount, totalAmount,
+            po, bill, pending, matched.id
+          ]);
+          updatedCount++;
+        } else {
+          const bookingCode = `MB-BK-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          await q(`INSERT INTO campaigns (
+            booking_code, site_id, site_code, month, booking_date, client, display, campaign_name, brand, vendor_name,
+            location, width, height, size, type, start_date, end_date, days,
+            advt_fees, printing_mounting_cost, total_amount, revenue, po, bill, pending,
+            record_status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
+            bookingCode, finalSiteId, finalSiteCode, month, dateVal, client, display, display, client, vendorName,
+            location, width || null, height || null, size, type, startDate, endDate, days,
+            advtFees, printingMounting, totalAmount, totalAmount, po, bill, pending
+          ]);
+          newCount++;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      updated: updatedCount,
+      created: newCount,
+      rows: updatedCount + newCount,
+      message: `Successfully processed ${updatedCount + newCount} campaigns (${updatedCount} updated, ${newCount} created).`
+    });
+  } catch (err) {
+    console.error('Import Campaigns XLSX error:', err);
+    res.status(500).json({ message: 'Campaign import error: ' + err.message });
+  }
+});
+
+app.post('/api/import/json', auth, managerOrAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No JSON file provided' });
   try {
     const raw = JSON.parse(fs.readFileSync(req.file.path, 'utf8'));
@@ -594,6 +1479,195 @@ app.post('/api/upload', auth, upload.single('file'), async (req, res) => {
   res.json({ url, name: req.file.originalname, size: req.file.size });
 });
 
+// Storage & Archives Endpoints
+app.get('/api/storage', auth, async (req, res) => {
+  try {
+    const { category } = req.query;
+    let sql = 'SELECT * FROM storage_archives WHERE record_status != "archived"';
+    const params = [];
+    if (category && category !== 'all') {
+      sql += ' AND category = ?';
+      params.push(category);
+    }
+    sql += ' ORDER BY id DESC LIMIT 500';
+    const rows = await q(sql, params);
+    const parsed = rows.map(r => {
+      let meta = {};
+      if (typeof r.meta_json === 'string') {
+        try { meta = JSON.parse(r.meta_json); } catch {}
+      } else if (r.meta_json && typeof r.meta_json === 'object') {
+        meta = r.meta_json;
+      }
+      return { ...r, meta };
+    });
+    res.json(parsed);
+  } catch (err) {
+    console.error('Storage list error:', err);
+    res.status(500).json({ message: 'Storage list error: ' + err.message });
+  }
+});
+
+app.post('/api/storage', auth, notViewer, async (req, res) => {
+  try {
+    const { category = 'other', title, filename, file_url = '', file_size = '—', format = 'other', meta_json = {} } = req.body;
+    if (!title || !filename) {
+      return res.status(400).json({ message: 'Title and filename are required' });
+    }
+    const metaStr = typeof meta_json === 'string' ? meta_json : JSON.stringify(meta_json || {});
+    const r = await q(
+      'INSERT INTO storage_archives (category, title, filename, file_url, file_size, format, meta_json, record_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, "active", NOW(), NOW())',
+      [category, title, filename, file_url, file_size, format.toLowerCase(), metaStr]
+    );
+    const item = (await q('SELECT * FROM storage_archives WHERE id = ?', [r.insertId]))[0];
+    let meta = {};
+    try { meta = JSON.parse(item.meta_json); } catch {}
+    res.json({ ...item, meta });
+  } catch (err) {
+    console.error('Storage create error:', err);
+    res.status(500).json({ message: 'Storage create error: ' + err.message });
+  }
+});
+
+app.post('/api/storage/upload', auth, notViewer, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file received' });
+    const originalName = req.file.originalname || 'document';
+    const ext = path.extname(originalName).toLowerCase();
+    const final = req.file.path + ext;
+    fs.renameSync(req.file.path, final);
+    const fileUrl = `/uploads/${path.basename(final)}`;
+
+    // Calculate readable size
+    const bytes = req.file.size || 0;
+    let readableSize = '1 KB';
+    if (bytes >= 1024 * 1024) readableSize = (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    else if (bytes >= 1024) readableSize = Math.round(bytes / 1024) + ' KB';
+    else readableSize = bytes + ' B';
+
+    // Guess format and category
+    let format = ext.replace('.', '') || 'bin';
+    let category = req.body.category || 'other';
+    if (!req.body.category) {
+      if (['pptx', 'ppt'].includes(format)) category = 'ppt';
+      else if (['xlsx', 'xls', 'csv'].includes(format)) category = 'excel';
+      else if (['json'].includes(format)) category = 'occupancy';
+    }
+
+    const title = req.body.title || originalName.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+    let meta = {};
+    try {
+      if (req.body.meta_json) meta = typeof req.body.meta_json === 'string' ? JSON.parse(req.body.meta_json) : req.body.meta_json;
+    } catch {}
+
+    const r = await q(
+      'INSERT INTO storage_archives (category, title, filename, file_url, file_size, format, meta_json, record_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, "active", NOW(), NOW())',
+      [category, title, originalName, fileUrl, readableSize, format, JSON.stringify(meta)]
+    );
+    const item = (await q('SELECT * FROM storage_archives WHERE id = ?', [r.insertId]))[0];
+    res.json({ ...item, meta });
+  } catch (err) {
+    console.error('Storage upload error:', err);
+    res.status(500).json({ message: 'Storage upload error: ' + err.message });
+  }
+});
+
+app.post('/api/storage/snapshot-occupancy', auth, notViewer, async (req, res) => {
+  try {
+    const sites = await q('SELECT * FROM sites WHERE record_status = "active"');
+    const campaigns = await q('SELECT * FROM campaigns WHERE record_status = "active"');
+    const totalSites = sites.length || 22;
+    
+    // Live campaigns running right now
+    const now = new Date();
+    const activeCampaigns = campaigns.filter(c => {
+      const start = c.start_date ? new Date(c.start_date) : null;
+      const end = c.end_date ? new Date(c.end_date) : null;
+      return (!start || start <= now) && (!end || end >= now);
+    });
+
+    const occupiedCodes = new Set();
+    let totalRevenue = 0;
+    activeCampaigns.forEach(c => {
+      if (c.site_code) occupiedCodes.add(c.site_code.toUpperCase());
+      totalRevenue += Number(c.total_amount || c.revenue || 0);
+    });
+
+    const occupiedCount = Math.max(occupiedCodes.size, sites.filter(s => ['occupied', 'booked', 'active'].includes(String(s.availability || '').toLowerCase())).length);
+    const vacantCount = Math.max(0, totalSites - occupiedCount);
+    const occupancyPct = totalSites > 0 ? Math.round((occupiedCount / totalSites) * 100) : 0;
+
+    const monthLabel = req.body.month || now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const title = `${monthLabel} Site Occupancy Snapshot`;
+    const filename = `Occupancy_${monthLabel.replace(/\s+/g, '_')}.json`;
+
+    const meta = {
+      month: monthLabel,
+      totalSites,
+      occupiedSites: occupiedCount,
+      vacantSites: vacantCount,
+      occupancyPct,
+      revenue: totalRevenue,
+      activeCampaignsCount: activeCampaigns.length,
+      timestamp: new Date().toISOString()
+    };
+
+    const r = await q(
+      'INSERT INTO storage_archives (category, title, filename, file_url, file_size, format, meta_json, record_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, "active", NOW(), NOW())',
+      ['occupancy', title, filename, '', '12 KB', 'json', JSON.stringify(meta)]
+    );
+    const item = (await q('SELECT * FROM storage_archives WHERE id = ?', [r.insertId]))[0];
+    res.json({ ...item, meta });
+  } catch (err) {
+    console.error('Storage snapshot error:', err);
+    res.status(500).json({ message: 'Snapshot error: ' + err.message });
+  }
+});
+
+app.post('/api/storage/batch-delete', auth, managerOrAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'No IDs provided for batch deletion' });
+    }
+    const cleanIds = ids.map(Number).filter(n => !isNaN(n) && n > 0);
+    if (!cleanIds.length) return res.status(400).json({ message: 'Invalid IDs' });
+
+    const items = await q(`SELECT id, file_url FROM storage_archives WHERE id IN (${cleanIds.map(() => '?').join(',')})`, cleanIds);
+    for (const item of items) {
+      if (item.file_url && item.file_url.startsWith('/uploads/')) {
+        const p = path.resolve(uploadDir, path.basename(item.file_url));
+        if (fs.existsSync(p)) {
+          try { fs.unlinkSync(p); } catch {}
+        }
+      }
+    }
+
+    await q(`DELETE FROM storage_archives WHERE id IN (${cleanIds.map(() => '?').join(',')})`, cleanIds);
+    res.json({ success: true, count: cleanIds.length });
+  } catch (err) {
+    console.error('Storage batch-delete error:', err);
+    res.status(500).json({ message: 'Batch delete error: ' + err.message });
+  }
+});
+
+app.delete('/api/storage/:id', auth, managerOrAdmin, async (req, res) => {
+  try {
+    const item = (await q('SELECT * FROM storage_archives WHERE id = ?', [req.params.id]))[0];
+    if (!item) return res.status(404).json({ message: 'Record not found' });
+    await q('DELETE FROM storage_archives WHERE id = ?', [req.params.id]);
+    if (item.file_url && item.file_url.startsWith('/uploads/')) {
+      const p = path.resolve(uploadDir, path.basename(item.file_url));
+      if (fs.existsSync(p)) {
+        try { fs.unlinkSync(p); } catch {}
+      }
+    }
+    res.json({ success: true, id: Number(req.params.id) });
+  } catch (err) {
+    console.error('Storage delete error:', err);
+    res.status(500).json({ message: 'Delete error: ' + err.message });
+  }
+});
+
 // Generic CRUD endpoints for entities
 app.get('/api/:entity', auth, async (req, res) => {
   try {
@@ -621,7 +1695,12 @@ app.get('/api/:entity', auth, async (req, res) => {
         LIMIT ${limit}
       `);
     } else {
-      rows = await q(`SELECT * FROM \`${e.table}\` ORDER BY ${e.order} LIMIT ${limit}`);
+      const cols = await tableColumns(e.table);
+      if (cols.has('record_status')) {
+        rows = await q(`SELECT * FROM \`${e.table}\` WHERE record_status != 'archived' ORDER BY ${e.order} LIMIT ${limit}`);
+      } else {
+        rows = await q(`SELECT * FROM \`${e.table}\` ORDER BY ${e.order} LIMIT ${limit}`);
+      }
     }
     
     // Auto-seed sites if table is empty
@@ -686,37 +1765,58 @@ app.get('/api/:entity/:id', auth, async (req, res) => {
   res.json(rows[0]);
 });
 
-app.post('/api/:entity', auth, async (req, res) => {
-  const e = safeEntity(req, res);
-  if (!e) return;
-  const data = await cleanData(e.table, req.body);
-  if (req.params.entity === 'electricity') {
-    if (data.amount && !data.payment_amount) data.payment_amount = data.amount;
-    if (data.payment_amount && !data.amount) data.amount = data.payment_amount;
-    if (data.site_code || data.site_id) {
-      const siteRows = await q('SELECT * FROM sites WHERE id=? OR site_code=? LIMIT 1', [data.site_id || 0, data.site_code || '']);
-      if (siteRows[0]) {
-        const s = siteRows[0];
-        if (!data.site_code) data.site_code = s.site_code;
-        if (!data.site_id) data.site_id = s.id;
-        if (!data.location) data.location = s.address || s.area || s.city || '';
-        if (!data.size) data.size = s.size || '';
-        if (!data.meter_no) data.meter_no = s.meter_no || '';
+app.post('/api/:entity', auth, notViewer, async (req, res) => {
+  try {
+    const e = safeEntity(req, res);
+    if (!e) return;
+    if (['proposals', 'invoices', 'clients'].includes(req.params.entity) && !['admin', 'manager'].includes(req.user?.role)) {
+      return res.status(403).json({ message: 'Manager or Administrator access required' });
+    }
+    const data = await cleanData(e.table, req.body);
+    if (req.params.entity === 'electricity') {
+      if (data.amount && !data.payment_amount) data.payment_amount = data.amount;
+      if (data.payment_amount && !data.amount) data.amount = data.payment_amount;
+      if (!data.due_date) data.due_date = new Date().toISOString().slice(0, 10);
+      if (data.site_code || data.site_id) {
+        const siteRows = await q('SELECT * FROM sites WHERE id=? OR site_code=? LIMIT 1', [data.site_id || 0, data.site_code || '']);
+        if (siteRows[0]) {
+          const s = siteRows[0];
+          if (!data.site_code) data.site_code = s.site_code;
+          if (!data.site_id) data.site_id = s.id;
+          if (!data.location) data.location = s.address || s.area || s.city || '';
+          if (!data.size) data.size = s.size || '';
+          if (!data.meter_no) data.meter_no = s.meter_no || '';
+        }
       }
     }
+    if (req.params.entity === 'campaigns') {
+      if (!data.booking_code) data.booking_code = `MB-BK-${Date.now()}`;
+      if (!data.start_date) data.start_date = new Date().toISOString().slice(0, 10);
+      if (!data.end_date) {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        data.end_date = d.toISOString().slice(0, 10);
+      }
+    }
+    const keys = Object.keys(data);
+    if (!keys.length) return res.status(400).json({ message: 'No valid fields' });
+    const sql = `INSERT INTO \`${e.table}\` (${keys.map(k => '`' + k + '`').join(',')},created_at,updated_at) VALUES (${keys.map(() => '?').join(',')},NOW(),NOW())`;
+    const result = await q(sql, keys.map(k => data[k]));
+    await audit(req.user, 'Created', req.params.entity, result.insertId, null, data);
+    const rows = await q(`SELECT * FROM \`${e.table}\` WHERE id=?`, [result.insertId]);
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('Error creating entity ' + req.params.entity, err.message);
+    res.status(500).json({ message: err.message });
   }
-  const keys = Object.keys(data);
-  if (!keys.length) return res.status(400).json({ message: 'No valid fields' });
-  const sql = `INSERT INTO \`${e.table}\` (${keys.map(k => '`' + k + '`').join(',')},created_at,updated_at) VALUES (${keys.map(() => '?').join(',')},NOW(),NOW())`;
-  const result = await q(sql, keys.map(k => data[k]));
-  await audit(req.user, 'Created', req.params.entity, result.insertId, null, data);
-  const rows = await q(`SELECT * FROM \`${e.table}\` WHERE id=?`, [result.insertId]);
-  res.status(201).json(rows[0]);
 });
 
-app.put('/api/:entity/:id', auth, async (req, res) => {
+app.put('/api/:entity/:id', auth, notViewer, async (req, res) => {
   const e = safeEntity(req, res);
   if (!e) return;
+  if (['proposals', 'invoices', 'clients'].includes(req.params.entity) && !['admin', 'manager'].includes(req.user?.role)) {
+    return res.status(403).json({ message: 'Manager or Administrator access required' });
+  }
   const before = (await q(`SELECT * FROM \`${e.table}\` WHERE id=?`, [req.params.id]))[0];
   if (!before) return res.status(404).json({ message: 'Record not found' });
   const data = await cleanData(e.table, req.body);
@@ -734,6 +1834,12 @@ app.put('/api/:entity/:id', auth, async (req, res) => {
       }
     }
   }
+  if (req.params.entity === 'campaigns') {
+    if (data.total_amount && !data.revenue) data.revenue = data.total_amount;
+    if (data.revenue && !data.total_amount) data.total_amount = data.revenue;
+    if (data.display && !data.campaign_name) data.campaign_name = data.display;
+    if (data.campaign_name && !data.display) data.display = data.campaign_name;
+  }
   const keys = Object.keys(data);
   if (keys.length) await q(`UPDATE \`${e.table}\` SET ${keys.map(k => '`' + k + '`=?').join(',')},updated_at=NOW() WHERE id=?`, [...keys.map(k => data[k]), req.params.id]);
   const after = (await q(`SELECT * FROM \`${e.table}\` WHERE id=?`, [req.params.id]))[0];
@@ -741,14 +1847,48 @@ app.put('/api/:entity/:id', auth, async (req, res) => {
   res.json(after);
 });
 
-app.delete('/api/:entity/:id', auth, async (req, res) => {
+app.delete('/api/:entity/:id', auth, managerOrAdmin, async (req, res) => {
   const e = safeEntity(req, res);
   if (!e) return;
   const cols = await tableColumns(e.table);
-  if (cols.has('record_status')) await q(`UPDATE \`${e.table}\` SET record_status='archived',updated_at=NOW() WHERE id=?`, [req.params.id]);
-  else await q(`DELETE FROM \`${e.table}\` WHERE id=?`, [req.params.id]);
-  await audit(req.user, 'Archived', req.params.entity, req.params.id);
+  const isHardDelete = e.table === 'campaigns' || e.table === 'electricity' || req.query.hard === 'true' || !cols.has('record_status');
+  if (isHardDelete) {
+    await q(`DELETE FROM \`${e.table}\` WHERE id=?`, [req.params.id]);
+    await audit(req.user, 'Deleted', req.params.entity, req.params.id);
+  } else {
+    await q(`UPDATE \`${e.table}\` SET record_status='archived',updated_at=NOW() WHERE id=?`, [req.params.id]);
+    await audit(req.user, 'Archived', req.params.entity, req.params.id);
+  }
   res.json({ success: true });
+});
+
+app.post('/api/:entity/batch-delete', auth, managerOrAdmin, async (req, res) => {
+  const e = safeEntity(req, res);
+  if (!e) return;
+  const { ids, hard } = req.body || {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ message: 'No IDs provided for batch deletion' });
+  }
+  const cleanIds = ids.map(x => Number(x)).filter(x => !isNaN(x) && x > 0);
+  if (cleanIds.length === 0) {
+    return res.status(400).json({ message: 'Invalid IDs for batch deletion' });
+  }
+  const cols = await tableColumns(e.table);
+  const isHardDelete = e.table === 'campaigns' || e.table === 'electricity' || hard === true || req.query.hard === 'true' || !cols.has('record_status');
+  
+  const placeholders = cleanIds.map(() => '?').join(',');
+  if (isHardDelete) {
+    await q(`DELETE FROM \`${e.table}\` WHERE id IN (${placeholders})`, cleanIds);
+    for (const id of cleanIds) {
+      await audit(req.user, 'Deleted', req.params.entity, id);
+    }
+  } else {
+    await q(`UPDATE \`${e.table}\` SET record_status='archived', updated_at=NOW() WHERE id IN (${placeholders})`, cleanIds);
+    for (const id of cleanIds) {
+      await audit(req.user, 'Archived', req.params.entity, id);
+    }
+  }
+  res.json({ success: true, count: cleanIds.length });
 });
 const distCandidates = [
   path.resolve(__dirname, '../../client/dist'),
@@ -810,6 +1950,11 @@ async function initDb() {
     } catch (tblErr) {
       console.warn('User table check notice:', tblErr.message);
     }
+
+    try {
+      await q('ALTER TABLE electricity MODIFY due_date DATE NULL DEFAULT NULL');
+      await q('ALTER TABLE campaigns MODIFY start_date DATE NULL DEFAULT NULL, MODIFY end_date DATE NULL DEFAULT NULL');
+    } catch (_) {}
 
     // Auto-seed initial Media Buzz sites & settings if empty
     try {
@@ -951,6 +2096,23 @@ async function initDb() {
           (0, 'validation_due', 'campaign', '15-Day Validation Due: AMD-HD-005', 'Zydus Healthcare campaign requires day/night inspection photo proof.', 0, 'notif-val-002', NOW()),
           (0, 'electricity_due', 'electricity', 'Electricity Bill Overdue: MTR-UGVCL-8841', 'Bill amount ₹7,850 for AMD-GT-001 is past due date.', 0, 'notif-elec-003', NOW())`);
         console.log('Seeded initial notifications.');
+      }
+
+      // Seed Storage Archives if empty
+      const storageCount = await q('SELECT COUNT(*) c FROM storage_archives');
+      if (!storageCount[0]?.c) {
+        await q(`INSERT INTO storage_archives (category, title, filename, file_url, file_size, format, meta_json, record_status, created_at, updated_at) VALUES
+          ('ppt', 'Diwali 2026 Prime Sites Pitch Deck', 'MediaBuzz_Automated-PPT_Diwali2026.pptx', '', '4.8 MB', 'pptx', '{"slides":8,"client":"All Prime Sites","sites":["AMD-GT-001","AMD-UP-002","AMD-HD-005"],"orientation":"16:9 Widescreen"}', 'active', DATE_SUB(NOW(), INTERVAL 2 DAY), NOW()),
+          ('ppt', 'Rajyash Group - Ahmedabad Outdoor Showcase', 'Rajyash_Group_Outdoor_Showcase.pptx', '', '3.2 MB', 'pptx', '{"slides":5,"client":"Rajyash Group","sites":["AMD-GT-001","AMD-HD-005"]}', 'active', DATE_SUB(NOW(), INTERVAL 5 DAY), NOW()),
+          ('ppt', 'Tata Motors EV Launch Presentation', 'Tata_Motors_EV_Launch_Deck.pptx', '', '2.9 MB', 'pptx', '{"slides":6,"client":"Tata Motors EV","sites":["AMD-UP-002"]}', 'active', DATE_SUB(NOW(), INTERVAL 9 DAY), NOW()),
+          ('excel', 'Campaign Tracker Master Sheet (20 Columns)', 'MediaBuzz_Campaign_Tracker_Sep2026.xlsx', '', '380 KB', 'xlsx', '{"rows":24,"columns":20,"type":"Campaigns","month":"Sep 2026"}', 'active', DATE_SUB(NOW(), INTERVAL 1 DAY), NOW()),
+          ('excel', 'Consolidated Electricity Bills (UGVCL & Torrent)', 'MediaBuzz_Electricity_Bills_Aug2026.xlsx', '', '210 KB', 'xlsx', '{"rows":18,"totalAmount":184500,"type":"Electricity"}', 'active', DATE_SUB(NOW(), INTERVAL 4 DAY), NOW()),
+          ('excel', 'Master Sites Portfolio & Geo-Coordinates', 'MediaBuzz_Sites_Catalog_2026.xlsx', '', '512 KB', 'xlsx', '{"rows":22,"type":"Sites Catalog","cities":["Ahmedabad"]}', 'active', DATE_SUB(NOW(), INTERVAL 12 DAY), NOW()),
+          ('occupancy', 'September 2026 Site Occupancy Snapshot', 'Occupancy_September_2026.json', '', '14 KB', 'json', '{"month":"September 2026","totalSites":22,"occupiedSites":19,"vacantSites":3,"occupancyPct":86,"revenue":1480000,"activeCampaignsCount":6}', 'active', DATE_SUB(NOW(), INTERVAL 8 DAY), NOW()),
+          ('occupancy', 'August 2026 Site Occupancy Snapshot', 'Occupancy_August_2026.json', '', '14 KB', 'json', '{"month":"August 2026","totalSites":22,"occupiedSites":17,"vacantSites":5,"occupancyPct":77,"revenue":1290000,"activeCampaignsCount":5}', 'active', DATE_SUB(NOW(), INTERVAL 38 DAY), NOW()),
+          ('occupancy', 'July 2026 Site Occupancy Snapshot', 'Occupancy_July_2026.json', '', '14 KB', 'json', '{"month":"July 2026","totalSites":22,"occupiedSites":16,"vacantSites":6,"occupancyPct":73,"revenue":1150000,"activeCampaignsCount":5}', 'active', DATE_SUB(NOW(), INTERVAL 69 DAY), NOW()),
+          ('occupancy', 'June 2026 Site Occupancy Snapshot', 'Occupancy_June_2026.json', '', '14 KB', 'json', '{"month":"June 2026","totalSites":22,"occupiedSites":15,"vacantSites":7,"occupancyPct":68,"revenue":1020000,"activeCampaignsCount":4}', 'active', DATE_SUB(NOW(), INTERVAL 99 DAY), NOW())`);
+        console.log('Seeded initial storage archives with generated PPTs, Excels, and historical occupancy snapshots.');
       }
     } catch (seedErr) {
       console.warn('Site seed notice:', seedErr.message);

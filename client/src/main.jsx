@@ -61,6 +61,7 @@ const icons = {
   reports: <path d="M4 2h16v20H4V2Zm4 14h2v3H8v-3Zm3-5h2v8h-2v-8Zm3 2h2v6h-2v-6ZM8 6h8v2H8V6Z"/>,
   notifications: <path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-5H5l2-2v-5a5 5 0 1 1 10 0v5l2 2Z"/>,
   activity: <path d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-2.34-5.66L14 10h8V2l-2.91 2.91A9.96 9.96 0 0 0 12 2Zm-1 5h2v6l4 2-1 1.73-5-2.73V7Z"/>,
+  storage: <path d="M4 4h16v4H4V4Zm0 6h16v4H4v-4Zm0 6h16v4H4v-4Zm6-10h4V5h-4v1Zm0 6h4v-1h-4v1Zm0 6h4v-1h-4v1Z"/>,
   settings: <path d="m19.14 12.94.04-.94-.04-.94 2.03-1.58-2-3.46-2.49 1a7.8 7.8 0 0 0-1.63-.94L14.68 3h-4l-.37 3.08c-.58.25-1.12.57-1.63.94l-2.49-1-2 3.46 2.03 1.58-.04.94.04.94-2.03 1.58 2 3.46 2.49-1c.51.37 1.05.69 1.63.94L10.68 21h4l.37-3.08c.58-.25 1.12-.57 1.63-.94l2.49 1 2-3.46-2.03-1.58ZM12.68 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/>
 };
 
@@ -73,7 +74,8 @@ const navGroups = [
       ['campaigns', 'Campaign Tracker'],
       ['occupancy', 'Occupancy'],
       ['proposals', 'Proposal Builder'],
-      ['ppt', 'Automated PPT']
+      ['ppt', 'Automated PPT'],
+      ['storage', 'Storage & Archives']
     ]
   },
   {
@@ -127,8 +129,62 @@ const viewTitles = {
   reports: 'Performance Reports',
   notifications: 'System Notifications',
   activity: 'Activity Log',
+  storage: 'Storage & Archives',
   settings: 'System Settings'
 };
+
+export const ROLE_CONFIG = {
+  admin: {
+    key: 'admin',
+    label: 'Admin',
+    fullLabel: 'Administrator (Full Workspace & Settings Access)',
+    color: '#c4b5fd',
+    bg: 'rgba(139,92,246,0.18)',
+    border: 'rgba(139,92,246,0.35)',
+    description: 'Full workspace access, user account provisioning, system settings, database backups, and permanent record deletions across all modules.'
+  },
+  manager: {
+    key: 'manager',
+    label: 'Manager',
+    fullLabel: 'Manager (Sites, Campaigns, Proposals & Storage)',
+    color: '#4ade80',
+    bg: 'rgba(34,197,94,0.18)',
+    border: 'rgba(34,197,94,0.35)',
+    description: 'Full operational control: Create, edit, export, and delete sites, campaigns, proposals, electricity, invoices, and storage archives. Cannot access User Management or System Settings.'
+  },
+  staff: {
+    key: 'staff',
+    label: 'Staff',
+    fullLabel: 'Staff (Field Operations & Billing Tracking)',
+    color: '#38bdf8',
+    bg: 'rgba(56,189,248,0.18)',
+    border: 'rgba(56,189,248,0.35)',
+    description: 'Field operations: View inventory, update mounting & printing status, and log electricity meter bills. Deletions, bulk deletes, and proposals are restricted.'
+  },
+  viewer: {
+    key: 'viewer',
+    label: 'Viewer',
+    fullLabel: 'Viewer (Read-Only Access)',
+    color: '#f59e0b',
+    bg: 'rgba(245,158,11,0.18)',
+    border: 'rgba(245,158,11,0.35)',
+    description: 'Read-only access: Can view dashboards, sites, campaigns, occupancy, and download PPT/Excel files. Cannot create, edit, import, or delete records.'
+  }
+};
+
+export function getCurrentUser() {
+  try {
+    return JSON.parse(localStorage.getItem('sc_user') || '{}');
+  } catch {
+    return {};
+  }
+}
+
+export function getCurrentRole() {
+  const u = getCurrentUser();
+  return (u.role || 'staff').toLowerCase();
+}
+
 
 const label = s => String(s).replaceAll('_', ' ').replace(/\b\w/g, m => m.toUpperCase());
 const money = v => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
@@ -139,9 +195,20 @@ function universalCompare(valA, valB, dir = 'asc') {
   if (valA === null || valA === undefined || valA === '' || valA === '—') return 1;
   if (valB === null || valB === undefined || valB === '' || valB === '—') return -1;
 
+  const strA = String(valA).trim();
+  const strB = String(valB).trim();
+
+  // Try parsing as site code (e.g. "MB-01", "MB-87", "01", "MB 2")
+  const siteA = strA.match(/^(?:mb[-\s]*)?(\d+)$/i);
+  const siteB = strB.match(/^(?:mb[-\s]*)?(\d+)$/i);
+  if (siteA && siteB) {
+    const diff = parseInt(siteA[1], 10) - parseInt(siteB[1], 10);
+    return dir === 'desc' ? -diff : diff;
+  }
+
   // Try parsing as number
-  const numA = typeof valA === 'number' ? valA : (typeof valA === 'string' && /^-?\d+(\.\d+)?$/.test(valA.trim()) ? parseFloat(valA) : NaN);
-  const numB = typeof valB === 'number' ? valB : (typeof valB === 'string' && /^-?\d+(\.\d+)?$/.test(valB.trim()) ? parseFloat(valB) : NaN);
+  const numA = typeof valA === 'number' ? valA : (/^-?\d+(\.\d+)?$/.test(strA) ? parseFloat(strA) : NaN);
+  const numB = typeof valB === 'number' ? valB : (/^-?\d+(\.\d+)?$/.test(strB) ? parseFloat(strB) : NaN);
 
   let res = 0;
   if (!isNaN(numA) && !isNaN(numB)) {
@@ -155,14 +222,59 @@ function universalCompare(valA, valB, dir = 'asc') {
       if (!isNaN(timeA) && !isNaN(timeB)) {
         res = timeA - timeB;
       } else {
-        res = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
+        res = strA.localeCompare(strB, undefined, { numeric: true, sensitivity: 'base' });
       }
     } else {
-      res = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
+      res = strA.localeCompare(strB, undefined, { numeric: true, sensitivity: 'base' });
     }
   }
 
   return dir === 'desc' ? -res : res;
+}
+
+// Smart site search matcher supporting site number (e.g. "01", "1", "mb-01", "87") and text search
+function matchSiteSearch(site, rawQuery) {
+  if (!rawQuery || !rawQuery.trim()) return true;
+  if (!site) return false;
+  const q = rawQuery.trim().toLowerCase();
+  const siteCode = String(site.site_code || '').trim().toLowerCase();
+  const area = String(site.area || '').toLowerCase();
+  const city = String(site.city || '').toLowerCase();
+  const address = String(site.address || site.location || '').toLowerCase();
+  const mediaType = String(site.media_type || '').toLowerCase();
+  const lighting = String(site.lighting || '').toLowerCase();
+
+  // 1. Numeric or site-code search: e.g. '01', '1', 'mb-01', 'mb 01', 'mb01', 'site 1', '87'
+  const isNumericQuery = /^(?:(?:mb|site)[\s-]*)?(\d+)$/i.test(q);
+  if (isNumericQuery) {
+    const qNumMatch = q.match(/^(?:(?:mb|site)[\s-]*)?0*(\d+)$/i);
+    const qNum = qNumMatch ? parseInt(qNumMatch[1], 10) : NaN;
+    const cleanQDigits = q.replace(/\D/g, '');
+
+    const codeNumMatch = siteCode.match(/(\d+)/);
+    const codeNum = codeNumMatch ? parseInt(codeNumMatch[1], 10) : NaN;
+    const codeDigits = codeNumMatch ? codeNumMatch[1] : '';
+
+    // If query has leading zeros like '01', exact digit match (e.g. "01" matches "01")
+    if (cleanQDigits.startsWith('0') && codeDigits === cleanQDigits) return true;
+
+    // Exact numeric match: query '1' matches MB-01 (1 == 1)
+    if (!isNaN(qNum) && !isNaN(codeNum) && qNum === codeNum) return true;
+
+    // Exact siteCode match
+    if (siteCode === q || siteCode.replace(/[^a-z0-9]/g, '') === q.replace(/[^a-z0-9]/g, '')) return true;
+
+    return false;
+  }
+
+  // 2. Full text match on site_code (e.g. if searching partial letters or 'mb')
+  if (siteCode.includes(q) || siteCode.replace(/[^a-z0-9]/g, '').includes(q.replace(/[^a-z0-9]/g, ''))) return true;
+
+  // 3. Descriptive fields
+  if (area.includes(q) || address.includes(q) || city.includes(q) || mediaType.includes(q) || lighting.includes(q)) {
+    return true;
+  }
+  return false;
 }
 
 function SortHeader({ label, sortKey, currentSort, onSort, align = 'left', style = {} }) {
@@ -215,75 +327,518 @@ async function imageData(url) {
   });
 }
 
-async function makePpt(sites, pages) {
-  if (!pages.first || !pages.second_last || !pages.last) {
-    throw new Error('Please upload all three fixed presentation pages (Page 1, Page 2, and Page 3) first.');
+const OVERLAY_SVG_STRING = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <defs>
+    <!-- Deep dark navy gradient for the right dashboard panel -->
+    <linearGradient id="mainNavy" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#02142B" />
+      <stop offset="60%" stop-color="#04162C" />
+      <stop offset="100%" stop-color="#010B17" />
+    </linearGradient>
+
+    <!-- Outer angled facet gradient -->
+    <linearGradient id="outerFacet" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A2C52" />
+      <stop offset="100%" stop-color="#041830" />
+    </linearGradient>
+
+    <!-- Subtle drop shadow for bottom-left logo badge over photo -->
+    <filter id="badgeShadow" x="-10%" y="-10%" width="125%" height="125%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000000" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <!-- ================= 1. LEFT BOTTOM CORNER: OFFICIAL LOGO BADGE ================= -->
+  <g transform="translate(45, 920)" filter="url(#badgeShadow)">
+    <!-- Solid Brand Yellow Badge matching official master logo -->
+    <rect width="320" height="116" rx="10" fill="#FFCC00" />
+    <svg x="10" y="7" width="300" height="102" viewBox="135 170 550 195">
+      <!-- White Butterfly / Bow Emblem -->
+      <path d="M 423.95 206.12 C 423.95 206.12 451.13 188.08 467.73 194.82 C 467.73 194.82 475.68 199.04 473.14 208.07 C 469.02 222.71 447.63 232.42 435.26 236.91 C 435.26 236.91 451.23 246.53 458.80 260.40 C 466.83 275.13 460.58 283.22 446.34 275.99 C 442.96 274.27 438.72 271.39 435.26 266.74 L 429.73 278.28 C 437.34 287.53 458.23 295.93 468.64 287.13 C 471.72 284.52 475.18 280.16 475.61 273.55 C 476.26 263.82 471.52 256.19 465.58 249.20 C 462.52 245.60 458.65 241.26 456.43 239.56 C 456.43 239.56 470.93 233.24 480.11 221.75 C 496.01 201.84 483.14 179.98 459.07 181.59 C 459.07 181.59 442.00 181.35 417.70 198.42 Z M 405.87 206.12 C 405.87 206.12 378.69 188.08 362.09 194.82 C 362.09 194.82 354.14 199.04 356.68 208.07 C 360.80 222.71 382.20 232.42 394.57 236.91 C 394.57 236.91 378.59 246.53 371.03 260.40 C 362.99 275.13 369.25 283.22 383.48 275.99 C 386.87 274.27 391.10 271.39 394.57 266.74 L 400.10 278.28 C 392.49 287.53 371.59 295.93 361.18 287.13 C 358.10 284.52 354.65 280.16 354.21 273.55 C 353.57 263.82 358.30 256.19 364.24 249.20 C 367.30 245.60 371.17 241.26 373.40 239.56 C 373.40 239.56 358.89 233.24 349.71 221.75 C 333.82 201.84 346.68 179.98 370.75 181.59 C 370.75 181.59 387.83 181.35 412.12 198.42 Z" fill="#FFFFFF" fill-rule="evenodd" />
+      <!-- Media (Dark Navy) -->
+      <path d="M 187.21 259.17 C 187.21 265.17 200.63 265.17 200.63 265.17 L 200.63 213.69 C 200.63 207.69 189.40 207.69 186.44 207.69 L 172.08 238.34 L 160.62 212.91 C 158.20 207.61 152.35 207.69 151.88 207.69 L 143.61 207.69 L 143.61 259.17 C 143.61 265.17 157.03 265.17 157.03 265.17 L 157.03 239.04 C 157.03 235.22 156.17 230.77 156.17 230.77 L 164.52 249.65 C 168.26 255.50 176.37 255.50 176.37 255.50 L 188.23 230.30 C 188.23 230.30 187.21 235.22 187.21 239.04 Z Z M 218.47 238.18 C 218.47 233.89 219.72 231.55 223.62 231.55 C 227.05 231.55 228.38 233.43 228.38 236.23 C 228.38 239.59 225.73 240.52 222.92 240.52 C 221.28 240.52 219.64 240.21 218.47 239.90 Z Z M 225.88 265.33 C 235.79 265.33 242.11 260.88 242.11 255.19 C 242.11 253.00 241.17 250.66 239.30 248.09 C 239.22 252.14 234.38 255.81 226.27 255.81 C 221.51 255.81 218.47 253.86 218.47 249.49 L 218.47 248.24 C 218.47 248.24 220.89 249.49 224.87 249.49 C 237.89 249.49 241.41 243.10 241.41 236.23 C 241.41 227.89 236.26 222.35 224.17 222.35 C 212.08 222.35 205.37 227.89 205.37 237.01 L 205.37 250.66 C 205.37 259.87 212.54 265.33 225.88 265.33 Z M 269.54 204.02 L 269.54 220.71 C 269.54 222.27 270.09 224.77 270.09 224.77 C 270.09 224.77 266.27 222.35 261.66 222.35 C 252.46 222.35 244.50 227.81 244.50 236.78 L 244.50 250.82 C 244.50 260.10 251.52 265.33 263.61 265.33 C 266.42 265.33 270.87 264.00 275.70 264.00 C 278.36 264.00 280.38 264.08 282.65 265.33 L 282.65 210.80 C 282.65 204.10 270.87 204.02 269.54 204.02 Z M 269.54 255.97 C 269.54 255.97 266.73 256.43 264.55 256.43 C 259.24 256.43 257.61 254.02 257.61 249.65 L 257.61 237.95 C 257.61 233.50 259.71 231.55 262.68 231.55 C 266.19 231.55 269.54 233.82 269.54 237.17 Z Z M 287.38 258.93 C 287.38 264.94 300.49 264.94 300.49 264.94 L 300.49 228.74 C 300.49 222.97 288.47 222.74 287.38 222.74 Z Z M 287.61 215.41 C 287.61 216.81 289.33 218.29 291.75 218.29 L 300.10 218.29 L 300.10 210.80 C 300.10 209.64 298.38 207.84 296.04 207.84 L 287.61 207.84 Z Z M 327.77 255.66 C 327.77 255.66 324.88 256.51 322.07 256.51 C 319.42 256.51 316.77 255.73 316.77 252.07 C 316.77 247.08 325.66 248.32 327.77 245.05 Z Z M 321.06 231.63 C 326.13 231.63 327.53 233.82 327.53 235.69 C 323.94 240.91 303.66 238.26 303.66 252.53 C 303.66 262.36 312.09 265.33 320.82 265.33 C 325.42 265.33 329.80 263.92 333.93 263.92 C 336.11 263.92 338.45 264.16 340.64 265.33 L 340.64 236.31 C 340.64 227.26 333.93 222.35 321.21 222.35 C 315.83 222.35 304.75 223.91 304.75 231.79 C 304.75 234.21 305.46 237.01 308.34 240.83 C 308.34 233.43 315.05 231.63 321.06 231.63" fill="#030352" fill-rule="evenodd" />
+      <!-- Buzz (Dark Navy) -->
+      <path d="M 498.73 258.07 C 498.73 264.00 508.72 264.08 508.72 264.08 L 518.31 264.08 C 531.65 264.08 540.85 259.71 540.85 248.87 L 540.85 247.15 C 540.85 242.32 538.12 237.09 533.83 235.38 C 537.50 233.97 540.07 228.51 540.07 223.99 L 540.07 222.43 C 540.07 211.04 530.95 207.37 518.31 207.37 L 498.73 207.37 Z Z M 518.93 240.21 C 524.86 240.21 527.44 242.47 527.44 247.70 C 527.44 252.77 524.71 254.64 518.31 254.64 L 512.15 254.64 L 512.15 240.21 Z Z M 518.31 216.89 C 523.93 216.89 526.66 218.37 526.66 222.82 C 526.66 227.97 524.63 230.77 518.93 230.77 L 512.15 230.77 L 512.15 216.89 Z Z M 557.91 228.43 C 557.91 222.74 544.81 222.43 544.81 222.43 L 544.81 251.21 C 544.81 262.05 554.17 265.01 562.90 265.01 C 566.88 265.01 570.55 263.38 574.53 263.38 C 579.44 263.38 582.95 265.33 582.95 265.33 L 582.95 228.43 C 582.95 222.43 569.85 222.43 569.85 222.43 L 569.85 254.95 C 569.85 254.95 566.65 255.73 564.00 255.73 C 559.47 255.73 557.91 253.71 557.91 250.04 Z Z M 604.85 232.49 C 599.86 240.52 584.88 248.01 584.88 259.79 C 584.88 260.41 584.80 260.96 585.50 264.08 L 614.60 264.08 C 621.85 264.08 621.85 254.64 621.85 254.64 L 599.78 254.64 C 606.02 246.14 617.95 238.73 620.06 231.32 C 620.92 228.43 621.07 225.70 621.93 222.97 L 593.15 222.97 C 585.74 222.97 585.74 232.49 585.74 232.49 Z Z M 640.32 232.49 C 635.32 240.52 620.35 248.01 620.35 259.79 C 620.35 260.41 620.27 260.96 620.97 264.08 L 650.07 264.08 C 657.32 264.08 657.32 254.64 657.32 254.64 L 635.25 254.64 C 641.49 246.14 653.42 238.73 655.53 231.32 C 656.39 228.43 656.54 225.70 657.40 222.97 L 628.62 222.97 C 621.21 222.97 621.21 232.49 621.21 232.49 Z" fill="#030352" fill-rule="evenodd" />
+      <!-- Registered trademark circle & R -->
+      <path d="M 661.61 189.98 C 670.50 189.98 677.72 196.99 677.72 205.63 C 677.72 214.27 670.50 221.28 661.61 221.28 C 652.71 221.28 645.50 214.27 645.50 205.63 C 645.50 196.99 652.71 189.98 661.61 189.98" stroke="#030352" stroke-width="1.8" fill="none" />
+      <text x="661.6" y="206.5" font-family="'Arial', 'Helvetica', sans-serif" font-weight="bold" font-size="16" fill="#030352" text-anchor="middle" dominant-baseline="central">R</text>
+      <!-- Be Seen tagline -->
+      <text x="412" y="352" font-family="'Arial', 'Helvetica', sans-serif" font-weight="bold" font-size="58" fill="#030352" text-anchor="middle" letter-spacing="1">Be Seen</text>
+    </svg>
+  </g>
+
+  <!-- ================= 2. RIGHT SIDE DASHBOARD: PROPER & BIG ================= -->
+  <!-- Left outer angled facet -->
+  <polygon points="1180,0 1260,0 1080,1080 1060,1080" fill="url(#outerFacet)" />
+  <line x1="1180" y1="0" x2="1060" y2="1080" stroke="#0F3863" stroke-width="1.8" />
+
+  <!-- Main dark navy right-hand panel -->
+  <polygon points="1260,0 1920,0 1920,1080 1080,1080" fill="url(#mainNavy)" />
+  <line x1="1260" y1="0" x2="1080" y2="1080" stroke="#0B2A4A" stroke-width="1.5" />
+
+  <!-- A. SITE CODE Section Accents (Moved to top with ample space) -->
+  <!-- Yellow horizontal bar above SITE CODE -->
+  <rect x="1300" y="48" width="90" height="8" rx="4" fill="#FFC200" />
+  <!-- Label: SITE CODE -->
+  <text x="1300" y="88" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="21" fill="#FFFFFF" letter-spacing="4">SITE CODE</text>
+
+  <!-- B. Headline Section Accents -->
+
+
+  <!-- C. Thin Horizontal Divider Lines across the specs & coordinates list -->
+  <line x1="1295" y1="375" x2="1885" y2="375" stroke="#0F355C" stroke-width="1.5" />
+  <line x1="1295" y1="485" x2="1885" y2="485" stroke="#0F355C" stroke-width="1.5" />
+  <line x1="1295" y1="595" x2="1885" y2="595" stroke="#0F355C" stroke-width="1.5" />
+  <line x1="1295" y1="705" x2="1885" y2="705" stroke="#0F355C" stroke-width="1.5" />
+  <line x1="1295" y1="815" x2="1885" y2="815" stroke="#0F355C" stroke-width="1.5" />
+  <line x1="1295" y1="925" x2="1885" y2="925" stroke="#0F355C" stroke-width="1.5" />
+  <line x1="1295" y1="1040" x2="1885" y2="1040" stroke="#0F355C" stroke-width="1.5" />
+
+  <!-- D. Spec Section Labels & Icons matching reference photo -->
+  <!-- Row 1: SIZE -->
+  <g transform="translate(1305, 395)">
+    <!-- 4-arrows icon -->
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <polyline points="21 15 21 21 15 21" />
+      <polyline points="3 9 3 3 9 3" />
+    </svg>
+  </g>
+  <text x="1395" y="415" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="18" fill="#8EA5C4" letter-spacing="1">SIZE</text>
+
+  <!-- Row 2: TYPE -->
+  <g transform="translate(1303, 505)">
+    <!-- Billboard outline icon -->
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="11" rx="1.5" />
+      <line x1="8" y1="15" x2="8" y2="21" />
+      <line x1="16" y1="15" x2="16" y2="21" />
+      <line x1="5" y1="21" x2="19" y2="21" />
+    </svg>
+  </g>
+  <text x="1395" y="525" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="18" fill="#8EA5C4" letter-spacing="1">TYPE</text>
+
+  <!-- Row 3: ILLUMINATION -->
+  <g transform="translate(1304, 615)">
+    <!-- Lightbulb icon -->
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 18h6" />
+      <path d="M10 22h4" />
+      <path d="M12 2v2" />
+      <path d="M12 6a5 5 0 0 0-3.5 8.5c.9.9 1.5 1.8 1.5 2.5h4c0-.7.6-1.6 1.5-2.5A5 5 0 0 0 12 6z" />
+      <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+      <line x1="19.07" y1="4.93" x2="17.66" y2="6.34" />
+    </svg>
+  </g>
+  <text x="1395" y="635" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="18" fill="#8EA5C4" letter-spacing="1">ILLUMINATION</text>
+
+  <!-- Row 4: Adv. Fee Per Month -->
+  <g transform="translate(1310, 723)">
+    <!-- Yellow Rupee symbol -->
+    <svg width="38" height="42" viewBox="0 0 24 24" fill="none" stroke="#FFC200" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 3h12" />
+      <path d="M6 8h12" />
+      <path d="M6 13l8.5 8" />
+      <path d="M6 13h3a4.5 4.5 0 0 0 0-9" />
+    </svg>
+  </g>
+  <text x="1395" y="745" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="17" fill="#8EA5C4" letter-spacing="0.5">Adv. Fee Per Month</text>
+
+  <!-- Row 5: AVAILABILITY -->
+  <g transform="translate(1306, 833)">
+    <!-- Circle checkmark icon -->
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#5AC8FA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9.5" stroke="#5AC8FA" />
+      <polyline points="7.5 12 10.5 15 16.5 9" stroke="#5AC8FA" />
+    </svg>
+  </g>
+  <text x="1395" y="855" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="18" fill="#8EA5C4" letter-spacing="1">AVAILABILITY</text>
+
+  <!-- Row 6: Location Coordinates Icon & Label -->
+  <g transform="translate(1305, 943)">
+    <!-- Bright yellow location pin -->
+    <svg width="44" height="52" viewBox="0 0 24 24" fill="#FFC200">
+      <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C7.58 2 4 5.58 4 10C4 15.5 12 22 12 22C12 22 20 15.5 20 10C20 5.58 16.42 2 12 2ZM12 13C10.34 13 9 11.66 9 10C9 8.34 10.34 7 12 7C13.66 7 15 8.34 15 10C15 11.66 13.66 13 12 13Z" />
+    </svg>
+  </g>
+  <text x="1375" y="966" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="18" fill="#8EA5C4" letter-spacing="1">LOCATION COORDINATES</text>
+</svg>`;
+
+const LOGO_SVG_STRING = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 140" width="540" height="140">
+  <g transform="translate(10, 10)">
+    <!-- Media: bold white text with modern geometric sans -->
+    <text x="5" y="65" font-family="'Montserrat', 'Century Gothic', 'Segoe UI', Arial, sans-serif" font-weight="900" font-size="58" fill="#FFFFFF" letter-spacing="-0.5">Media</text>
+    
+    <!-- Stylized yellow continuous ribbon bow emblem with hollow center matching reference photo -->
+    <g transform="translate(196, 5)">
+      <path d="M 38 19
+               C 45 7, 59 5, 66 12
+               C 74 20, 73 33, 58 37
+               C 73 41, 74 54, 66 62
+               C 59 69, 45 67, 38 55
+               C 31 67, 17 69, 10 62
+               C 2 54, 3 41, 18 37
+               C 3 33, 2 20, 10 12
+               C 17 5, 31 7, 38 19 Z"
+            fill="none"
+            stroke="#FFC200"
+            stroke-width="7.5"
+            stroke-linecap="round"
+            stroke-linejoin="round" />
+    </g>
+
+    <!-- Buzz: bold white text with registered trademark -->
+    <text x="286" y="65" font-family="'Montserrat', 'Century Gothic', 'Segoe UI', Arial, sans-serif" font-weight="900" font-size="58" fill="#FFFFFF" letter-spacing="-0.5">Buzz</text>
+    <text x="432" y="30" font-family="'Montserrat', Arial, sans-serif" font-weight="bold" font-size="19" fill="#FFFFFF">®</text>
+
+    <!-- Be Seen: clean white text centered underneath emblem and Buzz -->
+    <text x="250" y="104" font-family="'Inter', 'Segoe UI', Arial, sans-serif" font-weight="600" font-size="25" fill="#FFFFFF" letter-spacing="1">Be Seen</text>
+  </g>
+</svg>`;
+
+const ICONS_SVG = {
+  size: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>`,
+  type: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="11" rx="1.5"/><line x1="8" y1="14" x2="8" y2="21"/><line x1="16" y1="14" x2="16" y2="21"/><line x1="5" y1="21" x2="19" y2="21"/></svg>`,
+  illum: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2v2"/><path d="M12 6a5 5 0 0 0-3.5 8.5c.9.9 1.5 1.8 1.5 2.5h4c0-.7.6-1.6 1.5-2.5A5 5 0 0 0 12 6z"/><line x1="4.93" y1="4.93" x2="6.34" y2="6.34"/><line x1="19.07" y1="4.93" x2="17.66" y2="6.34"/></svg>`,
+  rupee: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFC400" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12"/><path d="M6 8h12"/><path d="M6 13l8.5 8"/><path d="M6 13h3a4.5 4.5 0 0 0 0-9"/></svg>`,
+  check: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFC400" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><polyline points="7.5 12 10.5 15 16.5 9"/></svg>`,
+  pin: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#E6A200"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C7.58 2 4 5.58 4 10C4 15.5 12 22 12 22C12 22 20 15.5 20 10C20 5.58 16.42 2 12 2ZM12 13C10.34 13 9 11.66 9 10C9 8.34 10.34 7 12 7C13.66 7 15 8.34 15 10C15 11.66 13.66 13 12 13Z"/></svg>`
+};
+
+const svgPngCache = new Map();
+
+async function svgToPngDataUrl(svgString, width = 128, height = 128) {
+  const cacheKey = `${width}x${height}_${svgString}`;
+  if (svgPngCache.has(cacheKey)) return svgPngCache.get(cacheKey);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+
+  await new Promise((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('Failed to render SVG to canvas'));
+    img.src = url;
+  });
+
+  ctx.drawImage(img, 0, 0, width, height);
+  URL.revokeObjectURL(url);
+  const dataUrl = canvas.toDataURL('image/png');
+  svgPngCache.set(cacheKey, dataUrl);
+  return dataUrl;
+}
+
+let cachedOverlayPng = null;
+async function getSlideOverlayPng() {
+  if (cachedOverlayPng) return cachedOverlayPng;
+  try {
+    const res = await fetch('/assets/ppt-slide-overlay.svg?v=' + Date.now());
+    if (res.ok) {
+      const text = await res.text();
+      cachedOverlayPng = await svgToPngDataUrl(text, 1920, 1080);
+      return cachedOverlayPng;
+    }
+  } catch (e) {
+    console.warn('Overlay SVG fetch notice:', e);
   }
+  cachedOverlayPng = await svgToPngDataUrl(OVERLAY_SVG_STRING, 1920, 1080);
+  return cachedOverlayPng;
+}
+
+async function createSitePhotoShowcase(imgDataUrl, boxW_px = 1430, boxH_px = 1220) {
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error('Failed to load site photo for showcase'));
+    img.src = imgDataUrl;
+  });
+
+  const nw = img.naturalWidth || 1920;
+  const nh = img.naturalHeight || 1080;
+  const imgRatio = nw / nh;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = boxW_px;
+  canvas.height = boxH_px;
+  const ctx = canvas.getContext('2d');
+
+  // 1. Deep luxury dark navy base matching the presentation aesthetic
+  ctx.fillStyle = '#021020';
+  ctx.fillRect(0, 0, boxW_px, boxH_px);
+
+  // 2. Soft dimmed ambient glow backdrop (seamless luxury feel, eliminates empty voids)
+  try {
+    ctx.save();
+    ctx.filter = 'blur(30px) brightness(0.35) saturate(1.25)';
+    let bgW, bgH;
+    const boxRatio = boxW_px / boxH_px;
+    if (imgRatio >= boxRatio) {
+      bgH = boxH_px + 80;
+      bgW = bgH * imgRatio;
+    } else {
+      bgW = boxW_px + 80;
+      bgH = bgW / imgRatio;
+    }
+    const bgX = (boxW_px - bgW) / 2;
+    const bgY = (boxH_px - bgH) / 2;
+    ctx.drawImage(img, bgX, bgY, bgW, bgH);
+    ctx.restore();
+
+    // Dark smooth vignette
+    const grad = ctx.createRadialGradient(
+      boxW_px / 2, boxH_px / 2, Math.min(boxW_px, boxH_px) * 0.25,
+      boxW_px / 2, boxH_px / 2, Math.max(boxW_px, boxH_px) * 0.75
+    );
+    grad.addColorStop(0, 'rgba(2, 16, 32, 0.15)');
+    grad.addColorStop(1, 'rgba(2, 16, 32, 0.85)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, boxW_px, boxH_px);
+  } catch {
+    ctx.fillStyle = '#021020';
+    ctx.fillRect(0, 0, boxW_px, boxH_px);
+  }
+
+  // 3. 100% Uncropped, Razor-Sharp Foreground Photo (contain)
+  const PAD = 14;
+  const availW = boxW_px - (PAD * 2);
+  const availH = boxH_px - (PAD * 2);
+  const availRatio = availW / availH;
+
+  let fitW, fitH, fitX, fitY;
+  if (imgRatio >= availRatio) {
+    fitW = availW;
+    fitH = Math.round(availW / imgRatio);
+    fitX = PAD;
+    fitY = PAD + Math.round((availH - fitH) / 2);
+  } else {
+    fitH = availH;
+    fitW = Math.round(availH * imgRatio);
+    fitX = PAD + Math.round((availW - fitW) / 2);
+    fitY = PAD;
+  }
+
+  // Soft realistic drop-shadow behind sharp photo
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 8;
+  ctx.drawImage(img, fitX, fitY, fitW, fitH);
+  ctx.restore();
+
+  // Draw crisp original photo on top
+  ctx.drawImage(img, fitX, fitY, fitW, fitH);
+
+  // Subtle architectural border around sharp photo
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(fitX + 0.75, fitY + 0.75, fitW - 1.5, fitH - 1.5);
+
+  // Clean container border
+  ctx.strokeStyle = '#0F355C';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, boxW_px - 2, boxH_px - 2);
+
+  return canvas.toDataURL('image/jpeg', 0.94);
+}
+
+async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pptx') {
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_WIDE';
   pptx.author = 'Media Buzz Outdoor';
-  const SW = 13.333, SH = 7.5, NAVY = '062653', YELLOW = 'FFC400', WHITE = 'FFFFFF';
+  const SW = 13.333, SH = 7.5;
+
+  const overlayData = await getSlideOverlayPng();
 
   async function covered(slide, url, x, y, w, h) {
     try {
       const data = await imageData(url);
-      slide.addImage({ data, x, y, w, h, sizing: 'crop' });
+      slide.addImage({ data, x, y, w, h });
     } catch {}
   }
 
+  async function addSitePhoto(slide, url) {
+    const BOX_X = 0.20, BOX_Y = 0.20, BOX_W = 7.15, BOX_H = 6.10;
+    try {
+      const data = await imageData(url);
+      const cardDataUrl = await createSitePhotoShowcase(data, 1430, 1220);
+      slide.addImage({ data: cardDataUrl, x: BOX_X, y: BOX_Y, w: BOX_W, h: BOX_H });
+    } catch (err) {
+      console.warn('Site photo showcase notice:', err);
+      try {
+        const data = await imageData(url);
+        slide.addImage({
+          data,
+          x: BOX_X,
+          y: BOX_Y,
+          w: BOX_W,
+          h: BOX_H,
+          sizing: { type: 'contain', w: BOX_W, h: BOX_H }
+        });
+      } catch (innerErr) {
+        console.warn('Site photo fallback placement notice:', innerErr);
+      }
+    }
+  }
+
   async function fixed(u) {
+    if (!u) return;
     const s = pptx.addSlide();
-    s.background = { color: WHITE };
+    s.background = { color: 'FFFFFF' };
     await covered(s, u, 0, 0, SW, SH);
   }
 
-  let logo = '';
-  try { logo = await imageData('/assets/media-buzz-logo-footer.png'); } catch {}
-
-  async function siteSlide(site, url) {
-    const s = pptx.addSlide();
-    const leftW = 3.57, leftTopH = 6.18, rightX = leftW, rightW = SW - leftW;
-    s.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: leftW, h: leftTopH, line: { color: YELLOW, transparency: 100 }, fill: { color: YELLOW } });
-    s.addShape(pptx.ShapeType.rect, { x: 0, y: leftTopH, w: leftW, h: SH - leftTopH, line: { color: NAVY, transparency: 100 }, fill: { color: NAVY } });
-    
-    if (url) await covered(s, url, rightX, 0, rightW, SH);
-    else {
-      s.addShape(pptx.ShapeType.rect, { x: rightX, y: 0, w: rightW, h: SH, line: { color: 'E8EDF4', transparency: 100 }, fill: { color: 'E8EDF4' } });
-      s.addText('No site image added', { x: rightX + 0.45, y: 3.25, w: rightW - 0.9, h: 0.5, fontFace: 'Arial', fontSize: 22, bold: true, color: NAVY, align: 'center', margin: 0, fit: 'shrink' });
+  function getCoords(st) {
+    let lat = st.latitude, lng = st.longitude;
+    if ((!lat || !lng) && st.gps) {
+      const parts = String(st.gps).split(',').map(x => x.trim());
+      if (parts.length === 2 && !isNaN(parseFloat(parts[0]))) {
+        lat = parts[0];
+        lng = parts[1];
+      }
     }
-    
-    const heading = String(site.area || site.address || site.city || site.site_code || 'Site');
-    s.addText(heading, { x: 0.55, y: 1.18, w: 2.47, h: 0.5, fontFace: 'Arial', fontSize: 23, bold: true, color: NAVY, margin: 0, fit: 'shrink' });
-    
-    if (site.address && site.address.toLowerCase() !== heading.toLowerCase()) {
-      s.addText(String(site.address), { x: 0.55, y: 1.72, w: 2.47, h: 0.65, fontFace: 'Arial', fontSize: 14, bold: true, color: NAVY, margin: 0, fit: 'shrink' });
-    }
-
-    const rows = [
-      ['Size', site.size],
-      ['Availability', site._availability || site.ppt_availability || site.availability],
-      ['Lighting', site.lighting],
-      ['Type', site.media_type]
-    ];
-    if (site._showRate && site._rate) rows.push(['Rate', `${site._rate}/- Per Month`]);
-    if (site._showCoords) {
-      rows.push(['Latitude', site.latitude || '—']);
-      rows.push(['Longitude', site.longitude || '—']);
-    }
-
-    let y = 2.66;
-    for (const [l, v] of rows.filter(x => x[1] !== '' && x[1] != null)) {
-      s.addText('•', { x: 0.50, y, w: 0.17, h: 0.25, fontSize: 12, bold: true, color: NAVY, margin: 0 });
-      s.addText(l + ':', { x: 0.70, y, w: 1.08, h: 0.25, fontSize: 11.2, bold: true, color: NAVY, margin: 0, fit: 'shrink' });
-      s.addText(String(v), { x: 1.82, y, w: 1.28, h: 0.25, fontSize: 11.2, bold: true, color: NAVY, margin: 0, fit: 'shrink' });
-      y += 0.39;
-    }
-
-    if (logo) s.addImage({ data: logo, x: 0.42, y: leftTopH + 0.22, w: 2.72, h: 0.82 });
+    return {
+      lat: lat ? String(lat) : '22.962323',
+      lng: lng ? String(lng) : '72.962323'
+    };
   }
 
-  await fixed(pages.first);
-  await fixed(pages.second_last);
+  function getSize(st) {
+    if (st.size && String(st.size).trim()) {
+      const clean = String(st.size).trim();
+      return clean.toLowerCase().includes('ft') ? clean : `${clean} ft`;
+    }
+    if (st.width && st.height) return `${st.width} ft x ${st.height} ft`;
+    return '45 ft x 10 ft';
+  }
+
+  async function siteSlide(site, photoUrl) {
+    const s = pptx.addSlide();
+    s.background = { color: '02142B' };
+
+    // 1. Left site photo showcase: 100% visible, zero crop, zero cut
+    if (photoUrl) {
+      await addSitePhoto(s, photoUrl);
+    } else {
+      s.addShape(pptx.ShapeType.roundRect, {
+        x: 0.20, y: 0.20, w: 7.15, h: 6.10,
+        fill: { color: '021020' }, line: { color: '0F355C', width: 1.5 }, rectRadius: 0.08
+      });
+      s.addText('NO SITE PHOTO UPLOADED', {
+        x: 0.35, y: 2.95, w: 6.85, h: 0.6,
+        fontFace: 'Arial', fontSize: 18, bold: true, color: '4B6A92', align: 'center'
+      });
+    }
+
+    // 2. Exact Side Dashboard Overlay (facet, navy panel, logo, icons, dividers, yellow accent bars)
+    if (overlayData) {
+      s.addImage({ data: overlayData, x: 0, y: 0, w: SW, h: SH });
+    }
+
+    // 3. Dynamic Site Code Pill (Spacious & prominent at top)
+    const siteCodeText = String(site.site_code || 'MB-AHD-001').toUpperCase();
+    s.addShape(pptx.ShapeType.roundRect, {
+      x: 9.03, y: 0.76, w: 2.10, h: 0.46,
+      fill: { color: 'FFC200' }, line: { color: 'FFC200' }, rectRadius: 0.23
+    });
+    s.addText(siteCodeText, {
+      x: 9.03, y: 0.76, w: 2.10, h: 0.46,
+      fontFace: 'Arial', fontSize: 14, bold: true, color: '000000', align: 'center', valign: 'middle', margin: 0
+    });
+
+    // 4. Headline: Area (Bold White, 30pt) & Landmark (Bold Light Sky Blue, 20-24pt)
+    const area = String(site.area || site.city || site.site_code || 'Prime Site').trim();
+    let landmark = String(site.address || site.notes || '').trim();
+    if (!landmark || landmark.toLowerCase() === area.toLowerCase()) {
+      landmark = site.city ? `Near ${site.city} Hub` : '';
+    }
+
+    s.addText(area, {
+      x: 9.03, y: 1.35, w: 4.10, h: 0.55,
+      fontFace: 'Arial', fontSize: 30, bold: true, color: 'FFFFFF', fit: 'shrink', margin: 0
+    });
+
+    let landmarkFontSize = 24;
+    if (landmark.length > 50) landmarkFontSize = 17;
+    else if (landmark.length > 30) landmarkFontSize = 20;
+    else if (landmark.length > 20) landmarkFontSize = 22;
+
+    if (landmark) {
+      s.addText(landmark, {
+        x: 9.03, y: 1.95, w: 4.10, h: 0.50,
+        fontFace: 'Arial', fontSize: landmarkFontSize, bold: true, color: '5EB0FA', fit: 'shrink', margin: 0
+      });
+    }
+
+    // 5. Spec values (SIZE, TYPE, ILLUMINATION, RATE) - Big, crisp & spacious
+    s.addText(getSize(site), {
+      x: 9.70, y: 2.95, w: 3.40, h: 0.35,
+      fontFace: 'Arial', fontSize: 15, bold: true, color: 'FFFFFF', margin: 0
+    });
+
+    s.addText(String(site.media_type || 'Hoarding'), {
+      x: 9.70, y: 3.71, w: 3.40, h: 0.35,
+      fontFace: 'Arial', fontSize: 15, bold: true, color: 'FFFFFF', margin: 0
+    });
+
+    s.addText(String(site.lighting || 'NL').toUpperCase(), {
+      x: 9.70, y: 4.48, w: 3.40, h: 0.35,
+      fontFace: 'Arial', fontSize: 15, bold: true, color: 'FFFFFF', margin: 0
+    });
+
+    let rateText = 'On Request';
+    if (site._showRate && site._rate) {
+      rateText = `₹ ${Number(site._rate).toLocaleString('en-IN')}/-`;
+    }
+    s.addText(rateText, {
+      x: 9.70, y: 5.24, w: 3.40, h: 0.35,
+      fontFace: 'Arial', fontSize: 16, bold: true, color: 'FFFFFF', margin: 0
+    });
+
+    // 6. Availability Green Pill - Big & perfectly padded
+    const availText = String(site._availability || site.ppt_availability || site.availability || 'Available').trim();
+    const pillH = 0.38;
+    const pillY = 6.01;
+    const pillX = 9.70;
+    const pillW = Math.max(1.65, Math.min(3.20, (availText.length * 0.11) + 0.55));
+    const pillRadius = pillH / 2;
+
+    s.addShape(pptx.ShapeType.roundRect, {
+      x: pillX, y: pillY, w: pillW, h: pillH,
+      fill: { color: '00A859' }, line: { color: '00A859' }, rectRadius: pillRadius
+    });
+    s.addText(availText, {
+      x: pillX, y: pillY, w: pillW, h: pillH,
+      fontFace: 'Arial',
+      fontSize: availText.length > 20 ? 10.5 : (availText.length > 14 ? 11.5 : 12.5),
+      bold: true,
+      color: 'FFFFFF',
+      align: 'center',
+      valign: 'middle',
+      margin: 0,
+      wrap: false,
+      fit: 'shrink'
+    });
+
+    // 7. Location Coordinates (Always shown by default)
+    const { lat, lng } = getCoords(site);
+    const coordsText = `Latitude ${lat}  |  Longitude ${lng}`;
+    s.addText(coordsText, {
+      x: 9.55, y: 6.77, w: 3.60, h: 0.32,
+      fontFace: 'Arial', fontSize: 12, bold: true, color: 'FFFFFF', margin: 0
+    });
+  }
+
+  // Include optional cover pages if uploaded
+  if (pages?.first) await fixed(pages.first);
+  if (pages?.second_last) await fixed(pages.second_last);
+
+  // Generate slides for all chosen sites
   for (const st of sites) {
     if (st.ppt_images && st.ppt_images.length) {
       for (const u of st.ppt_images) await siteSlide(st, u);
@@ -291,30 +846,98 @@ async function makePpt(sites, pages) {
       await siteSlide(st, '');
     }
   }
-  await fixed(pages.last);
-  await pptx.writeFile({ fileName: 'MediaBuzz_Automated-PPT.pptx' });
+
+  // Include optional closing page if uploaded
+  if (pages?.last) await fixed(pages.last);
+
+  let finalFileName = String(fileName || 'MediaBuzz_Automated-PPT.pptx').trim();
+  if (!finalFileName.toLowerCase().endsWith('.pptx')) finalFileName += '.pptx';
+  await pptx.writeFile({ fileName: finalFileName });
+
+  try {
+    const siteCodes = (sites || []).map(s => s.site_code).filter(Boolean);
+    api.post('/storage', {
+      category: 'ppt',
+      title: finalFileName.replace(/\.pptx$/i, '').replace(/[_-]/g, ' '),
+      filename: finalFileName,
+      file_size: `${Math.max(1, Math.round((sites?.length || 1) * 0.6))} MB`,
+      format: 'pptx',
+      meta_json: {
+        slides: (sites || []).length,
+        sites: siteCodes.slice(0, 8),
+        generatedAt: new Date().toISOString()
+      }
+    }).catch(() => {});
+  } catch {}
 }
 
-async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx') {
+async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', title = null) {
   const workbook = new ExcelJS.Workbook();
+  const cleanTitle = title ? String(title).trim() : '';
+  const hasTitle = Boolean(cleanTitle);
+  const headerRowNum = hasTitle ? 2 : 1;
+  const dataStartRowNum = hasTitle ? 3 : 2;
+
   const worksheet = workbook.addWorksheet('Sites', {
-    views: [{ state: 'frozen', ySplit: 1 }]
+    views: [{ state: 'frozen', ySplit: hasTitle ? 2 : 1 }]
   });
 
   worksheet.columns = [
-    { header: 'SR NO', key: 'sr', width: 8 },
-    { header: 'AREA', key: 'area', width: 22 },
-    { header: 'LOCATION', key: 'location', width: 55 },
-    { header: 'MEDIA', key: 'media', width: 14 },
-    { header: 'LIGHT', key: 'light', width: 10 },
-    { header: 'W', key: 'w', width: 8 },
-    { header: 'H', key: 'h', width: 8 },
-    { header: 'SQ FT', key: 'sqft', width: 12 },
-    { header: 'AVAILABLITY', key: 'availability', width: 18 },
-    { header: 'Selling Amount', key: 'rate', width: 18 },
-    { header: 'Latitude Longitude', key: 'coords', width: 28 }
+    { key: 'sr', width: 8 },
+    { key: 'area', width: 22 },
+    { key: 'location', width: 55 },
+    { key: 'media', width: 14 },
+    { key: 'light', width: 10 },
+    { key: 'w', width: 8 },
+    { key: 'h', width: 8 },
+    { key: 'sqft', width: 12 },
+    { key: 'availability', width: 18 },
+    { key: 'rate', width: 18 },
+    { key: 'coords', width: 28 }
   ];
 
+  // Optional Presentation / Report Title as Line 1
+  if (hasTitle) {
+    worksheet.mergeCells('A1:K1');
+    const titleRow = worksheet.getRow(1);
+    titleRow.height = 36;
+    for (let c = 1; c <= 11; c++) {
+      const cell = titleRow.getCell(c);
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF071C35' } // Deep MediaBuzz Navy
+      };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF234D7D' } },
+        bottom: { style: 'medium', color: { argb: 'FFFFC200' } },
+        left: { style: 'thin', color: { argb: 'FF234D7D' } },
+        right: { style: 'thin', color: { argb: 'FF234D7D' } }
+      };
+    }
+    const titleCell = titleRow.getCell(1);
+    titleCell.value = cleanTitle;
+    titleCell.font = {
+      name: 'Calibri',
+      size: 13.5,
+      bold: true,
+      color: { argb: 'FFFFC200' } // MediaBuzz Yellow
+    };
+    titleCell.alignment = {
+      vertical: 'middle',
+      horizontal: 'center'
+    };
+  }
+
+  // Populate Header Row
+  const headers = ['SR NO', 'AREA', 'LOCATION', 'MEDIA', 'LIGHT', 'W', 'H', 'SQ FT', 'AVAILABLITY', 'Selling Amount', 'Latitude Longitude'];
+  const headerRow = worksheet.getRow(headerRowNum);
+  headerRow.height = 28;
+  headers.forEach((h, i) => {
+    headerRow.getCell(i + 1).value = h;
+  });
+
+  // Populate Data Rows
   rowsData.forEach(r => {
     worksheet.addRow({
       sr: r['SR NO'],
@@ -331,9 +954,7 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx') {
     });
   });
 
-  // Style Header Row (Row 1) in Bright Yellow (#FFFF00)
-  const headerRow = worksheet.getRow(1);
-  headerRow.height = 28;
+  // Style Header Row in Bright Yellow (#FFFF00)
   headerRow.eachCell((cell, colNumber) => {
     cell.fill = {
       type: 'pattern',
@@ -361,7 +982,7 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx') {
 
   // Style Data Rows
   worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber > 1) {
+    if (rowNumber >= dataStartRowNum) {
       row.height = 22;
       row.eachCell((cell, colNumber) => {
         cell.font = {
@@ -387,15 +1008,20 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx') {
 
   // Enable Auto-Filter
   if (rowsData.length > 0) {
-    worksheet.autoFilter = `A1:K${rowsData.length + 1}`;
+    const filterStart = hasTitle ? 'A2' : 'A1';
+    const filterEnd = `K${rowsData.length + (hasTitle ? 2 : 1)}`;
+    worksheet.autoFilter = `${filterStart}:${filterEnd}`;
   }
+
+  let finalFileName = String(filename || 'MediaBuzz_Sites.xlsx').trim();
+  if (!finalFileName.toLowerCase().endsWith('.xlsx')) finalFileName += '.xlsx';
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
+  a.download = finalFileName;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -453,6 +1079,13 @@ function Layout() {
   const nav = useNavigate();
   let user = {};
   try { user = JSON.parse(localStorage.getItem('sc_user') || '{}'); } catch {}
+  const userRole = (user.role || 'staff').toLowerCase();
+  const isAdmin = userRole === 'admin';
+  const isManager = userRole === 'manager';
+  const isStaff = userRole === 'staff';
+  const isReadOnly = userRole === 'viewer';
+  const canDeleteRecords = isAdmin || isManager;
+
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -489,6 +1122,19 @@ function Layout() {
     setNotifications([]);
   }
 
+  const visibleNavGroups = useMemo(() => {
+    return navGroups.map(grp => {
+      const items = grp.items.filter(([k]) => {
+        if (isAdmin) return true;
+        if (isManager) return k !== 'settings';
+        if (isStaff) return ['dashboard', 'sites', 'campaigns', 'occupancy', 'electricity', 'notifications', 'activity'].includes(k);
+        if (isReadOnly) return ['dashboard', 'sites', 'campaigns', 'occupancy', 'storage', 'electricity', 'reports', 'notifications', 'activity'].includes(k);
+        return true;
+      });
+      return { ...grp, items };
+    }).filter(grp => grp.items.length > 0);
+  }, [userRole, isAdmin, isManager, isStaff, isReadOnly]);
+
   return (
     <div className="scooh-wp-wrap">
       <div className="scooh-app scooh-has-topbar">
@@ -503,9 +1149,27 @@ function Layout() {
             >
               <span></span><span></span><span></span>
             </button>
-            <div className="scooh-topbar-context">
-              <span className="scooh-topbar-eyebrow">MEDIA BUZZ • OOH WORKSPACE</span>
-              <strong>{currentTitle}</strong>
+            <div className="scooh-topbar-context" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <span className="scooh-topbar-eyebrow">MEDIA BUZZ • OOH WORKSPACE</span>
+                <strong>{currentTitle}</strong>
+              </div>
+              {isReadOnly && (
+                <span style={{
+                  background: 'rgba(245,158,11,0.15)',
+                  border: '1px solid rgba(245,158,11,0.3)',
+                  color: '#fbbf24',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  padding: '3px 9px',
+                  borderRadius: '6px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  🔒 Read-Only Workspace
+                </span>
+              )}
             </div>
           </div>
 
@@ -569,7 +1233,24 @@ function Layout() {
               {String(user.name || user.email || 'A').slice(0, 1).toUpperCase()}
             </span>
             <div className="scooh-user-meta">
-              <span>Signed in as</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>Signed in as</span>
+                <span
+                  className="scooh-badgechip"
+                  style={{
+                    background: ROLE_CONFIG[userRole]?.bg || 'rgba(139,92,246,0.18)',
+                    color: ROLE_CONFIG[userRole]?.color || '#c4b5fd',
+                    border: `1px solid ${ROLE_CONFIG[userRole]?.border || 'rgba(139,92,246,0.35)'}`,
+                    textTransform: 'uppercase',
+                    fontSize: '9.5px',
+                    fontWeight: 800,
+                    padding: '2px 7px'
+                  }}
+                  title={ROLE_CONFIG[userRole]?.description}
+                >
+                  {ROLE_CONFIG[userRole]?.label || userRole}
+                </span>
+              </div>
               <strong>{user.name || user.email || 'Administrator'}</strong>
             </div>
             <button
@@ -591,7 +1272,7 @@ function Layout() {
             <img src="/assets/media-buzz-logo.png" alt="Media Buzz" />
           </div>
           <nav className="scooh-tabs">
-            {navGroups.map(grp => (
+            {visibleNavGroups.map(grp => (
               <div className="scooh-nav-group" key={grp.label}>
                 <span className="scooh-nav-group-label">{grp.label}</span>
                 {grp.items.map(([k, n]) => (
@@ -630,19 +1311,20 @@ function Layout() {
             <Routes>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/sites" element={<SitesView />} />
-              <Route path="/campaigns" element={<Crud entity="campaigns" title="Campaign Tracker" />} />
+              <Route path="/campaigns" element={<CampaignTrackerView />} />
               <Route path="/occupancy" element={<OccupancyView />} />
-              <Route path="/proposals" element={<ProposalsView />} />
-              <Route path="/ppt" element={<PptView />} />
+              <Route path="/proposals" element={!isStaff && !isReadOnly ? <ProposalsView /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/ppt" element={!isStaff && !isReadOnly ? <PptView /> : <Navigate to="/dashboard" replace />} />
               <Route path="/electricity" element={<ElectricityView />} />
-              <Route path="/vendors" element={<Crud entity="vendors" title="Vendors" />} />
-              <Route path="/clients" element={<Crud entity="clients" title="Clients" />} />
-              <Route path="/invoices" element={<Crud entity="invoices" title="Invoices" />} />
-              <Route path="/data" element={<DataToolsView />} />
+              <Route path="/vendors" element={!isStaff && !isReadOnly ? <Crud entity="vendors" title="Vendors" /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/clients" element={!isStaff && !isReadOnly ? <Crud entity="clients" title="Clients" /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/invoices" element={!isStaff && !isReadOnly ? <Crud entity="invoices" title="Invoices" /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/data" element={!isStaff && !isReadOnly ? <DataToolsView /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/storage" element={<StorageView />} />
               <Route path="/reports" element={<ReportsView />} />
               <Route path="/notifications" element={<SimpleList endpoint="notifications" title="Notifications" />} />
               <Route path="/activity" element={<SimpleList endpoint="activity" title="Activity Log" />} />
-              <Route path="/settings" element={<SettingsView />} />
+              <Route path="/settings" element={isAdmin ? <SettingsView /> : <Navigate to="/dashboard" replace />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </div>
@@ -666,10 +1348,10 @@ function PageHead({ title, desc, actions }) {
 
 function OccupancyDonut({ buckets = {}, average = 0 }) {
   const data = [
-    { label: 'Star', value: buckets.Star || 0, color: '#FBBF24' },
-    { label: 'Solid', value: buckets.Solid || 0, color: '#22C55E' },
-    { label: 'Needs attention', value: buckets['Needs attention'] || 0, color: '#8B5CF6' },
-    { label: 'Underperforming', value: buckets.Underperforming || 1, color: '#EF4444' }
+    { label: 'Occupied', value: buckets.Occupied ?? 0, color: '#22C55E' },
+    { label: 'Available', value: buckets.Available ?? 0, color: '#3B82F6' },
+    { label: 'Prime Sites', value: buckets['Prime Sites'] ?? 0, color: '#FBBF24' },
+    { label: 'Needs review', value: buckets['Needs review'] ?? 0, color: '#EF4444' }
   ];
   const total = data.reduce((acc, d) => acc + d.value, 0) || 1;
   let accumulated = 0;
@@ -710,7 +1392,7 @@ function OccupancyDonut({ buckets = {}, average = 0 }) {
         {data.map((d, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#9ba7b5' }}>
             <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: d.color }}></span>
-            <span>{d.label}</span>
+            <span>{d.label} ({d.value})</span>
           </div>
         ))}
       </div>
@@ -772,42 +1454,42 @@ function Dashboard() {
 
       {/* Row 1: Site Portfolio & Live Campaigns */}
       <div className="scooh-kpirow">
-        <div className="scooh-kpi alert">
-          <div className="n">{k.total_sites || 57}</div>
+        <div className="scooh-kpi alert" onClick={() => nav('/sites')} style={{ cursor: 'pointer' }} title="View all sites">
+          <div className="n">{k.total_sites ?? 0}</div>
           <div className="l">Total Sites</div>
           {k.flagged_count > 0 && (
             <div className="scooh-kpi-note">⚠ {k.flagged_count} flagged for review</div>
           )}
         </div>
-        <div className="scooh-kpi good">
-          <div className="n">{k.active_sites || 1}</div>
+        <div className="scooh-kpi good" onClick={() => nav('/sites')} style={{ cursor: 'pointer' }} title="View occupied sites">
+          <div className="n">{k.active_sites ?? 0}</div>
           <div className="l">Active Sites</div>
         </div>
-        <div className="scooh-kpi alert">
-          <div className="n">{k.nonactive_sites || (k.total_sites ? k.total_sites - 1 : 56)}</div>
-          <div className="l">Vacant / Non-active</div>
+        <div className="scooh-kpi alert" onClick={() => nav('/sites')} style={{ cursor: 'pointer' }} title="View available sites">
+          <div className="n">{k.nonactive_sites ?? 0}</div>
+          <div className="l">Vacant / Available</div>
         </div>
-        <div className="scooh-kpi alert">
-          <div className="n">{k.active_campaigns || 2}</div>
+        <div className="scooh-kpi alert" onClick={() => nav('/campaigns')} style={{ cursor: 'pointer' }} title="View active campaigns">
+          <div className="n">{k.active_campaigns ?? 0}</div>
           <div className="l">Active Campaigns</div>
         </div>
       </div>
 
       {/* Row 2: Operational Action Triggers */}
       <div className="scooh-kpirow">
-        <div className="scooh-kpi danger">
-          <div className="n">{k.mounting_overdue ?? 2}</div>
+        <div className={`scooh-kpi ${k.mounting_overdue > 0 ? 'danger' : 'good'}`} onClick={() => nav('/campaigns')} style={{ cursor: 'pointer' }} title="View campaigns">
+          <div className="n">{k.mounting_overdue ?? 0}</div>
           <div className="l">Mounting Overdue</div>
         </div>
-        <div className="scooh-kpi danger">
+        <div className={`scooh-kpi ${k.validation_15_due > 0 ? 'danger' : 'good'}`} onClick={() => nav('/validations')} style={{ cursor: 'pointer' }} title="View validations">
           <div className="n">{k.validation_15_due ?? 0}</div>
           <div className="l">15-Day Validation Due</div>
         </div>
-        <div className="scooh-kpi danger">
-          <div className="n">{k.final_validation_due ?? 1}</div>
+        <div className={`scooh-kpi ${k.final_validation_due > 0 ? 'danger' : 'good'}`} onClick={() => nav('/validations')} style={{ cursor: 'pointer' }} title="View validations">
+          <div className="n">{k.final_validation_due ?? 0}</div>
           <div className="l">Final Validation Due</div>
         </div>
-        <div className="scooh-kpi danger">
+        <div className={`scooh-kpi ${k.invoice_actions > 0 ? 'danger' : 'good'}`} onClick={() => nav('/invoices')} style={{ cursor: 'pointer' }} title="View invoices">
           <div className="n">{k.invoice_actions ?? 0}</div>
           <div className="l">Invoice Actions</div>
         </div>
@@ -819,12 +1501,15 @@ function Dashboard() {
         <div className="scooh-panel">
           <h3>Needs attention today</h3>
           {alerts.length === 0 ? (
-            <div className="scooh-empty">Nothing outstanding — everything is on track.</div>
+            <div className="scooh-empty" style={{ padding: '36px 16px', textAlign: 'center' }}>
+              ✓ Nothing outstanding — all operations are on track.
+            </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {alerts.map((a, idx) => (
                 <div
                   key={idx}
+                  onClick={() => nav(a.link || '/campaigns')}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -832,8 +1517,13 @@ function Dashboard() {
                     padding: '12px 14px',
                     border: '1px solid var(--mb-border)',
                     borderRadius: '12px',
-                    background: 'var(--mb-surface-2)'
+                    background: 'var(--mb-surface-2)',
+                    cursor: 'pointer',
+                    transition: 'border-color 0.15s ease'
                   }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--mb-primary)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--mb-border)'}
+                  title="Click to view details"
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span className="scooh-plate">{a.site_code}</span>
@@ -867,6 +1557,13 @@ function Dashboard() {
 }
 
 function SitesView() {
+  const currentRole = getCurrentRole();
+  const isAdmin = currentRole === 'admin';
+  const isManager = currentRole === 'manager';
+  const isStaff = currentRole === 'staff';
+  const isReadOnly = currentRole === 'viewer';
+  const canDelete = isAdmin || isManager;
+
   const [sites, setSites] = useState(defaultSites.map(unpackSite));
   const [search, setSearch] = useState('');
   const [cityFilter, setCityFilter] = useState('');
@@ -889,10 +1586,17 @@ function SitesView() {
     }
   }
 
+  const [importingExcel, setImportingExcel] = useState(false);
+
   useEffect(() => {
     load();
+    const onSitesUpdate = () => load();
+    window.addEventListener('mb-sites-updated', onSitesUpdate);
     const interval = setInterval(load, 35000); // 35s auto-refresh
-    return () => clearInterval(interval);
+    return () => {
+      window.removeEventListener('mb-sites-updated', onSitesUpdate);
+      clearInterval(interval);
+    };
   }, []);
 
   const cities = useMemo(() => Array.from(new Set(sites.map(s => s.city).filter(Boolean))), [sites]);
@@ -906,8 +1610,7 @@ function SitesView() {
 
   const filtered = useMemo(() => {
     const list = sites.filter(s => {
-      const text = JSON.stringify(s).toLowerCase();
-      const matchesQuery = text.includes(search.toLowerCase());
+      const matchesQuery = matchSiteSearch(s, search);
       const matchesCity = !cityFilter || s.city === cityFilter;
       const matchesMedia = !mediaFilter || s.media_type === mediaFilter;
       const matchesAvail = !availFilter || (s.ppt_availability || s.availability) === availFilter;
@@ -933,6 +1636,59 @@ function SitesView() {
     return list;
   }, [sites, search, cityFilter, mediaFilter, availFilter, lightingFilter, sortState]);
 
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const visibleIds = filtered.map(s => s.id).filter(Boolean);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.add(id));
+        return next;
+      });
+    }
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(filtered.map(s => s.id).filter(Boolean)));
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set());
+  }
+
+  async function handleBatchDelete() {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (!confirm(`Are you sure you want to delete ${count} selected site record${count > 1 ? 's' : ''}?`)) {
+      return;
+    }
+    try {
+      await api.post('/sites/batch-delete', { ids: Array.from(selectedIds), hard: true });
+      setSelectedIds(new Set());
+      await load();
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+    } catch (err) {
+      alert('Failed to delete selected sites: ' + (err.response?.data?.message || err.message));
+    }
+  }
+
   async function save(e) {
     e.preventDefault();
     setSaving(true);
@@ -942,6 +1698,7 @@ function SitesView() {
       else await api.post('/sites', data);
       setEdit(null);
       await load();
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
     } catch (err) {
       alert('Error saving site: ' + (err.response?.data?.message || err.message));
     } finally {
@@ -950,9 +1707,19 @@ function SitesView() {
   }
 
   async function del(id) {
-    if (confirm('Archive this site record?')) {
-      await api.delete(`/sites/${id}`);
-      await load();
+    if (confirm('Delete this site record?')) {
+      try {
+        await api.delete(`/sites/${id}?hard=true`);
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        await load();
+        window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+      } catch (err) {
+        alert('Failed to delete site: ' + (err.response?.data?.message || err.message));
+      }
     }
   }
 
@@ -961,6 +1728,26 @@ function SitesView() {
     [...files].forEach(f => fd.append('files', f));
     await api.post(`/sites/${siteId}/images`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
     await load();
+    window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+  }
+
+  async function handleDirectExcelImport(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingExcel(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await api.post('/import/xlsx', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      alert(`✓ Excel Import Successful!\n\n${r.data.message || `Processed ${r.data.rows} sites (${r.data.updated} updated, ${r.data.created} created).`}`);
+      await load();
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+    } catch (err) {
+      alert('Excel Import failed: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setImportingExcel(false);
+      e.target.value = '';
+    }
   }
 
   return (
@@ -971,7 +1758,15 @@ function SitesView() {
         actions={
           <>
             <button type="button" className="scooh-btn ghost" onClick={load}>🔄 Refresh</button>
-            <button className="scooh-btn purple-btn" onClick={() => setEdit({})}>+ Add Site</button>
+            {canDelete && (
+              <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Upload Excel spreadsheet to import sites, rates & availability">
+                <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+                <input type="file" accept=".xlsx,.xls" hidden disabled={importingExcel} onChange={handleDirectExcelImport} />
+              </label>
+            )}
+            {!isReadOnly && !isStaff && (
+              <button className="scooh-btn purple-btn" onClick={() => setEdit({})}>+ Add Site</button>
+            )}
           </>
         }
       />
@@ -980,7 +1775,7 @@ function SitesView() {
         <input
           className="scooh-search"
           style={{ flex: '1 1 220px', minWidth: '180px' }}
-          placeholder="Search site ID, location, landmark…"
+          placeholder="Search site code (e.g. 01, MB-01), area, landmark…"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
@@ -1013,8 +1808,8 @@ function SitesView() {
             }}
             style={{ fontWeight: 600 }}
           >
-            <option value="site_code:asc">Sort: Site Code (A-Z)</option>
-            <option value="site_code:desc">Sort: Site Code (Z-A)</option>
+            <option value="site_code:asc">Sort: Site Code (01 → 87)</option>
+            <option value="site_code:desc">Sort: Site Code (87 → 01)</option>
             <option value="area:asc">Sort: Area (A-Z)</option>
             <option value="area:desc">Sort: Area (Z-A)</option>
             <option value="monthly_rate:asc">Sort: Rate (Low to High)</option>
@@ -1042,10 +1837,82 @@ function SitesView() {
         </div>
       </div>
 
+      {/* Batch Selection Action Bar */}
+      {canDelete && selectedIds.size > 0 && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '11px 18px',
+          background: 'linear-gradient(90deg, rgba(239,68,68,0.18), rgba(239,68,68,0.08))',
+          borderBottom: '1px solid rgba(239,68,68,0.3)',
+          borderRadius: '8px',
+          margin: '10px 0',
+          color: '#fca5a5',
+          fontSize: '13px',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 800, color: '#ffffff', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }}></span>
+              {selectedIds.size} site{selectedIds.size > 1 ? 's' : ''} selected
+            </span>
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={selectAllVisible}
+              style={{ fontSize: '11.5px', padding: '4px 10px', color: '#f1f5f9', borderColor: '#475569' }}
+            >
+              Select all visible ({filtered.length})
+            </button>
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={deselectAll}
+              style={{ fontSize: '11.5px', padding: '4px 10px', color: '#cbd5e1', borderColor: '#475569' }}
+            >
+              Deselect all
+            </button>
+          </div>
+          <button
+            type="button"
+            className="scooh-btn danger"
+            onClick={handleBatchDelete}
+            style={{
+              background: '#ef4444',
+              color: '#ffffff',
+              border: 'none',
+              fontWeight: 800,
+              padding: '7px 16px',
+              borderRadius: '7px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 10px rgba(239,68,68,0.45)'
+            }}
+          >
+            🗑 Delete selected ({selectedIds.size})
+          </button>
+        </div>
+      )}
+
       <div className="scooh-tablewrap">
         <table className="scooh-table">
           <thead>
             <tr>
+              {canDelete && (
+                <th style={{ width: '42px', textAlign: 'center', padding: '10px 8px' }}>
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(s => selectedIds.has(s.id))}
+                    onChange={toggleSelectAll}
+                    title="Select all visible sites"
+                    style={{ cursor: 'pointer' }}
+                  />
+                </th>
+              )}
               <SortHeader label="Site Code" sortKey="site_code" currentSort={sortState} onSort={handleSort} />
               <SortHeader label="Area / Landmark" sortKey="area" currentSort={sortState} onSort={handleSort} />
               <SortHeader label="Media" sortKey="media_type" currentSort={sortState} onSort={handleSort} />
@@ -1059,12 +1926,20 @@ function SitesView() {
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr>
-                <td colSpan="9" className="scooh-empty">No matching sites found</td>
-              </tr>
+              <tr><td colSpan={canDelete ? "10" : "9"} className="scooh-empty">No sites match the filters</td></tr>
             ) : (
               filtered.map(s => (
                 <tr key={s.id || s.site_code}>
+                  {canDelete && (
+                    <td style={{ textAlign: 'center', padding: '10px 8px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(s.id)}
+                        onChange={() => toggleSelect(s.id)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </td>
+                  )}
                   <td><span className="scooh-plate">{s.site_code}</span></td>
                   <td>
                     <strong>{s.area || s.city}</strong>
@@ -1091,8 +1966,12 @@ function SitesView() {
                   </td>
                   <td>
                     <div className="scooh-rowactions">
-                      <button className="scooh-iconbtn scooh-text-action" onClick={() => setEdit(s)}>Edit</button>
-                      <button className="scooh-iconbtn danger-icon" onClick={() => del(s.id)}>×</button>
+                      <button className="scooh-iconbtn scooh-text-action" onClick={() => setEdit(s)}>
+                        {isReadOnly ? 'View' : 'Edit'}
+                      </button>
+                      {canDelete && (
+                        <button className="scooh-iconbtn danger-icon" onClick={() => del(s.id)}>×</button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1178,10 +2057,14 @@ function SitesView() {
                 </div>
               </div>
               <div className="scooh-modalfoot">
-                <button type="button" className="scooh-btn ghost" onClick={() => setEdit(null)}>Cancel</button>
-                <button className="scooh-btn purple-btn" disabled={saving}>
-                  {saving ? 'Saving…' : 'Save Site'}
+                <button type="button" className="scooh-btn ghost" onClick={() => setEdit(null)}>
+                  {isReadOnly ? 'Close' : 'Cancel'}
                 </button>
+                {!isReadOnly && (
+                  <button className="scooh-btn purple-btn" disabled={saving}>
+                    {saving ? 'Saving…' : 'Save Site'}
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -1241,7 +2124,16 @@ function PptView() {
   const [areaFilter, setAreaFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [pptName, setPptName] = useState('MediaBuzz_Automated-PPT');
+  const [alsoGenerateExcel, setAlsoGenerateExcel] = useState(true);
   const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
+
+  function getCleanPptName() {
+    let clean = (pptName || '').trim();
+    if (!clean) clean = `MediaBuzz_Presentation_${new Date().toISOString().slice(0, 10)}`;
+    clean = clean.replace(/\.(pptx|xlsx)$/i, '');
+    return clean.replace(/[\\/:*?"<>|]/g, '_');
+  }
 
   async function load() {
     try {
@@ -1258,7 +2150,33 @@ function PptView() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  const [importingExcel, setImportingExcel] = useState(false);
+
+  async function handlePptExcelImport(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingExcel(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await api.post('/import/xlsx', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      alert(`✓ Excel Import Successful!\n\n${r.data.message || `Processed ${r.data.rows} sites (${r.data.updated} updated, ${r.data.created} created).`}`);
+      await load();
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+    } catch (err) {
+      alert('Excel Import failed: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setImportingExcel(false);
+      e.target.value = '';
+    }
+  }
+
+  useEffect(() => {
+    load();
+    const onSitesUpdate = () => load();
+    window.addEventListener('mb-sites-updated', onSitesUpdate);
+    return () => window.removeEventListener('mb-sites-updated', onSitesUpdate);
+  }, []);
 
   const areas = useMemo(() => Array.from(new Set(sites.map(s => s.area).filter(Boolean))).sort(), [sites]);
 
@@ -1266,10 +2184,11 @@ function PptView() {
     setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   }
 
+  const selectedCount = useMemo(() => sites.filter(s => sel[s.id || s.site_code]?.checked).length, [sites, sel]);
+
   const filtered = useMemo(() => {
     const list = sites.filter(s => {
-      const hay = [s.site_code, s.address, s.city, s.area, s.media_type].filter(Boolean).join(' ').toLowerCase();
-      if (query && !hay.includes(query.toLowerCase().trim())) return false;
+      if (!matchSiteSearch(s, query)) return false;
       if (areaFilter && s.area !== areaFilter) return false;
       if (dateFilter) {
         const av = String(s.ppt_availability || s.availability || '').toLowerCase().trim();
@@ -1279,8 +2198,14 @@ function PptView() {
       }
       return true;
     });
-    if (sortState.key) {
-      list.sort((a, b) => {
+
+    list.sort((a, b) => {
+      const aSel = !!sel[a.id || a.site_code]?.checked;
+      const bSel = !!sel[b.id || b.site_code]?.checked;
+      // Selected sites always show on top
+      if (aSel !== bSel) return aSel ? -1 : 1;
+
+      if (sortState.key) {
         let valA = a[sortState.key];
         let valB = b[sortState.key];
         if (sortState.key === 'monthly_rate') {
@@ -1288,10 +2213,11 @@ function PptView() {
           valB = Number(b.ppt_rate || b.monthly_rate || 0);
         }
         return universalCompare(valA, valB, sortState.dir);
-      });
-    }
+      }
+      return 0;
+    });
     return list;
-  }, [sites, query, areaFilter, dateFilter, sortState]);
+  }, [sites, query, areaFilter, dateFilter, sortState, sel]);
 
   async function uploadPage(k, file) {
     try {
@@ -1356,6 +2282,7 @@ function PptView() {
     try {
       const selectedList = sites.filter(s => sel[s.id || s.site_code]?.checked);
       const targetSites = selectedList.length > 0 ? selectedList : (filtered.length > 0 ? filtered : sites);
+      const cleanName = getCleanPptName();
 
       const rows = targetSites.map((x, idx) => {
         const v = sel[x.id || x.site_code] || {};
@@ -1382,7 +2309,7 @@ function PptView() {
         };
       });
 
-      await exportStyledExcel(rows, 'MediaBuzz_PPT_Inventory.xlsx');
+      await exportStyledExcel(rows, `${cleanName}.xlsx`, cleanName);
     } catch (e) {
       alert('Export Excel failed: ' + e.message);
     }
@@ -1397,18 +2324,50 @@ function PptView() {
           ...s,
           _availability: v.availability ?? s.ppt_availability ?? s.availability,
           _rate: v.rate ?? s.ppt_rate ?? s.monthly_rate,
-          _showRate: !!v.showRate,
-          _showCoords: !!v.showCoords
+          _showRate: !!v.showRate
         };
       });
 
     if (!chosen.length) return alert('Please select at least one site to include in the PowerPoint.');
 
+    const cleanName = getCleanPptName();
+
     setGenerating(true);
     try {
-      await makePpt(chosen, pages);
+      await makePpt(chosen, pages, `${cleanName}.pptx`);
+
+      if (alsoGenerateExcel) {
+        // Small delay to ensure browser reliably dispatches multiple downloads
+        await new Promise(r => setTimeout(r, 450));
+
+        const rows = chosen.map((x, idx) => {
+          let w = x.width || '', h = x.height || '';
+          if ((!w || !h) && x.size) {
+            const parts = String(x.size).toLowerCase().split('x');
+            if (parts.length === 2) { w = parts[0].trim(); h = parts[1].trim(); }
+          }
+          const sqft = (Number(w || 0) && Number(h || 0)) ? Number(w) * Number(h) : (x.sq_ft || '');
+          const coords = x.gps || ([x.latitude, x.longitude].filter(Boolean).join(', ')) || '';
+
+          return {
+            'SR NO': idx + 1,
+            'AREA': x.area || x.city || '',
+            'LOCATION': x.address || '',
+            'MEDIA': x.media_type || 'Hoarding',
+            'LIGHT': x.lighting || 'BL',
+            'W': w || '',
+            'H': h || '',
+            'SQ FT': sqft,
+            'AVAILABLITY': x._availability ?? 'Available',
+            'Selling Amount': Number(x._rate ?? 0),
+            'Latitude Longitude': coords
+          };
+        });
+
+        await exportStyledExcel(rows, `${cleanName}.xlsx`, cleanName);
+      }
     } catch (e) {
-      alert(e.message);
+      alert('Generation Error: ' + e.message);
     } finally {
       setGenerating(false);
     }
@@ -1418,16 +2377,61 @@ function PptView() {
     <>
       <PageHead
         title="Automated PPT"
-        desc="Select sites, add images, set availability, and generate/download your presentation data."
+        desc="Select sites, customize presentation name, and generate client pitch decks with the official Media Buzz side dashboard."
         actions={
-          <>
-            <button type="button" className="scooh-btn ghost" onClick={downloadExcel}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <div className="scooh-ppt-name-bar" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(10, 30, 53, 0.85)', padding: '5px 12px', borderRadius: '8px', border: '1px solid #1c3b60' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: '#FFC200', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Presentation Name:</span>
+              <input
+                type="text"
+                className="scooh-input"
+                style={{ width: '220px', padding: '5px 10px', fontSize: '13px', background: '#071526', border: '1px solid #234d7d', color: '#fff', borderRadius: '5px' }}
+                value={pptName}
+                onChange={e => setPptName(e.target.value)}
+                placeholder="MediaBuzz_Automated-PPT"
+              />
+              <span style={{ fontSize: '12px', color: '#8fa4bd', fontWeight: 600 }}>
+                {alsoGenerateExcel ? '.pptx & .xlsx' : '.pptx'}
+              </span>
+            </div>
+
+            <label
+              className="scooh-ppt-excel-option"
+              title="Automatically generate and download matching Excel sheet with PPT contents and presentation title"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                background: alsoGenerateExcel ? 'rgba(255, 194, 0, 0.12)' : 'rgba(10, 30, 53, 0.85)',
+                padding: '6px 13px',
+                borderRadius: '8px',
+                border: alsoGenerateExcel ? '1px solid #FFC200' : '1px solid #1c3b60',
+                userSelect: 'none',
+                color: alsoGenerateExcel ? '#FFC200' : '#c8d6e5',
+                fontWeight: 600,
+                fontSize: '12.5px',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={alsoGenerateExcel}
+                onChange={e => setAlsoGenerateExcel(e.target.checked)}
+                style={{ accentColor: '#FFC200', width: '15px', height: '15px', cursor: 'pointer' }}
+              />
+              <span>Also generate Excel (.xlsx)</span>
+            </label>
+
+            <button type="button" className="scooh-btn ghost" onClick={downloadExcel} title="Export selected sites directly to Excel">
               Download Excel (.xlsx)
             </button>
             <button type="button" className="scooh-btn primary" onClick={generate} disabled={generating}>
-              {generating ? 'Creating PPT…' : 'Generate PPT'}
+              {generating
+                ? (alsoGenerateExcel ? 'Creating PPT & Excel…' : 'Creating PPT…')
+                : (alsoGenerateExcel ? 'Generate PPT + Excel' : 'Generate PPT')}
             </button>
-          </>
+          </div>
         }
       />
 
@@ -1435,8 +2439,8 @@ function PptView() {
       <section className="scooh-form-section scooh-ppt-fixed-pages">
         <div className="scooh-form-section-head">
           <div>
-            <h3>Fixed presentation pages</h3>
-            <p>Uploaded fixed pages fill the entire 16:9 slide. Order: page 1, page 2, selected site slides, then page 3.</p>
+            <h3>Fixed presentation pages (Optional)</h3>
+            <p>Optional cover and closing pages. Order: page 1, page 2, selected site slides, then page 3.</p>
           </div>
         </div>
         <div className="scooh-grid3">
@@ -1505,7 +2509,7 @@ function PptView() {
             <input
               id="scooh-ppt-search"
               type="search"
-              placeholder="Search by site code, location, city, area or media type..."
+              placeholder="Search site code (e.g. 01, MB-01), area, city, location…"
               value={query}
               onChange={e => setQuery(e.target.value)}
               autoComplete="off"
@@ -1516,6 +2520,14 @@ function PptView() {
             className="scooh-ppt-select-actions"
             style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}
           >
+            <label
+              className="scooh-btn ghost"
+              style={{ minHeight: '44px', padding: '0 14px', fontSize: '12.5px', whiteSpace: 'nowrap', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              title="Import Excel to update PPT rates & availability"
+            >
+              <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+              <input type="file" accept=".xlsx,.xls" hidden disabled={importingExcel} onChange={handlePptExcelImport} />
+            </label>
             <button
               type="button"
               className="scooh-btn ghost"
@@ -1533,8 +2545,11 @@ function PptView() {
               Deselect all
             </button>
             <select
-              value={sortState.key}
-              onChange={e => handleSort(e.target.value)}
+              value={`${sortState.key}:${sortState.dir}`}
+              onChange={e => {
+                const [k, d] = e.target.value.split(':');
+                setSortState({ key: k, dir: d });
+              }}
               style={{
                 height: '44px',
                 padding: '0 12px',
@@ -1543,30 +2558,39 @@ function PptView() {
                 background: '#111720',
                 color: '#e2eaf4',
                 fontSize: '12.5px',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                fontWeight: 600
               }}
             >
-              <option value="site_code">Sort: Site Code</option>
-              <option value="area">Sort: Area</option>
-              <option value="city">Sort: City</option>
-              <option value="media_type">Sort: Media Type</option>
-              <option value="monthly_rate">Sort: Rate</option>
-              <option value="availability">Sort: Availability</option>
+              <option value="site_code:asc">Sort: Site Code (01 → 87)</option>
+              <option value="site_code:desc">Sort: Site Code (87 → 01)</option>
+              <option value="area:asc">Sort: Area (A–Z)</option>
+              <option value="area:desc">Sort: Area (Z–A)</option>
+              <option value="city:asc">Sort: City (A–Z)</option>
+              <option value="media_type:asc">Sort: Media Type (A–Z)</option>
+              <option value="monthly_rate:asc">Sort: Rate (Low to High)</option>
+              <option value="monthly_rate:desc">Sort: Rate (High to Low)</option>
+              <option value="availability:asc">Sort: Availability</option>
             </select>
             <button
               type="button"
               className="scooh-btn ghost"
               onClick={() => setSortState(prev => ({ ...prev, dir: prev.dir === 'asc' ? 'desc' : 'asc' }))}
               title={sortState.dir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
-              style={{ minHeight: '44px', padding: '0 12px', fontSize: '14px', whiteSpace: 'nowrap' }}
+              style={{ minHeight: '44px', padding: '0 12px', fontSize: '13px', whiteSpace: 'nowrap', fontWeight: 700 }}
             >
-              {sortState.dir === 'asc' ? '↑ A–Z' : '↓ Z–A'}
+              {sortState.dir === 'asc' ? '↑ Asc' : '↓ Desc'}
             </button>
           </div>
         </div>
 
-        <div className="scooh-ppt-search-count" id="scooh-ppt-search-count">
-          {filtered.length} of {sites.length} sites
+        <div className="scooh-ppt-search-count" id="scooh-ppt-search-count" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+          <span>{filtered.length} of {sites.length} sites</span>
+          {selectedCount > 0 && (
+            <span style={{ color: '#a78bfa', fontWeight: 700, fontSize: '12px' }}>
+              ✓ {selectedCount} site{selectedCount > 1 ? 's' : ''} selected (showing on top)
+            </span>
+          )}
         </div>
 
         {/* Sites Grid */}
@@ -1582,8 +2606,9 @@ function PptView() {
                 key={siteKey}
                 className="scooh-ppt-site"
                 style={{
-                  border: isChecked ? '1px solid #9c8cff' : '1px solid #344258',
-                  boxShadow: isChecked ? '0 0 0 1px #9c8cff' : 'none'
+                  border: isChecked ? '1.5px solid #a78bfa' : '1px solid #344258',
+                  boxShadow: isChecked ? '0 0 12px rgba(167, 139, 250, 0.25)' : 'none',
+                  background: isChecked ? 'rgba(30, 27, 75, 0.45)' : undefined
                 }}
               >
                 <input
@@ -1645,25 +2670,16 @@ function PptView() {
                   <label className="scooh-ppt-output-option">
                     <input
                       type="checkbox"
-                      className="scooh-ppt-show-coordinates"
-                      checked={!!v.showCoords}
-                      onChange={e => setSel({ ...sel, [siteKey]: { ...v, showCoords: e.target.checked } })}
-                    />
-                    <span>Show Latitude / Longitude in PPT</span>
-                  </label>
-                  <label className="scooh-ppt-output-option">
-                    <input
-                      type="checkbox"
                       className="scooh-ppt-show-rate"
                       checked={!!v.showRate}
                       onChange={e => setSel({ ...sel, [siteKey]: { ...v, showRate: e.target.checked } })}
                     />
-                    <span>Show Rate in PPT</span>
+                    <span>Show Adv. Fee Per Month in PPT</span>
                   </label>
                 </div>
 
                 <div className="scooh-ppt-rate" onClick={e => e.stopPropagation()}>
-                  <label>Rate Per Month (₹)</label>
+                  <label>Adv. Fee Per Month (₹)</label>
                   <input
                     type="text"
                     className="scooh-ppt-rate-input"
@@ -1729,14 +2745,18 @@ function ProposalsView() {
     setPropSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   }
 
-  const filteredSites = useMemo(() => {
-    const list = sites.filter(s => {
-      const hay = [s.site_code, s.area, s.city, s.media_type, s.size].filter(Boolean).join(' ').toLowerCase();
-      return !search || hay.includes(search.toLowerCase().trim());
-    });
+  const selectedSitesCount = useMemo(() => Object.values(selectedSites).filter(v => v?.checked).length, [selectedSites]);
 
-    if (siteSort.key) {
-      list.sort((a, b) => {
+  const filteredSites = useMemo(() => {
+    const list = sites.filter(s => matchSiteSearch(s, search));
+
+    list.sort((a, b) => {
+      const aSel = !!selectedSites[a.id || a.site_code]?.checked;
+      const bSel = !!selectedSites[b.id || b.site_code]?.checked;
+      // Selected sites always show on top
+      if (aSel !== bSel) return aSel ? -1 : 1;
+
+      if (siteSort.key) {
         let valA = a[siteSort.key];
         let valB = b[siteSort.key];
         if (siteSort.key === 'monthly_rate') {
@@ -1744,10 +2764,11 @@ function ProposalsView() {
           valB = Number(b.ppt_rate || b.monthly_rate || 0);
         }
         return universalCompare(valA, valB, siteSort.dir);
-      });
-    }
+      }
+      return 0;
+    });
     return list;
-  }, [sites, search, siteSort]);
+  }, [sites, search, siteSort, selectedSites]);
 
   const filteredProposals = useMemo(() => {
     const q = propSearch.trim().toLowerCase();
@@ -1935,7 +2956,9 @@ function ProposalsView() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '20px', marginBottom: '8px', gap: '10px', flexWrap: 'wrap' }}>
-            <h3 className="scooh-proposal-step" style={{ margin: 0, padding: 0, border: 'none' }}>2. Select sites</h3>
+            <h3 className="scooh-proposal-step" style={{ margin: 0, padding: 0, border: 'none' }}>
+              2. Select sites {selectedSitesCount > 0 && <span style={{ color: '#a78bfa', fontSize: '12px', fontWeight: 600 }}>({selectedSitesCount} selected on top)</span>}
+            </h3>
             <select
               value={`${siteSort.key}:${siteSort.dir}`}
               onChange={e => {
@@ -1944,9 +2967,9 @@ function ProposalsView() {
               }}
               style={{ padding: '4px 8px', fontSize: '11px', borderRadius: '6px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155' }}
             >
-              <option value="site_code:asc">Sort: Site Code (A-Z)</option>
-              <option value="site_code:desc">Sort: Site Code (Z-A)</option>
-              <option value="area:asc">Sort: Area (A-Z)</option>
+              <option value="site_code:asc">Sort: Site Code (01 → 87)</option>
+              <option value="site_code:desc">Sort: Site Code (87 → 01)</option>
+              <option value="area:asc">Sort: Area (A–Z)</option>
               <option value="monthly_rate:asc">Sort: Rate (Low to High)</option>
               <option value="monthly_rate:desc">Sort: Rate (High to Low)</option>
               <option value="size:asc">Sort: Size</option>
@@ -1955,7 +2978,7 @@ function ProposalsView() {
           <div className="scooh-field">
             <input
               type="search"
-              placeholder="Filter sites by code, area, landmark, media..."
+              placeholder="Filter sites by code (e.g. 01, MB-01), area, landmark, media..."
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -2353,7 +3376,7 @@ function ProposalsView() {
 function OccupancyView() {
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState('');
-  const [sortState, setSortState] = useState({ key: 'pct', dir: 'desc' });
+  const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
 
   useEffect(() => {
     Promise.all([api.get('/sites'), api.get('/campaigns')]).then(([s, c]) => {
@@ -2388,11 +3411,7 @@ function OccupancyView() {
   }
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const list = rows.filter(r => {
-      if (!q) return true;
-      return [r.site_code, r.city, r.area].some(v => String(v || '').toLowerCase().includes(q));
-    });
+    const list = rows.filter(r => matchSiteSearch(r, search));
 
     if (sortState.key) {
       list.sort((a, b) => {
@@ -2416,7 +3435,7 @@ function OccupancyView() {
           <input
             className="scooh-search"
             style={{ flex: '1 1 240px', minWidth: '200px' }}
-            placeholder="Search by site code, city, area…"
+            placeholder="Search site code (e.g. 01, MB-01), city, area…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -2428,21 +3447,21 @@ function OccupancyView() {
             }}
             style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px', fontWeight: 600 }}
           >
+            <option value="site_code:asc">Sort: Site Code (01 → 87)</option>
+            <option value="site_code:desc">Sort: Site Code (87 → 01)</option>
             <option value="pct:desc">Sort: Occupancy % (High to Low)</option>
             <option value="pct:asc">Sort: Occupancy % (Low to High)</option>
             <option value="occupied:desc">Sort: Occupied Days (High to Low)</option>
             <option value="occupied:asc">Sort: Occupied Days (Low to High)</option>
-            <option value="site_code:asc">Sort: Site ID (A-Z)</option>
-            <option value="site_code:desc">Sort: Site ID (Z-A)</option>
-            <option value="area:asc">Sort: Area (A-Z)</option>
-            <option value="city:asc">Sort: City (A-Z)</option>
+            <option value="area:asc">Sort: Area (A–Z)</option>
+            <option value="city:asc">Sort: City (A–Z)</option>
           </select>
-          {(search || sortState.key !== 'pct' || sortState.dir !== 'desc') && (
+          {(search || sortState.key !== 'site_code' || sortState.dir !== 'asc') && (
             <button
               type="button"
               className="scooh-btn ghost"
               style={{ padding: '6px 10px', fontSize: '11px' }}
-              onClick={() => { setSearch(''); setSortState({ key: 'pct', dir: 'desc' }); }}
+              onClick={() => { setSearch(''); setSortState({ key: 'site_code', dir: 'asc' }); }}
             >
               Reset
             </button>
@@ -2453,7 +3472,7 @@ function OccupancyView() {
           <table className="scooh-table">
             <thead>
               <tr>
-                <SortHeader label="Site ID" sortKey="site_code" currentSort={sortState} onSort={handleSort} />
+                <SortHeader label="Site Code" sortKey="site_code" currentSort={sortState} onSort={handleSort} />
                 <SortHeader label="City" sortKey="city" currentSort={sortState} onSort={handleSort} />
                 <SortHeader label="Area" sortKey="area" currentSort={sortState} onSort={handleSort} />
                 <SortHeader label="Occupied Days (365d)" sortKey="occupied" currentSort={sortState} onSort={handleSort} />
@@ -2485,6 +3504,902 @@ function OccupancyView() {
           </table>
         </div>
       </section>
+    </>
+  );
+}
+
+async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tracker.xlsx') {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Campaign Tracker', {
+    views: [{ state: 'frozen', ySplit: 1 }]
+  });
+
+  worksheet.columns = [
+    { header: 'Site Code', key: 'site_code', width: 14 },
+    { header: 'Month', key: 'month', width: 14 },
+    { header: 'Date', key: 'date', width: 14 },
+    { header: 'Client/Agency Name', key: 'client', width: 28 },
+    { header: 'Display', key: 'display', width: 24 },
+    { header: 'Vendor Name', key: 'vendor_name', width: 22 },
+    { header: 'Location', key: 'location', width: 36 },
+    { header: 'W', key: 'width', width: 10 },
+    { header: 'H', key: 'height', width: 10 },
+    { header: 'Size', key: 'size', width: 14 },
+    { header: 'Type', key: 'type', width: 16 },
+    { header: 'Start Date', key: 'start_date', width: 14 },
+    { header: 'End Date', key: 'end_date', width: 14 },
+    { header: 'Days', key: 'days', width: 10 },
+    { header: 'Advt. Fees per month', key: 'advt_fees', width: 20 },
+    { header: 'Printing & Mounting', key: 'printing_mounting_cost', width: 22 },
+    { header: 'Total Amount', key: 'total_amount', width: 20 },
+    { header: 'PO', key: 'po', width: 16 },
+    { header: 'Bill', key: 'bill', width: 18 },
+    { header: 'Pending', key: 'pending', width: 18 }
+  ];
+
+  rowsData.forEach((r) => {
+    worksheet.addRow({
+      site_code: r.site_code || '',
+      month: r.month || '',
+      date: r.booking_date ? new Date(r.booking_date).toLocaleDateString('en-IN') : (r.date || ''),
+      client: r.client || r.client_name || '',
+      display: r.display || r.campaign_name || r.brand || '',
+      vendor_name: r.vendor_name || '',
+      location: r.location || '',
+      width: r.width ?? '',
+      height: r.height ?? '',
+      size: r.size || (r.width && r.height ? `${r.width}x${r.height} ft` : ''),
+      type: r.type || 'Hoarding',
+      start_date: r.start_date ? new Date(r.start_date).toLocaleDateString('en-IN') : '',
+      end_date: r.end_date ? new Date(r.end_date).toLocaleDateString('en-IN') : '',
+      days: r.days || (r.start_date && r.end_date ? Math.max(1, Math.round((new Date(r.end_date) - new Date(r.start_date)) / 86400000) + 1) : 30),
+      advt_fees: Number(r.advt_fees || 0),
+      printing_mounting_cost: Number(r.printing_mounting_cost || (Number(r.printing_cost || 0) + Number(r.mounting_cost || 0))),
+      total_amount: Number(r.total_amount || r.revenue || 0),
+      po: r.po || '',
+      bill: r.bill || r.invoice_no || '',
+      pending: Number(r.pending || 0)
+    });
+  });
+
+  const headerRow = worksheet.getRow(1);
+  headerRow.height = 28;
+  headerRow.eachCell((cell, colNumber) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFFF00' }
+    };
+    cell.font = {
+      name: 'Calibri',
+      size: 11,
+      bold: true,
+      color: { argb: 'FF000000' }
+    };
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: [1, 8, 9, 10, 11, 12, 13, 14].includes(colNumber) ? 'center' : ([15, 16, 17, 20].includes(colNumber) ? 'right' : 'left'),
+      wrapText: false
+    };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFC0C0C0' } },
+      left: { style: 'thin', color: { argb: 'FFC0C0C0' } },
+      bottom: { style: 'thin', color: { argb: 'FF000000' } },
+      right: { style: 'thin', color: { argb: 'FFC0C0C0' } }
+    };
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  window.URL.revokeObjectURL(url);
+
+  try {
+    api.post('/storage', {
+      category: 'excel',
+      name: filename,
+      type: 'xlsx',
+      size: `${Math.round(blob.size / 1024)} KB`
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+function CampaignTrackerView() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [editModal, setEditModal] = useState(null);
+  const [search, setSearch] = useState('');
+  const [monthFilter, setMonthFilter] = useState('ALL');
+  const [typeFilter, setTypeFilter] = useState('ALL');
+  const [vendorFilter, setVendorFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [sortState, setSortState] = useState({ key: 'id', dir: 'desc' });
+  const [saving, setSaving] = useState(false);
+  const [banner, setBanner] = useState('');
+  const [importingExcel, setImportingExcel] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  const currentRole = getCurrentRole();
+  const isAdmin = currentRole === 'admin';
+  const isManager = currentRole === 'manager';
+  const isStaff = currentRole === 'staff';
+  const isReadOnly = currentRole === 'viewer';
+  const canDelete = isAdmin || isManager;
+  const canAdd = isAdmin || isManager;
+  const canEdit = !isReadOnly;
+
+  async function loadData() {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/campaigns');
+      if (Array.isArray(data)) {
+        setRows(data);
+      }
+    } catch (err) {
+      console.warn('Error loading campaigns:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 35000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const months = Array.from(new Set(rows.map(r => r.month).filter(Boolean)));
+  const types = Array.from(new Set(['Hoarding', 'Gantry', 'Unipole', 'Billboard', 'DOOH', ...rows.map(r => r.type).filter(Boolean)]));
+  const vendors = Array.from(new Set(rows.map(r => r.vendor_name).filter(Boolean)));
+
+  const totalAmountSum = rows.reduce((acc, r) => acc + Number(r.total_amount || r.revenue || 0), 0);
+  const totalAdvtFeesSum = rows.reduce((acc, r) => acc + Number(r.advt_fees || 0), 0);
+  const totalPMSum = rows.reduce((acc, r) => acc + Number(r.printing_mounting_cost || (Number(r.printing_cost || 0) + Number(r.mounting_cost || 0))), 0);
+  const totalPendingSum = rows.reduce((acc, r) => acc + Number(r.pending || 0), 0);
+
+  function handleSort(key) {
+    setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+
+  const filtered = useMemo(() => {
+    const list = rows.filter(r => {
+      const q = search.trim().toLowerCase();
+      let matchesSearch = !q;
+      if (q) {
+        matchesSearch = [
+          r.site_code,
+          r.client,
+          r.client_name,
+          r.display,
+          r.campaign_name,
+          r.vendor_name,
+          r.location,
+          r.size,
+          r.type,
+          r.month,
+          r.po,
+          r.bill,
+          r.notes
+        ].some(v => String(v || '').toLowerCase().includes(q));
+      }
+
+      const matchesMonth = monthFilter === 'ALL' || r.month === monthFilter;
+      const matchesType = typeFilter === 'ALL' || r.type === typeFilter;
+      const matchesVendor = vendorFilter === 'ALL' || r.vendor_name === vendorFilter;
+      const matchesStatus = statusFilter === 'ALL' ? true :
+        statusFilter === 'Pending' ? Number(r.pending || 0) > 0 :
+        statusFilter === 'Cleared' ? Number(r.pending || 0) === 0 : true;
+
+      return matchesSearch && matchesMonth && matchesType && matchesVendor && matchesStatus;
+    });
+
+    if (sortState.key) {
+      list.sort((a, b) => {
+        let valA = a[sortState.key];
+        let valB = b[sortState.key];
+        if (['advt_fees', 'printing_mounting_cost', 'total_amount', 'pending', 'days', 'width', 'height'].includes(sortState.key)) {
+          valA = Number(valA || 0);
+          valB = Number(valB || 0);
+        }
+        return universalCompare(valA, valB, sortState.dir);
+      });
+    }
+    return list;
+  }, [rows, search, monthFilter, typeFilter, vendorFilter, statusFilter, sortState]);
+
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const visibleIds = filtered.map(r => r.id).filter(Boolean);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.add(id));
+        return next;
+      });
+    }
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(filtered.map(r => r.id).filter(Boolean)));
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set());
+  }
+
+  async function handleBatchDelete() {
+    if (!canDelete || selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (!confirm(`Are you sure you want to permanently delete all ${count} selected campaign record${count > 1 ? 's' : ''}? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await api.post('/campaigns/batch-delete', { ids: Array.from(selectedIds), hard: true });
+      setBanner(`✓ ${count} campaign record${count > 1 ? 's' : ''} deleted successfully.`);
+      setSelectedIds(new Set());
+      await loadData();
+      setTimeout(() => setBanner(''), 4000);
+    } catch (err) {
+      alert('Failed to delete selected campaigns: ' + (err.response?.data?.message || err.message));
+    }
+  }
+
+  async function deleteRecord(id) {
+    if (!canDelete) return;
+    if (confirm('Are you sure you want to permanently delete this campaign record?')) {
+      try {
+        await api.delete(`/campaigns/${id}?hard=true`);
+        setBanner('✓ Campaign record deleted successfully.');
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        await loadData();
+        setTimeout(() => setBanner(''), 3000);
+      } catch (err) {
+        alert('Failed to delete campaign: ' + (err.response?.data?.message || err.message));
+      }
+    }
+  }
+
+  async function handleCampaignsExcelImport(e) {
+    if (!canDelete) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingExcel(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await api.post('/import/campaigns-xlsx', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const msg = r.data.message || `Processed ${r.data.rows} campaigns (${r.data.updated} updated, ${r.data.created} created).`;
+      setBanner(`✓ ${msg}`);
+      alert(`✓ Campaigns Import Successful!\n\n${msg}`);
+      await loadData();
+      setTimeout(() => setBanner(''), 6000);
+    } catch (err) {
+      alert('Campaign Excel Import failed: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setImportingExcel(false);
+      e.target.value = '';
+    }
+  }
+
+  function openNewCampaign() {
+    if (!canAdd) return;
+    setEditModal({
+      month: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      booking_date: new Date().toISOString().slice(0, 10),
+      client: '',
+      display: '',
+      vendor_name: '',
+      location: '',
+      width: '',
+      height: '',
+      size: '',
+      type: 'Hoarding',
+      start_date: new Date().toISOString().slice(0, 10),
+      end_date: '',
+      days: 30,
+      advt_fees: '',
+      printing_mounting_cost: '',
+      total_amount: '',
+      po: '',
+      bill: '',
+      pending: '',
+      notes: ''
+    });
+  }
+
+  async function saveCampaign(e) {
+    e.preventDefault();
+    if (isReadOnly) return;
+    setSaving(true);
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+    const payload = Object.fromEntries(formData.entries());
+
+    payload.advt_fees = Number(payload.advt_fees || 0);
+    payload.printing_mounting_cost = Number(payload.printing_mounting_cost || 0);
+    let totalAmt = Number(payload.total_amount || 0);
+    if (!totalAmt && (payload.advt_fees || payload.printing_mounting_cost)) {
+      totalAmt = payload.advt_fees + payload.printing_mounting_cost;
+    }
+    payload.total_amount = totalAmt;
+    payload.revenue = totalAmt;
+    payload.pending = Number(payload.pending || 0);
+    payload.days = Number(payload.days || 30);
+    if (payload.width) payload.width = parseFloat(payload.width) || null;
+    if (payload.height) payload.height = parseFloat(payload.height) || null;
+    if (!payload.size && payload.width && payload.height) {
+      payload.size = `${payload.width}x${payload.height} ft`;
+    }
+    if (payload.site_code) payload.site_code = String(payload.site_code).trim();
+    if (payload.client) payload.client_name = payload.client;
+    if (payload.display) {
+      payload.campaign_name = payload.display;
+      payload.brand = payload.display;
+    }
+
+    try {
+      if (editModal?.id) {
+        await api.put(`/campaigns/${editModal.id}`, payload);
+        setBanner('✓ Campaign record updated successfully!');
+      } else {
+        await api.post('/campaigns', payload);
+        setBanner('✓ New campaign created successfully!');
+      }
+      setEditModal(null);
+      await loadData();
+      setTimeout(() => setBanner(''), 4000);
+    } catch (err) {
+      alert('Failed to save campaign: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="scooh-pagehead">
+        <div>
+          <div style={{ fontSize: '11px', fontWeight: 800, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>
+            Media Buzz — OOH Workspace
+          </div>
+          <h1 style={{ fontSize: '26px', fontWeight: 900, margin: 0, color: '#fff', letterSpacing: '-0.02em' }}>
+            Campaign Tracker
+          </h1>
+          <p style={{ margin: '6px 0 0', color: '#94a3b8', fontSize: '13px' }}>
+            Live outdoor campaigns, client billing, vendor assignments, and pending payment tracking.
+          </p>
+        </div>
+        <div className="scooh-headactions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button type="button" className="scooh-btn ghost" onClick={loadData}>
+            🔄 Refresh
+          </button>
+          {canDelete && (
+            <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Import campaigns from Excel spreadsheet">
+              <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+              <input type="file" accept=".xlsx,.xls" hidden disabled={importingExcel} onChange={handleCampaignsExcelImport} />
+            </label>
+          )}
+          <button type="button" className="scooh-btn ghost" onClick={() => exportCampaignsExcel(filtered)}>
+            📥 Export Excel
+          </button>
+          {canAdd && (
+            <button type="button" className="scooh-btn purple-btn" onClick={openNewCampaign}>
+              + Add Campaign
+            </button>
+          )}
+        </div>
+      </div>
+
+      {isReadOnly && (
+        <div className="scooh-banner" style={{ display: 'block', marginBottom: '16px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+          🔒 Read-Only Workspace: You are signed in as a Viewer. You can view all campaign data, filter records, and export to Excel. Creating, editing, and deleting campaigns is disabled.
+        </div>
+      )}
+
+      {banner && (
+        <div className="scooh-banner" style={{ display: 'block', marginBottom: '16px', background: 'rgba(34,197,94,0.15)', border: '1px solid #22c55e', color: '#4ade80' }}>
+          {banner}
+        </div>
+      )}
+
+      {/* Summary KPI Cards */}
+      <div className="scooh-kpirow" style={{ marginBottom: '22px' }}>
+        <div className="scooh-kpi good">
+          <div className="n">{money(totalAmountSum)}</div>
+          <div className="l">Total Campaign Amount</div>
+          <div className="scooh-kpi-note" style={{ color: '#4ade80' }}>{rows.length} total campaigns</div>
+        </div>
+        <div className="scooh-kpi alert">
+          <div className="n">{money(totalAdvtFeesSum)}</div>
+          <div className="l">Total Advt. Fees</div>
+          <div className="scooh-kpi-note" style={{ color: '#94a3b8' }}>Monthly recurring rate</div>
+        </div>
+        <div className="scooh-kpi alert">
+          <div className="n">{money(totalPMSum)}</div>
+          <div className="l">Printing & Mounting</div>
+          <div className="scooh-kpi-note" style={{ color: '#94a3b8' }}>Production & ops charges</div>
+        </div>
+        <div className={`scooh-kpi ${totalPendingSum > 0 ? 'danger' : 'good'}`}>
+          <div className="n">{money(totalPendingSum)}</div>
+          <div className="l">Total Pending Amount</div>
+          <div className="scooh-kpi-note" style={{ color: totalPendingSum > 0 ? '#ef4444' : '#4ade80' }}>
+            {totalPendingSum > 0 ? `${rows.filter(r => Number(r.pending || 0) > 0).length} campaigns pending` : 'All cleared'}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Campaign Section */}
+      <div className="scooh-electricity-section">
+        <div className="scooh-sectionbar">
+          <div>
+            <h2 style={{ fontSize: '16px', fontWeight: 800, color: '#f8fafc' }}>
+              Outdoor Campaigns & Commercial Tracker
+            </h2>
+            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+              Showing {filtered.length} of {rows.length} campaigns.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {canAdd && (
+              <button type="button" className="scooh-btn purple-btn" onClick={openNewCampaign}>
+                + Add Campaign
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Toolbar */}
+        <div className="scooh-toolbar" style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            className="scooh-search"
+            style={{ flex: '1 1 240px', minWidth: '200px' }}
+            placeholder="Search client, display, vendor, location, PO, bill…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          {months.length > 0 && (
+            <select
+              value={monthFilter}
+              onChange={e => setMonthFilter(e.target.value)}
+              style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
+            >
+              <option value="ALL">All Months ({months.length})</option>
+              {months.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          )}
+          {types.length > 0 && (
+            <select
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value)}
+              style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
+            >
+              <option value="ALL">All Types ({types.length})</option>
+              {types.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          )}
+          {vendors.length > 0 && (
+            <select
+              value={vendorFilter}
+              onChange={e => setVendorFilter(e.target.value)}
+              style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
+            >
+              <option value="ALL">All Vendors ({vendors.length})</option>
+              {vendors.map(v => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          )}
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
+          >
+            <option value="ALL">All Payment Status</option>
+            <option value="Pending">Pending Payment</option>
+            <option value="Cleared">Cleared (₹0)</option>
+          </select>
+          <select
+            value={`${sortState.key}:${sortState.dir}`}
+            onChange={e => {
+              const [k, d] = e.target.value.split(':');
+              setSortState({ key: k, dir: d });
+            }}
+            style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px', fontWeight: 600 }}
+          >
+            <option value="id:desc">Sort: Newest First</option>
+            <option value="id:asc">Sort: Oldest First</option>
+            <option value="client:asc">Sort: Client (A–Z)</option>
+            <option value="start_date:asc">Sort: Start Date (Earliest)</option>
+            <option value="end_date:asc">Sort: End Date (Earliest)</option>
+            <option value="total_amount:desc">Sort: Total Amount (High–Low)</option>
+            <option value="pending:desc">Sort: Pending (High–Low)</option>
+            <option value="days:desc">Sort: Duration Days</option>
+          </select>
+          {(search || monthFilter !== 'ALL' || typeFilter !== 'ALL' || vendorFilter !== 'ALL' || statusFilter !== 'ALL' || sortState.key !== 'id' || sortState.dir !== 'desc') && (
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              style={{ fontSize: '11px', padding: '6px 10px' }}
+              onClick={() => { setSearch(''); setMonthFilter('ALL'); setTypeFilter('ALL'); setVendorFilter('ALL'); setStatusFilter('ALL'); setSortState({ key: 'id', dir: 'desc' }); }}
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+
+        {/* Batch Selection Action Bar */}
+        {canDelete && selectedIds.size > 0 && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '11px 18px',
+            background: 'linear-gradient(90deg, rgba(239,68,68,0.18), rgba(239,68,68,0.08))',
+            borderBottom: '1px solid rgba(239,68,68,0.3)',
+            color: '#fca5a5',
+            fontSize: '13px',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 800, color: '#ffffff', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }}></span>
+                {selectedIds.size} campaign{selectedIds.size > 1 ? 's' : ''} selected
+              </span>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={selectAllVisible}
+                style={{ fontSize: '11.5px', padding: '4px 10px', color: '#f1f5f9', borderColor: '#475569' }}
+              >
+                Select all visible ({filtered.length})
+              </button>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={deselectAll}
+                style={{ fontSize: '11.5px', padding: '4px 10px', color: '#cbd5e1', borderColor: '#475569' }}
+              >
+                Deselect all
+              </button>
+            </div>
+            <button
+              type="button"
+              className="scooh-btn danger"
+              onClick={handleBatchDelete}
+              style={{
+                background: '#ef4444',
+                color: '#ffffff',
+                border: 'none',
+                fontWeight: 800,
+                padding: '7px 16px',
+                borderRadius: '7px',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 10px rgba(239,68,68,0.45)'
+              }}
+            >
+              🗑 Delete selected ({selectedIds.size})
+            </button>
+          </div>
+        )}
+
+        {/* Table */}
+        <div className="scooh-tablewrap">
+          <table className="scooh-table">
+            <thead>
+              <tr>
+                {canDelete && (
+                  <th style={{ width: '42px', textAlign: 'center', padding: '10px 8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={filtered.length > 0 && filtered.every(r => selectedIds.has(r.id))}
+                      onChange={toggleSelectAll}
+                      title="Select all visible campaigns"
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
+                )}
+                <SortHeader label="Site Code" sortKey="site_code" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                <SortHeader label="Month" sortKey="month" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
+                <SortHeader label="Date" sortKey="booking_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
+                <SortHeader label="Client/Agency Name" sortKey="client" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
+                <SortHeader label="Display" sortKey="display" currentSort={sortState} onSort={handleSort} style={{ minWidth: '160px' }} />
+                <SortHeader label="Vendor Name" sortKey="vendor_name" currentSort={sortState} onSort={handleSort} style={{ minWidth: '140px' }} />
+                <SortHeader label="Location" sortKey="location" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
+                <th style={{ width: '55px', textAlign: 'center' }}>W</th>
+                <th style={{ width: '55px', textAlign: 'center' }}>H</th>
+                <SortHeader label="Size" sortKey="size" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
+                <SortHeader label="Type" sortKey="type" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                <SortHeader label="Start Date" sortKey="start_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                <SortHeader label="End Date" sortKey="end_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                <SortHeader label="Days" sortKey="days" currentSort={sortState} onSort={handleSort} align="center" style={{ width: '70px' }} />
+                <SortHeader label="Advt. Fees" sortKey="advt_fees" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
+                <SortHeader label="Prod/Mount" sortKey="printing_mounting_cost" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
+                <SortHeader label="Total" sortKey="total_amount" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '135px' }} />
+                <SortHeader label="PO" sortKey="po" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
+                <SortHeader label="Bill" sortKey="bill" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
+                <SortHeader label="Pending" sortKey="pending" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '110px' }} />
+                <th style={{ minWidth: '110px', textAlign: 'center' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={canDelete ? "22" : "21"} className="scooh-empty" style={{ padding: '36px 20px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No campaigns match your query</div>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                      {canAdd ? 'Click "+ Add Campaign" or "Import Excel" to load outdoor media campaigns.' : 'No active campaigns found.'}
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((r, idx) => {
+                  const isPending = Number(r.pending || 0) > 0;
+                  return (
+                    <tr key={r.id}>
+                      {canDelete && (
+                        <td style={{ textAlign: 'center', padding: '10px 8px' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(r.id)}
+                            onChange={() => toggleSelect(r.id)}
+                            style={{ cursor: 'pointer' }}
+                          />
+                        </td>
+                      )}
+                      <td>
+                        <span className="scooh-plate" style={{ fontSize: '11.5px', fontWeight: 800 }}>
+                          {r.site_code || '—'}
+                        </span>
+                      </td>
+                      <td style={{ color: '#cbd5e1', fontSize: '12px', fontWeight: 600 }}>
+                        {r.month || '—'}
+                      </td>
+                      <td style={{ color: '#94a3b8', fontSize: '11.5px' }}>
+                        {formatDate(r.booking_date || r.date)}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 800, color: '#ffffff', fontSize: '13px' }}>
+                          {r.client || r.client_name || '—'}
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ color: '#38bdf8', fontWeight: 600, fontSize: '12.5px' }}>
+                          {r.display || r.campaign_name || '—'}
+                        </div>
+                      </td>
+                      <td style={{ color: '#cbd5e1', fontSize: '12px' }}>
+                        {r.vendor_name || '—'}
+                      </td>
+                      <td>
+                        <div style={{ color: '#edf2f6', fontSize: '12px', lineHeight: 1.35 }}>
+                          {r.location || '—'}
+                        </div>
+                      </td>
+                      <td style={{ textAlign: 'center', color: '#94a3b8', fontSize: '11.5px' }}>
+                        {r.width || '—'}
+                      </td>
+                      <td style={{ textAlign: 'center', color: '#94a3b8', fontSize: '11.5px' }}>
+                        {r.height || '—'}
+                      </td>
+                      <td style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 600 }}>
+                        {r.size || (r.width && r.height ? `${r.width}x${r.height} ft` : '—')}
+                      </td>
+                      <td>
+                        <span className="scooh-badgechip" style={{ background: 'rgba(56,189,248,0.14)', color: '#38bdf8', fontSize: '11px', fontWeight: 700 }}>
+                          {r.type || 'Hoarding'}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '11.5px', color: '#94a3b8' }}>
+                        {formatDate(r.start_date)}
+                      </td>
+                      <td style={{ fontSize: '11.5px', color: '#94a3b8' }}>
+                        {formatDate(r.end_date)}
+                      </td>
+                      <td style={{ textAlign: 'center', fontWeight: 700, color: '#e2e8f0', fontSize: '12px' }}>
+                        {r.days ?? '30'}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 600, color: '#e2e8f0', fontSize: '12.5px' }}>
+                        {money(r.advt_fees || 0)}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 600, color: '#e2e8f0', fontSize: '12.5px' }}>
+                        {money(r.printing_mounting_cost || (Number(r.printing_cost || 0) + Number(r.mounting_cost || 0)))}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 800, color: '#4ade80', fontSize: '13px' }}>
+                        {money(r.total_amount || r.revenue || 0)}
+                      </td>
+                      <td>
+                        {r.po ? <span className="scooh-plate" style={{ fontSize: '11px' }}>{r.po}</span> : '—'}
+                      </td>
+                      <td>
+                        {r.bill || r.invoice_no ? <span style={{ color: '#93c5fd', fontSize: '11px' }}>{r.bill || r.invoice_no}</span> : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: isPending ? '#f87171' : '#94a3b8', fontSize: '12.5px' }}>
+                        {money(r.pending || 0)}
+                      </td>
+                      <td>
+                        <div className="scooh-rowactions" style={{ justifyContent: 'center' }}>
+                          <button
+                            type="button"
+                            className="scooh-iconbtn scooh-text-action"
+                            onClick={() => setEditModal(r)}
+                            title={isReadOnly ? 'View Campaign Details' : 'Edit Campaign'}
+                          >
+                            {isReadOnly ? 'View' : 'Edit'}
+                          </button>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              className="scooh-iconbtn danger-icon"
+                              onClick={() => deleteRecord(r.id)}
+                              title="Delete Campaign"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add / Edit / View Campaign Modal */}
+      {editModal && (
+        <div className="scooh-modal-overlay" onClick={() => !saving && setEditModal(null)}>
+          <div className="scooh-modal" style={{ maxWidth: '780px', width: '92%' }} onClick={e => e.stopPropagation()}>
+            <div className="scooh-modalhead">
+              <div>
+                <h2>{editModal.id ? (isReadOnly ? 'View Campaign Record' : 'Edit Campaign Record') : 'Add Campaign Record'}</h2>
+                <span className="scooh-modal-subtitle">
+                  {isReadOnly ? 'Read-only view of campaign specifications and billing details' : 'Enter outdoor campaign specifications and billing details'}
+                </span>
+              </div>
+              <button type="button" className="scooh-modalclose" onClick={() => setEditModal(null)}>×</button>
+            </div>
+            <form onSubmit={saveCampaign}>
+              <div className="scooh-modalbody" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+                  <div className="scooh-field">
+                    <label>Site Code</label>
+                    <input name="site_code" defaultValue={editModal.site_code ?? ''} placeholder="e.g. MB01 or SG-04" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Month</label>
+                    <input name="month" defaultValue={editModal.month ?? ''} placeholder="e.g. Oct 2026" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Date</label>
+                    <input type="date" name="booking_date" defaultValue={editModal.booking_date ? editModal.booking_date.slice(0, 10) : new Date().toISOString().slice(0, 10)} disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field" style={{ gridColumn: 'span 2' }}>
+                    <label>Client/Agency Name *</label>
+                    <input name="client" defaultValue={editModal.client ?? editModal.client_name ?? ''} required placeholder="e.g. Rajyash Group / Nexus Media" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field" style={{ gridColumn: 'span 2' }}>
+                    <label>Display (Brand / Campaign Headline)</label>
+                    <input name="display" defaultValue={editModal.display ?? editModal.campaign_name ?? ''} placeholder="e.g. Rajyash Skyz Launch Campaign" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Vendor Name</label>
+                    <input name="vendor_name" defaultValue={editModal.vendor_name ?? ''} placeholder="e.g. Gujarat Outdoor Signs" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Location</label>
+                    <input name="location" defaultValue={editModal.location ?? ''} placeholder="e.g. SG Highway, Bodakdev" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Width (ft)</label>
+                    <input type="number" step="any" name="width" defaultValue={editModal.width ?? ''} placeholder="40" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Height (ft)</label>
+                    <input type="number" step="any" name="height" defaultValue={editModal.height ?? ''} placeholder="20" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Size</label>
+                    <input name="size" defaultValue={editModal.size ?? ''} placeholder="e.g. 40x20 ft" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Media Type</label>
+                    <select name="type" defaultValue={editModal.type ?? 'Hoarding'} disabled={isReadOnly}>
+                      <option value="Hoarding">Hoarding</option>
+                      <option value="Gantry">Gantry</option>
+                      <option value="Unipole">Unipole</option>
+                      <option value="Billboard">Billboard</option>
+                      <option value="DOOH">DOOH</option>
+                    </select>
+                  </div>
+                  <div className="scooh-field">
+                    <label>Start Date</label>
+                    <input type="date" name="start_date" defaultValue={editModal.start_date ? editModal.start_date.slice(0, 10) : ''} disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>End Date</label>
+                    <input type="date" name="end_date" defaultValue={editModal.end_date ? editModal.end_date.slice(0, 10) : ''} disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Days</label>
+                    <input type="number" name="days" defaultValue={editModal.days ?? 30} placeholder="30" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Advt. Fees per month (₹)</label>
+                    <input type="number" step="any" name="advt_fees" defaultValue={editModal.advt_fees ?? ''} placeholder="0" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Printing & Mounting (₹)</label>
+                    <input type="number" step="any" name="printing_mounting_cost" defaultValue={editModal.printing_mounting_cost ?? ''} placeholder="0" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Total Amount (₹)</label>
+                    <input type="number" step="any" name="total_amount" defaultValue={editModal.total_amount ?? editModal.revenue ?? ''} placeholder="0" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>PO (Purchase Order)</label>
+                    <input name="po" defaultValue={editModal.po ?? ''} placeholder="e.g. PO-2026-881" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Bill (Invoice No / Status)</label>
+                    <input name="bill" defaultValue={editModal.bill ?? editModal.invoice_no ?? ''} placeholder="e.g. INV-9912 / Sent" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Pending (₹)</label>
+                    <input type="number" step="any" name="pending" defaultValue={editModal.pending ?? ''} placeholder="0" disabled={isReadOnly} />
+                  </div>
+                  <div className="scooh-field" style={{ gridColumn: 'span 2' }}>
+                    <label>Notes</label>
+                    <textarea name="notes" rows="2" defaultValue={editModal.notes ?? ''} placeholder="Campaign notes or instructions…" disabled={isReadOnly} />
+                  </div>
+                </div>
+              </div>
+              <div className="scooh-modalfoot">
+                <button type="button" className="scooh-btn ghost" onClick={() => setEditModal(null)}>
+                  {isReadOnly ? 'Close' : 'Cancel'}
+                </button>
+                {!isReadOnly && (
+                  <button type="submit" className="scooh-btn purple-btn" disabled={saving}>
+                    {saving ? 'Saving…' : editModal.id ? 'Update Campaign' : 'Create Campaign'}
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -2575,6 +4490,885 @@ async function exportElectricityExcel(rowsData, filename = 'MediaBuzz_Electricit
   window.URL.revokeObjectURL(url);
 }
 
+function StorageVaultSection({ embedded = true, title = null, subtitle = null, initialCategory = 'all' }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [category, setCategory] = useState(initialCategory);
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('newest');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [uploadModal, setUploadModal] = useState(false);
+  const [snapshotModal, setSnapshotModal] = useState(false);
+  const [snapshotMonth, setSnapshotMonth] = useState('');
+  const [activeOccItem, setActiveOccItem] = useState(null);
+  const [banner, setBanner] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const currentRole = getCurrentRole();
+  const isAdmin = currentRole === 'admin';
+  const isManager = currentRole === 'manager';
+  const isStaff = currentRole === 'staff';
+  const isReadOnly = currentRole === 'viewer';
+  const canDelete = isAdmin || isManager;
+
+  async function loadStorage() {
+    setLoading(true);
+    try {
+      const { data } = await api.get('/storage');
+      if (Array.isArray(data)) setItems(data);
+    } catch (err) {
+      console.warn('Load storage error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadStorage();
+  }, []);
+
+  const pptCount = items.filter(i => i.category === 'ppt').length;
+  const excelCount = items.filter(i => i.category === 'excel').length;
+  const occCount = items.filter(i => i.category === 'occupancy').length;
+  const otherCount = items.filter(i => !['ppt', 'excel', 'occupancy'].includes(i.category)).length;
+
+  const filtered = useMemo(() => {
+    let list = items.filter(i => {
+      if (category !== 'all' && i.category !== category) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const str = `${i.title || ''} ${i.filename || ''} ${JSON.stringify(i.meta || {})} ${i.format || ''}`.toLowerCase();
+        if (!str.includes(q)) return false;
+      }
+      return true;
+    });
+
+    if (sort === 'newest') list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    else if (sort === 'oldest') list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    else if (sort === 'title') list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    return list;
+  }, [items, category, search, sort]);
+
+  const occItems = useMemo(() => {
+    return items
+      .filter(i => i.category === 'occupancy')
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  }, [items]);
+
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const visibleIds = filtered.map(r => r.id).filter(Boolean);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.add(id));
+        return next;
+      });
+    }
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(filtered.map(r => r.id).filter(Boolean)));
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set());
+  }
+
+  async function handleBatchDelete() {
+    if (!canDelete || selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (!window.confirm(`Are you sure you want to permanently delete all ${count} selected file${count > 1 ? 's' : ''} from storage? This action cannot be undone.`)) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await api.post('/storage/batch-delete', { ids: Array.from(selectedIds) });
+      setBanner(`✓ ${count} file${count > 1 ? 's' : ''} deleted from storage successfully.`);
+      setSelectedIds(new Set());
+      await loadStorage();
+      setTimeout(() => setBanner(''), 4000);
+    } catch (err) {
+      alert('Failed to delete selected files: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleTakeSnapshot(e) {
+    if (e) e.preventDefault();
+    if (isReadOnly) return;
+    setActionLoading(true);
+    try {
+      const { data } = await api.post('/storage/snapshot-occupancy', { month: snapshotMonth || undefined });
+      setBanner(`✓ Captured snapshot: ${data.title}`);
+      setSnapshotModal(false);
+      setSnapshotMonth('');
+      await loadStorage();
+      setTimeout(() => setBanner(''), 4000);
+    } catch (err) {
+      alert('Snapshot failed: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleUpload(e) {
+    e.preventDefault();
+    if (isReadOnly) return;
+    const fd = new FormData(e.currentTarget);
+    const file = fd.get('file');
+    if (!file || !file.name) {
+      alert('Please select a file to upload');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await api.post('/storage/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setBanner(`✓ Uploaded "${res.data.filename}" to storage successfully!`);
+      setUploadModal(false);
+      await loadStorage();
+      setTimeout(() => setBanner(''), 4000);
+    } catch (err) {
+      alert('Upload failed: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleDelete(item) {
+    if (!canDelete) return;
+    if (!window.confirm(`Permanently delete "${item.title || item.filename}" from storage?`)) return;
+    try {
+      await api.delete(`/storage/${item.id}`);
+      setItems(prev => prev.filter(x => x.id !== item.id));
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+      setBanner('✓ Removed item from storage.');
+      setTimeout(() => setBanner(''), 3000);
+    } catch (err) {
+      alert('Delete failed: ' + (err.response?.data?.message || err.message));
+    }
+  }
+
+  async function handleDownload(item) {
+    if (item.file_url) {
+      const a = document.createElement('a');
+      a.href = item.file_url;
+      a.download = item.filename || 'download';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
+
+    if (item.category === 'occupancy' && item.meta) {
+      const meta = item.meta;
+      const csvRows = [
+        ['Media Buzz — Occupancy Snapshot Report'],
+        ['Month', meta.month || ''],
+        ['Occupancy Rate', `${meta.occupancyRate ?? 0}%`],
+        ['Occupied Sites', `${meta.occupiedSites ?? 0} of ${meta.totalSites ?? 22}`],
+        ['Total Revenue (₹)', meta.revenue ?? 0],
+        ['Generated At', meta.generatedAt || new Date().toISOString()],
+        [],
+        ['Site Code', 'Status', 'Client', 'Monthly Rate (₹)', 'Location']
+      ];
+      if (Array.isArray(meta.sites)) {
+        meta.sites.forEach(s => {
+          csvRows.push([
+            s.site_code || '',
+            s.status || '',
+            s.client || '',
+            s.rate || s.advt_fees || 0,
+            s.location || ''
+          ]);
+        });
+      }
+      const csvStr = csvRows.map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+      const blob = new Blob([csvStr], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(item.title || 'Occupancy_Snapshot').replace(/\s+/g, '_')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    alert(`Download initiated for ${item.title || item.filename}`);
+  }
+
+  const defaultTitle = title || 'Document & Media Storage Vault';
+  const defaultSubtitle = subtitle || 'Archive for generated presentations, exported Excel trackers, site occupancy records, and media attachments.';
+
+  return (
+    <div style={{ marginTop: embedded ? '36px' : '0' }}>
+      <div style={{
+        background: '#0d131f',
+        border: '1px solid #1e293b',
+        borderRadius: '16px',
+        overflow: 'hidden',
+        boxShadow: '0 8px 30px rgba(0,0,0,0.35)'
+      }}>
+        <div style={{
+          padding: '20px 24px',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          background: 'linear-gradient(90deg, rgba(168,85,247,0.12), rgba(59,130,246,0.08), transparent)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '14px'
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '24px' }}>🗄️</span>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#f8fafc', letterSpacing: '-0.01em' }}>
+                {defaultTitle}
+              </h3>
+              <span className="scooh-badgechip" style={{ background: 'rgba(168,85,247,0.22)', color: '#d8b4fe', fontWeight: 800, border: '1px solid rgba(168,85,247,0.4)', fontSize: '11px' }}>
+                {items.length} Files Stored
+              </span>
+            </div>
+            <p style={{ margin: '4px 0 0 34px', fontSize: '12.5px', color: '#94a3b8' }}>
+              {defaultSubtitle}
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            {!isReadOnly && (
+              <>
+                <button
+                  type="button"
+                  className="scooh-btn secondary"
+                  style={{ fontSize: '12px', padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => setSnapshotModal(true)}
+                  title="Save an instant historical snapshot of current occupancy rate and active campaigns"
+                >
+                  📸 Snapshot Occupancy
+                </button>
+                <button
+                  type="button"
+                  className="scooh-btn purple-btn"
+                  style={{ fontSize: '12px', padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => setUploadModal(true)}
+                  title="Upload PPT, Excel, or PDF directly to storage"
+                >
+                  📤 + Upload File
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              style={{ fontSize: '12px', padding: '8px 12px' }}
+              onClick={loadStorage}
+              title="Reload storage list"
+            >
+              🔄
+            </button>
+          </div>
+        </div>
+
+        {isReadOnly && (
+          <div className="scooh-banner" style={{ display: 'block', margin: '14px 20px 0', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+            🔒 Read-Only Workspace: You are signed in as a Viewer. You can view, search, inspect snapshots, and download files. Uploads, snapshots, and file deletions are disabled.
+          </div>
+        )}
+
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          padding: '12px 20px',
+          background: 'rgba(15,23,42,0.6)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          overflowX: 'auto',
+          alignItems: 'center'
+        }}>
+          {[
+            { id: 'all', label: 'All Storage', count: items.length, icon: '🌟' },
+            { id: 'ppt', label: 'Generated PPTs', count: pptCount, icon: '📑' },
+            { id: 'excel', label: 'Excel Workbooks', count: excelCount, icon: '📊' },
+            { id: 'occupancy', label: 'Previous Site Occupancy', count: occCount, icon: '🏛️' },
+            { id: 'other', label: 'Uploaded Documents', count: otherCount, icon: '🗂️' }
+          ].map(tab => {
+            const active = category === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setCategory(tab.id)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '7px 14px',
+                  borderRadius: '20px',
+                  fontSize: '12px',
+                  fontWeight: active ? 800 : 600,
+                  cursor: 'pointer',
+                  border: active ? '1px solid #a855f7' : '1px solid rgba(255,255,255,0.08)',
+                  background: active ? 'rgba(168,85,247,0.25)' : 'rgba(30,41,59,0.5)',
+                  color: active ? '#ffffff' : '#94a3b8',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>{tab.icon}</span>
+                <span>{tab.label}</span>
+                <span style={{
+                  padding: '1px 6px',
+                  borderRadius: '10px',
+                  fontSize: '10.5px',
+                  background: active ? 'rgba(168,85,247,0.45)' : 'rgba(255,255,255,0.08)',
+                  color: active ? '#f3e8ff' : '#cbd5e1'
+                }}>
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {banner && (
+          <div style={{
+            margin: '14px 20px',
+            padding: '10px 14px',
+            borderRadius: '8px',
+            background: 'rgba(34,197,94,0.16)',
+            border: '1px solid #22c55e',
+            color: '#4ade80',
+            fontSize: '12.5px',
+            fontWeight: 600
+          }}>
+            {banner}
+          </div>
+        )}
+
+        {category === 'occupancy' && occItems.length > 0 && (
+          <div style={{
+            padding: '16px 20px',
+            background: 'rgba(30,41,59,0.4)',
+            borderBottom: '1px solid rgba(255,255,255,0.06)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 800, color: '#e2e8f0', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                Occupancy History Timeline
+              </span>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                {occItems.length} monthly snapshots recorded
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '6px' }}>
+              {occItems.map(item => {
+                const m = item.meta || {};
+                const occRate = Number(m.occupancyRate ?? 0);
+                const isSelected = activeOccItem?.id === item.id;
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => setActiveOccItem(item)}
+                    style={{
+                      minWidth: '190px',
+                      padding: '12px 14px',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      border: isSelected ? '1px solid #38bdf8' : '1px solid rgba(255,255,255,0.08)',
+                      background: isSelected ? 'rgba(56,189,248,0.15)' : '#111927',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <span style={{ fontWeight: 800, color: '#f8fafc', fontSize: '13px' }}>
+                        {m.month || item.title}
+                      </span>
+                      <span style={{
+                        fontWeight: 900,
+                        fontSize: '12px',
+                        color: occRate >= 70 ? '#4ade80' : occRate >= 40 ? '#facc15' : '#ef4444'
+                      }}>
+                        {occRate}%
+                      </span>
+                    </div>
+
+                    <div style={{
+                      height: '5px',
+                      borderRadius: '3px',
+                      background: '#1e293b',
+                      overflow: 'hidden',
+                      marginBottom: '8px'
+                    }}>
+                      <div style={{
+                        width: `${Math.min(100, Math.max(5, occRate))}%`,
+                        height: '100%',
+                        background: occRate >= 70 ? '#22c55e' : occRate >= 40 ? '#eab308' : '#ef4444'
+                      }} />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8' }}>
+                      <span>Sites: <strong style={{ color: '#e2e8f0' }}>{m.occupiedSites ?? '—'} / {m.totalSites ?? 22}</strong></span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div style={{
+          padding: '12px 20px',
+          display: 'flex',
+          gap: '12px',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          borderBottom: '1px solid rgba(255,255,255,0.06)'
+        }}>
+          <input
+            className="scooh-search"
+            style={{ flex: '1 1 240px', minWidth: '180px', height: '36px' }}
+            placeholder="Search stored PPTs, Excels, occupancy snapshots, filenames…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+
+          <select
+            value={sort}
+            onChange={e => setSort(e.target.value)}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '8px',
+              background: '#111925',
+              color: '#e2e8f0',
+              border: '1px solid #334155',
+              fontSize: '12px',
+              fontWeight: 600
+            }}
+          >
+            <option value="newest">Sort: Newest Upload / Generation</option>
+            <option value="oldest">Sort: Oldest First</option>
+            <option value="title">Sort: Title (A–Z)</option>
+          </select>
+
+          {search && (
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              style={{ fontSize: '11px', padding: '6px 10px' }}
+              onClick={() => setSearch('')}
+            >
+              Clear Search
+            </button>
+          )}
+
+          {canDelete && filtered.length > 0 && (
+            <button
+              type="button"
+              className="scooh-btn secondary"
+              style={{ fontSize: '11.5px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              onClick={toggleSelectAll}
+              title={filtered.every(r => selectedIds.has(r.id)) ? 'Deselect all visible files' : 'Select all visible files'}
+            >
+              {filtered.every(r => selectedIds.has(r.id)) ? '✓ Deselect All' : `☑ Select All (${filtered.length})`}
+            </button>
+          )}
+        </div>
+
+        {canDelete && selectedIds.size > 0 && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '11px 18px',
+            background: 'linear-gradient(90deg, rgba(239,68,68,0.18), rgba(239,68,68,0.08))',
+            borderBottom: '1px solid rgba(239,68,68,0.3)',
+            color: '#fca5a5',
+            fontSize: '13px',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 800, color: '#ffffff', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                {selectedIds.size} file{selectedIds.size > 1 ? 's' : ''} selected
+              </span>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={selectAllVisible}
+                style={{ fontSize: '11.5px', padding: '4px 10px', color: '#f1f5f9', borderColor: '#475569' }}
+              >
+                Select all visible ({filtered.length})
+              </button>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={deselectAll}
+                style={{ fontSize: '11.5px', padding: '4px 10px', color: '#cbd5e1', borderColor: '#475569' }}
+              >
+                Deselect all
+              </button>
+            </div>
+            <button
+              type="button"
+              className="scooh-btn danger"
+              onClick={handleBatchDelete}
+              disabled={actionLoading}
+              style={{
+                background: '#ef4444',
+                color: '#ffffff',
+                border: 'none',
+                fontWeight: 800,
+                padding: '7px 16px',
+                borderRadius: '7px',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              🗑 Delete selected ({selectedIds.size})
+            </button>
+          </div>
+        )}
+
+        <div className="scooh-tablewrap">
+          <table className="scooh-table">
+            <thead>
+              <tr>
+                {canDelete && (
+                  <th style={{ width: '42px', textAlign: 'center', padding: '10px 8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={filtered.length > 0 && filtered.every(r => selectedIds.has(r.id))}
+                      onChange={toggleSelectAll}
+                      title={filtered.length > 0 && filtered.every(r => selectedIds.has(r.id)) ? 'Deselect all visible' : 'Select all visible'}
+                      style={{ cursor: 'pointer', width: '15px', height: '15px' }}
+                    />
+                  </th>
+                )}
+                <th style={{ width: '60px', textAlign: 'center' }}>Type</th>
+                <th style={{ minWidth: '220px' }}>Document / File Name</th>
+                <th style={{ minWidth: '130px' }}>Category</th>
+                <th style={{ minWidth: '200px' }}>Details & Metadata</th>
+                <th style={{ width: '100px', textAlign: 'right' }}>Size</th>
+                <th style={{ width: '120px' }}>Saved On</th>
+                <th style={{ minWidth: '140px', textAlign: 'center' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={canDelete ? "8" : "7"} className="scooh-empty" style={{ padding: '36px 20px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No storage items found</div>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                      Generate a presentation, export an Excel sheet, or click "+ Upload File" above.
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map(item => {
+                  const m = item.meta || {};
+                  const isPpt = item.category === 'ppt' || ['pptx', 'ppt'].includes(item.format);
+                  const isExcel = item.category === 'excel' || ['xlsx', 'xls', 'csv'].includes(item.format);
+                  const isOcc = item.category === 'occupancy' || item.format === 'json';
+
+                  const badgeBg = isPpt ? 'rgba(249,115,22,0.18)' : isExcel ? 'rgba(34,197,94,0.18)' : isOcc ? 'rgba(56,189,248,0.18)' : 'rgba(168,85,247,0.18)';
+                  const badgeColor = isPpt ? '#fb923c' : isExcel ? '#4ade80' : isOcc ? '#38bdf8' : '#c084fc';
+                  const badgeBorder = isPpt ? 'rgba(249,115,22,0.35)' : isExcel ? 'rgba(34,197,94,0.35)' : isOcc ? 'rgba(56,189,248,0.35)' : 'rgba(168,85,247,0.35)';
+
+                  return (
+                    <tr key={item.id} style={{ background: selectedIds.has(item.id) ? 'rgba(239,68,68,0.06)' : undefined }}>
+                      {canDelete && (
+                        <td style={{ textAlign: 'center', padding: '10px 8px' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(item.id)}
+                            onChange={() => toggleSelect(item.id)}
+                            style={{ cursor: 'pointer', width: '15px', height: '15px' }}
+                          />
+                        </td>
+                      )}
+                      <td style={{ textAlign: 'center' }}>
+                        <span className="scooh-badgechip" style={{ background: badgeBg, color: badgeColor, border: `1px solid ${badgeBorder}`, fontWeight: 800, fontSize: '10.5px' }}>
+                          {item.format ? item.format.toUpperCase() : 'FILE'}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 800, color: '#ffffff', fontSize: '13px' }}>
+                          {item.title}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px', fontFamily: 'monospace' }}>
+                          {item.filename}
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{
+                          textTransform: 'capitalize',
+                          fontSize: '12px',
+                          color: '#e2e8f0',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          {item.category === 'ppt' ? '📑 PPT Deck' :
+                           item.category === 'excel' ? '📊 Excel Sheet' :
+                           item.category === 'occupancy' ? '🏛️ Occupancy Snapshot' : '🗂️ Document'}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '11.5px', color: '#cbd5e1' }}>
+                        {isPpt && (
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {m.slides && <span className="scooh-plate" style={{ fontSize: '10px' }}>{m.slides} Slides</span>}
+                          </div>
+                        )}
+                        {isExcel && (
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {m.rows && <span className="scooh-plate" style={{ fontSize: '10px' }}>{m.rows} Rows</span>}
+                            {m.type && <span style={{ color: '#4ade80' }}>{m.type}</span>}
+                          </div>
+                        )}
+                        {isOcc && (
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <span className="scooh-badgechip" style={{ background: 'rgba(34,197,94,0.18)', color: '#4ade80', fontSize: '10px' }}>
+                              Rate: {m.occupancyRate ?? '—'}%
+                            </span>
+                            <span style={{ color: '#cbd5e1' }}>
+                              Occupied: {m.occupiedSites ?? '—'}/{m.totalSites ?? '—'}
+                            </span>
+                            {m.revenue ? <span style={{ color: '#facc15' }}>{money(m.revenue)}</span> : null}
+                          </div>
+                        )}
+                        {!isPpt && !isExcel && !isOcc && (
+                          <span style={{ color: '#94a3b8' }}>Standard file</span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right', fontSize: '11.5px', color: '#94a3b8', fontWeight: 600 }}>
+                        {item.file_size || '—'}
+                      </td>
+                      <td style={{ fontSize: '11.5px', color: '#94a3b8' }}>
+                        {item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                      </td>
+                      <td>
+                        <div className="scooh-rowactions" style={{ justifyContent: 'center' }}>
+                          <button
+                            type="button"
+                            className="scooh-btn secondary"
+                            style={{ minHeight: '28px', padding: '0 10px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => handleDownload(item)}
+                            title="Download or re-export file"
+                          >
+                            ⬇ Download
+                          </button>
+                          {isOcc && (
+                            <button
+                              type="button"
+                              className="scooh-btn ghost"
+                              style={{ minHeight: '28px', padding: '0 8px', fontSize: '11px' }}
+                              onClick={() => setActiveOccItem(item)}
+                              title="View full snapshot breakdown"
+                            >
+                              👁 View
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              type="button"
+                              className="scooh-iconbtn danger-icon"
+                              style={{ minHeight: '28px', width: '28px' }}
+                              onClick={() => handleDelete(item)}
+                              title="Delete file from storage"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Upload Modal */}
+      {uploadModal && (
+        <div className="scooh-modal-overlay" onClick={() => !actionLoading && setUploadModal(false)}>
+          <div className="scooh-modal" style={{ maxWidth: '520px', width: '92%' }} onClick={e => e.stopPropagation()}>
+            <div className="scooh-modalhead">
+              <div>
+                <h2>Upload File to Storage</h2>
+                <span className="scooh-modal-subtitle">Save PPT presentations, Excel files, or documents to permanent storage</span>
+              </div>
+              <button type="button" className="scooh-modalclose" onClick={() => setUploadModal(false)}>×</button>
+            </div>
+            <form onSubmit={handleUpload}>
+              <div className="scooh-modalbody">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div className="scooh-field">
+                    <label>Choose File *</label>
+                    <input type="file" name="file" required accept=".pptx,.ppt,.xlsx,.xls,.csv,.pdf,.json,.png,.jpg,.jpeg" />
+                  </div>
+                  <div className="scooh-field">
+                    <label>Category</label>
+                    <select name="category" defaultValue="ppt">
+                      <option value="ppt">📑 PPT Presentation</option>
+                      <option value="excel">📊 Excel Spreadsheet</option>
+                      <option value="occupancy">🏛️ Site Occupancy Data</option>
+                      <option value="other">🗂️ General Document / Contract</option>
+                    </select>
+                  </div>
+                  <div className="scooh-field">
+                    <label>Title (optional)</label>
+                    <input name="title" placeholder="e.g. Diwali 2026 Pitch Deck" />
+                  </div>
+                </div>
+              </div>
+              <div className="scooh-modalfoot">
+                <button type="button" className="scooh-btn ghost" onClick={() => setUploadModal(false)}>Cancel</button>
+                <button type="submit" className="scooh-btn purple-btn" disabled={actionLoading}>
+                  {actionLoading ? 'Uploading…' : 'Upload to Storage'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot Modal */}
+      {snapshotModal && (
+        <div className="scooh-modal-overlay" onClick={() => !actionLoading && setSnapshotModal(false)}>
+          <div className="scooh-modal" style={{ maxWidth: '480px', width: '92%' }} onClick={e => e.stopPropagation()}>
+            <div className="scooh-modalhead">
+              <div>
+                <h2>Record Current Month Occupancy</h2>
+                <span className="scooh-modal-subtitle">Save live occupancy percentage, active site count & revenue to history</span>
+              </div>
+              <button type="button" className="scooh-modalclose" onClick={() => setSnapshotModal(false)}>×</button>
+            </div>
+            <form onSubmit={handleTakeSnapshot}>
+              <div className="scooh-modalbody">
+                <div className="scooh-field">
+                  <label>Billing Month Label</label>
+                  <input
+                    value={snapshotMonth}
+                    onChange={e => setSnapshotMonth(e.target.value)}
+                    placeholder={`e.g. ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`}
+                  />
+                  <small style={{ color: '#94a3b8', marginTop: '4px', fontSize: '11px' }}>
+                    Leave blank to automatically use current calendar month.
+                  </small>
+                </div>
+              </div>
+              <div className="scooh-modalfoot">
+                <button type="button" className="scooh-btn ghost" onClick={() => setSnapshotModal(false)}>Cancel</button>
+                <button type="submit" className="scooh-btn secondary" disabled={actionLoading}>
+                  {actionLoading ? 'Recording…' : '📸 Save Snapshot'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* View Occupancy Snapshot Detail Modal */}
+      {activeOccItem && (
+        <div className="scooh-modal-overlay" onClick={() => setActiveOccItem(null)}>
+          <div className="scooh-modal" style={{ maxWidth: '580px', width: '92%' }} onClick={e => e.stopPropagation()}>
+            <div className="scooh-modalhead">
+              <div>
+                <h2>{activeOccItem.title}</h2>
+                <span className="scooh-modal-subtitle">Recorded on {new Date(activeOccItem.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+              </div>
+              <button type="button" className="scooh-modalclose" onClick={() => setActiveOccItem(null)}>×</button>
+            </div>
+            <div className="scooh-modalbody">
+              {(() => {
+                const m = activeOccItem.meta || {};
+                const pct = Number(m.occupancyPct || 0);
+                return (
+                  <div>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(2, 1fr)',
+                      gap: '12px',
+                      marginBottom: '16px'
+                    }}>
+                      <div style={{ background: 'rgba(15,23,42,0.6)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Occupancy Rate</span>
+                        <div style={{ fontSize: '24px', fontWeight: 800, color: '#38bdf8', marginTop: '4px' }}>{pct}%</div>
+                      </div>
+                      <div style={{ background: 'rgba(15,23,42,0.6)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Portfolio Revenue</span>
+                        <div style={{ fontSize: '24px', fontWeight: 800, color: '#4ade80', marginTop: '4px' }}>{money(m.revenue || 0)}</div>
+                      </div>
+                      <div style={{ background: 'rgba(15,23,42,0.6)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Occupied Sites</span>
+                        <div style={{ fontSize: '20px', fontWeight: 800, color: '#f8fafc', marginTop: '4px' }}>{m.occupiedSites ?? '—'} / {m.totalSites || 22}</div>
+                      </div>
+                      <div style={{ background: 'rgba(15,23,42,0.6)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Vacant Sites</span>
+                        <div style={{ fontSize: '20px', fontWeight: 800, color: '#f87171', marginTop: '4px' }}>{m.vacantSites ?? '—'}</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="scooh-modalfoot">
+              <button
+                type="button"
+                className="scooh-btn secondary"
+                onClick={() => handleDownload(activeOccItem)}
+              >
+                ⬇ Download Snapshot JSON
+              </button>
+              <button type="button" className="scooh-btn ghost" onClick={() => setActiveOccItem(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StorageView() {
+  return (
+    <>
+      <PageHead
+        title="Storage & Archives"
+        desc="Dedicated repository of generated client PPT decks, exported Excel spreadsheets, historical monthly site occupancy snapshots, and operational files."
+      />
+      <StorageVaultSection embedded={false} />
+    </>
+  );
+}
+
 function ElectricityView() {
   const [rows, setRows] = useState([]);
   const [sites, setSites] = useState([]);
@@ -2587,6 +5381,17 @@ function ElectricityView() {
   const [sortState, setSortState] = useState({ key: 'due_date', dir: 'asc' });
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState('');
+  const [importingExcel, setImportingExcel] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
+  const currentRole = getCurrentRole();
+  const isAdmin = currentRole === 'admin';
+  const isManager = currentRole === 'manager';
+  const isStaff = currentRole === 'staff';
+  const isReadOnly = currentRole === 'viewer';
+  const canDelete = isAdmin || isManager;
+  const canAdd = !isReadOnly;
+  const canPay = !isReadOnly;
 
   async function loadData() {
     try {
@@ -2624,10 +5429,38 @@ function ElectricityView() {
     }
   }
 
+  async function handleElectricityExcelImport(e) {
+    if (!canDelete) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingExcel(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await api.post('/import/electricity-xlsx', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const msg = r.data.message || `Processed ${r.data.rows} electricity bills (${r.data.updated} updated, ${r.data.created} created).`;
+      setBanner(`✓ ${msg}`);
+      alert(`✓ Electricity Bills Import Successful!\n\n${msg}`);
+      await loadData();
+      window.dispatchEvent(new CustomEvent('mb-electricity-updated'));
+      setTimeout(() => setBanner(''), 6000);
+    } catch (err) {
+      alert('Electricity Bill Import failed: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setImportingExcel(false);
+      e.target.value = '';
+    }
+  }
+
   useEffect(() => {
     loadData();
+    const onElecUpdate = () => loadData();
+    window.addEventListener('mb-electricity-updated', onElecUpdate);
     const interval = setInterval(loadData, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      window.removeEventListener('mb-electricity-updated', onElecUpdate);
+      clearInterval(interval);
+    };
   }, []);
 
   const totalExpense = rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
@@ -2642,7 +5475,7 @@ function ElectricityView() {
   }).length;
 
   const months = Array.from(new Set(rows.map(r => r.billing_month).filter(Boolean)));
-  const providers = Array.from(new Set(rows.map(r => r.bill_type).filter(Boolean)));
+  const providers = Array.from(new Set(['SSV', 'MB', ...rows.map(r => r.bill_type).filter(Boolean)]));
 
   function handleSort(key) {
     setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
@@ -2651,18 +5484,23 @@ function ElectricityView() {
   const filtered = useMemo(() => {
     const list = rows.filter(r => {
       const q = search.trim().toLowerCase();
-      const matchesSearch = !q || [
-        r.site_code,
-        r.location,
-        r.size,
-        r.meter_no,
-        r.service_number,
-        r.t_number,
-        r.bill_type,
-        r.billing_month,
-        r.payment_status,
-        r.notes
-      ].some(v => String(v || '').toLowerCase().includes(q));
+      let matchesSearch = !q;
+      if (q) {
+        if (matchSiteSearch({ site_code: r.site_code, address: r.location }, q)) {
+          matchesSearch = true;
+        } else if (!/^(?:mb[\s-]*)?\d+$/i.test(q)) {
+          matchesSearch = [
+            r.size,
+            r.meter_no,
+            r.service_number,
+            r.t_number,
+            r.bill_type,
+            r.billing_month,
+            r.payment_status,
+            r.notes
+          ].some(v => String(v || '').toLowerCase().includes(q));
+        }
+      }
 
       const matchesStatus = statusFilter === 'ALL' ? true :
         statusFilter === 'Overdue' ? (r.payment_status !== 'Paid' && r.due_date && new Date(r.due_date) < new Date()) :
@@ -2689,6 +5527,7 @@ function ElectricityView() {
   }, [rows, search, statusFilter, providerFilter, monthFilter, sortState]);
 
   function openNewBill() {
+    if (!canAdd) return;
     setEditModal({
       site_id: '',
       site_code: '',
@@ -2697,7 +5536,7 @@ function ElectricityView() {
       meter_no: '',
       service_number: '',
       t_number: '',
-      bill_type: 'UGVCL',
+      bill_type: 'SSV',
       billing_month: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
       bill_date: new Date().toISOString().slice(0, 10),
       due_date: '',
@@ -2740,6 +5579,7 @@ function ElectricityView() {
 
   async function saveBill(e) {
     e.preventDefault();
+    if (isReadOnly) return;
     setSaving(true);
     const form = e.currentTarget;
     const formData = new FormData(form);
@@ -2775,7 +5615,7 @@ function ElectricityView() {
 
   async function handleQuickPay(e) {
     e.preventDefault();
-    if (!payModal?.id) return;
+    if (!payModal?.id || isReadOnly) return;
     setSaving(true);
     const formData = new FormData(e.currentTarget);
     const paid_date = formData.get('paid_date') || new Date().toISOString().slice(0, 10);
@@ -2798,15 +5638,75 @@ function ElectricityView() {
     }
   }
 
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const visibleIds = filtered.map(r => r.id).filter(Boolean);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.add(id));
+        return next;
+      });
+    }
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(filtered.map(r => r.id).filter(Boolean)));
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set());
+  }
+
+  async function handleBatchDelete() {
+    if (!canDelete || selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (!confirm(`Are you sure you want to permanently delete all ${count} selected electricity bill record${count > 1 ? 's' : ''}? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await api.post('/electricity/batch-delete', { ids: Array.from(selectedIds), hard: true });
+      setBanner(`✓ ${count} electricity bill record${count > 1 ? 's' : ''} deleted successfully.`);
+      setSelectedIds(new Set());
+      await loadData();
+      window.dispatchEvent(new CustomEvent('mb-electricity-updated'));
+      setTimeout(() => setBanner(''), 4000);
+    } catch (err) {
+      alert('Failed to delete selected bills: ' + (err.response?.data?.message || err.message));
+    }
+  }
+
   async function deleteBill(id) {
-    if (confirm('Archive this electricity bill record?')) {
+    if (!canDelete) return;
+    if (confirm('Permanently delete this electricity bill record?')) {
       try {
-        await api.delete(`/electricity/${id}`);
-        setBanner('✓ Electricity bill archived.');
+        await api.delete(`/electricity/${id}?hard=true`);
+        setBanner('✓ Electricity bill deleted.');
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
         await loadData();
+        window.dispatchEvent(new CustomEvent('mb-electricity-updated'));
         setTimeout(() => setBanner(''), 3000);
       } catch (err) {
-        alert('Failed to archive bill: ' + (err.response?.data?.message || err.message));
+        alert('Failed to delete bill: ' + (err.response?.data?.message || err.message));
       }
     }
   }
@@ -2829,14 +5729,28 @@ function ElectricityView() {
           <button type="button" className="scooh-btn ghost" onClick={loadData}>
             🔄 Refresh
           </button>
+          {canDelete && (
+            <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Import electricity bills from Excel (.xlsx, .xls)">
+              <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+              <input type="file" accept=".xlsx,.xls" hidden disabled={importingExcel} onChange={handleElectricityExcelImport} />
+            </label>
+          )}
           <button type="button" className="scooh-btn ghost" onClick={() => exportElectricityExcel(filtered)}>
             📥 Export Excel
           </button>
-          <button type="button" className="scooh-btn purple-btn" onClick={openNewBill}>
-            + Add bill
-          </button>
+          {canAdd && (
+            <button type="button" className="scooh-btn purple-btn" onClick={openNewBill}>
+              + Add bill
+            </button>
+          )}
         </div>
       </div>
+
+      {isReadOnly && (
+        <div className="scooh-banner" style={{ display: 'block', marginBottom: '16px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+          🔒 Read-Only Workspace: You are signed in as a Viewer. You can view electricity bills, track due dates, and export to Excel. Recording or deleting bills is disabled.
+        </div>
+      )}
 
       {banner && (
         <div className="scooh-banner" style={{ display: 'block', marginBottom: '16px', background: 'rgba(34,197,94,0.15)', border: '1px solid #22c55e', color: '#4ade80' }}>
@@ -2868,7 +5782,7 @@ function ElectricityView() {
         <div className="scooh-kpi alert">
           <div className="n">{sites.length || 57}</div>
           <div className="l">Total Sites Monitored</div>
-          <div className="scooh-kpi-note" style={{ color: '#94a3b8' }}>UGVCL, Torrent Power & PGVCL</div>
+          <div className="scooh-kpi-note" style={{ color: '#94a3b8' }}>SSV & MB Bills</div>
         </div>
       </div>
 
@@ -2884,9 +5798,11 @@ function ElectricityView() {
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <button type="button" className="scooh-btn purple-btn" onClick={openNewBill}>
-              + Add bill
-            </button>
+            {canAdd && (
+              <button type="button" className="scooh-btn purple-btn" onClick={openNewBill}>
+                + Add bill
+              </button>
+            )}
           </div>
         </div>
 
@@ -2895,7 +5811,7 @@ function ElectricityView() {
           <input
             className="scooh-search"
             style={{ flex: '1 1 240px', minWidth: '200px' }}
-            placeholder="Search by site code, location, meter, consumer no, provider…"
+            placeholder="Search site code (e.g. 01, MB-01), location, meter, consumer no…"
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -2941,14 +5857,14 @@ function ElectricityView() {
             }}
             style={{ padding: '8px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px', fontWeight: 600 }}
           >
+            <option value="site_code:asc">Sort: Site Code (01 → 87)</option>
+            <option value="site_code:desc">Sort: Site Code (87 → 01)</option>
             <option value="due_date:asc">Sort: Due Date (Earliest First)</option>
             <option value="due_date:desc">Sort: Due Date (Latest First)</option>
             <option value="amount:desc">Sort: Amount (High to Low)</option>
             <option value="amount:asc">Sort: Amount (Low to High)</option>
-            <option value="site_code:asc">Sort: Site Code (A-Z)</option>
-            <option value="site_code:desc">Sort: Site Code (Z-A)</option>
-            <option value="location:asc">Sort: Location (A-Z)</option>
-            <option value="payment_status:asc">Sort: Status (A-Z)</option>
+            <option value="location:asc">Sort: Location (A–Z)</option>
+            <option value="payment_status:asc">Sort: Status (A–Z)</option>
             <option value="billing_month:desc">Sort: Billing Month</option>
           </select>
           {(search || statusFilter !== 'ALL' || providerFilter !== 'ALL' || monthFilter !== 'ALL' || sortState.key !== 'due_date' || sortState.dir !== 'asc') && (
@@ -2963,11 +5879,81 @@ function ElectricityView() {
           )}
         </div>
 
+        {/* Batch Selection Action Bar */}
+        {canDelete && selectedIds.size > 0 && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '11px 18px',
+            background: 'linear-gradient(90deg, rgba(239,68,68,0.18), rgba(239,68,68,0.08))',
+            borderBottom: '1px solid rgba(239,68,68,0.3)',
+            color: '#fca5a5',
+            fontSize: '13px',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 800, color: '#ffffff', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }}></span>
+                {selectedIds.size} bill{selectedIds.size > 1 ? 's' : ''} selected
+              </span>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={selectAllVisible}
+                style={{ fontSize: '11.5px', padding: '4px 10px', color: '#f1f5f9', borderColor: '#475569' }}
+              >
+                Select all visible ({filtered.length})
+              </button>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={deselectAll}
+                style={{ fontSize: '11.5px', padding: '4px 10px', color: '#cbd5e1', borderColor: '#475569' }}
+              >
+                Deselect all
+              </button>
+            </div>
+            <button
+              type="button"
+              className="scooh-btn danger"
+              onClick={handleBatchDelete}
+              style={{
+                background: '#ef4444',
+                color: '#ffffff',
+                border: 'none',
+                fontWeight: 800,
+                padding: '7px 16px',
+                borderRadius: '7px',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 10px rgba(239,68,68,0.45)'
+              }}
+            >
+              🗑 Delete selected ({selectedIds.size})
+            </button>
+          </div>
+        )}
+
         {/* Table */}
         <div className="scooh-tablewrap">
           <table className="scooh-table">
             <thead>
               <tr>
+                {canDelete && (
+                  <th style={{ width: '42px', textAlign: 'center', padding: '10px 8px' }}>
+                    <input
+                      type="checkbox"
+                      checked={filtered.length > 0 && filtered.every(r => selectedIds.has(r.id))}
+                      onChange={toggleSelectAll}
+                      title="Select all visible bills"
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
+                )}
                 <SortHeader label="SITE CODE" sortKey="site_code" currentSort={sortState} onSort={handleSort} style={{ minWidth: '110px' }} />
                 <SortHeader label="LOCATION" sortKey="location" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
                 <SortHeader label="SIZE" sortKey="size" currentSort={sortState} onSort={handleSort} style={{ minWidth: '85px' }} />
@@ -2984,9 +5970,11 @@ function ElectricityView() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan="11" className="scooh-empty" style={{ padding: '36px 20px' }}>
+                  <td colSpan={canDelete ? "12" : "11"} className="scooh-empty" style={{ padding: '36px 20px' }}>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No electricity bills match your query</div>
-                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Click "+ Add bill" to record a new electricity bill for any hoarding site.</div>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                      {canAdd ? 'Click "+ Add bill" to record a new electricity bill for any hoarding site.' : 'No recorded electricity bills.'}
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -2994,6 +5982,16 @@ function ElectricityView() {
                   const isOverdue = r.payment_status !== 'Paid' && r.due_date && new Date(r.due_date) < new Date();
                   return (
                     <tr key={r.id}>
+                      {canDelete && (
+                        <td style={{ textAlign: 'center', padding: '10px 8px' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(r.id)}
+                            onChange={() => toggleSelect(r.id)}
+                            style={{ cursor: 'pointer' }}
+                          />
+                        </td>
+                      )}
                       <td>
                         <span className="scooh-plate" style={{ fontSize: '11.5px', fontWeight: 800 }}>
                           {r.site_code || '—'}
@@ -3024,13 +6022,20 @@ function ElectricityView() {
                         <span
                           className="scooh-badgechip"
                           style={{
-                            background: r.bill_type === 'Torrent Power' ? 'rgba(56,189,248,0.16)' : 'rgba(251,191,36,0.16)',
-                            color: r.bill_type === 'Torrent Power' ? '#38bdf8' : '#fbbf24',
+                            background: r.bill_type === 'SSV' ? 'rgba(52,211,153,0.18)' :
+                              (r.bill_type === 'MB' ? 'rgba(251,191,36,0.18)' :
+                              (r.bill_type === 'Torrent Power' ? 'rgba(56,189,248,0.16)' : 'rgba(168,85,247,0.16)')),
+                            color: r.bill_type === 'SSV' ? '#34d399' :
+                              (r.bill_type === 'MB' ? '#fbbf24' :
+                              (r.bill_type === 'Torrent Power' ? '#38bdf8' : '#c084fc')),
                             fontWeight: 800,
-                            fontSize: '10.5px'
+                            fontSize: '11px',
+                            letterSpacing: '0.02em',
+                            border: r.bill_type === 'SSV' ? '1px solid rgba(52,211,153,0.3)' :
+                              (r.bill_type === 'MB' ? '1px solid rgba(251,191,36,0.35)' : 'none')
                           }}
                         >
-                          {r.bill_type || 'General'}
+                          {r.bill_type || 'SSV'}
                         </span>
                       </td>
                       <td style={{ color: '#cbd5e1', fontSize: '12px', fontWeight: 600 }}>
@@ -3058,7 +6063,7 @@ function ElectricityView() {
                       </td>
                       <td>
                         <div className="scooh-rowactions" style={{ justifyContent: 'center', gap: '6px' }}>
-                          {r.payment_status !== 'Paid' && (
+                          {canPay && r.payment_status !== 'Paid' && (
                             <button
                               type="button"
                               className="scooh-btn"
@@ -3081,18 +6086,20 @@ function ElectricityView() {
                             type="button"
                             className="scooh-iconbtn scooh-text-action"
                             onClick={() => setEditModal(r)}
-                            title="Edit Bill"
+                            title={isReadOnly ? 'View Bill Details' : 'Edit Bill'}
                           >
-                            Edit
+                            {isReadOnly ? 'View' : 'Edit'}
                           </button>
-                          <button
-                            type="button"
-                            className="scooh-iconbtn danger-icon"
-                            onClick={() => deleteBill(r.id)}
-                            title="Delete Bill"
-                          >
-                            ×
-                          </button>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              className="scooh-iconbtn danger-icon"
+                              onClick={() => deleteBill(r.id)}
+                              title="Delete Bill"
+                            >
+                              ×
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -3110,8 +6117,10 @@ function ElectricityView() {
           <div className="scooh-modal" style={{ maxWidth: '640px' }}>
             <div className="scooh-modalhead">
               <div>
-                <h2>{editModal.id ? 'Edit Electricity Bill' : 'Add Electricity Bill'}</h2>
-                <span className="scooh-modal-subtitle">Auto-fill site metadata and manage payment tracking</span>
+                <h2>{editModal.id ? (isReadOnly ? 'View Electricity Bill' : 'Edit Electricity Bill') : 'Add Electricity Bill'}</h2>
+                <span className="scooh-modal-subtitle">
+                  {isReadOnly ? 'Read-only view of utility meter bill and payment record' : 'Auto-fill site metadata and manage payment tracking'}
+                </span>
               </div>
               <button type="button" className="scooh-modal-close" onClick={() => setEditModal(null)}>×</button>
             </div>
@@ -3166,18 +6175,23 @@ function ElectricityView() {
                   </div>
 
                   <div className="scooh-field">
-                    <label>Bill Provider / Type</label>
+                    <label>Bill Provider / Type *</label>
                     <select
                       name="bill_type"
-                      value={editModal.bill_type ?? 'UGVCL'}
+                      value={editModal.bill_type ?? 'SSV'}
                       onChange={e => setEditModal({ ...editModal, bill_type: e.target.value })}
                     >
-                      <option value="UGVCL">UGVCL</option>
+                      <option value="SSV">SSV</option>
+                      <option value="MB">MB</option>
                       <option value="Torrent Power">Torrent Power</option>
+                      <option value="UGVCL">UGVCL</option>
                       <option value="PGVCL">PGVCL</option>
                       <option value="DGVCL">DGVCL</option>
                       <option value="MGVCL">MGVCL</option>
                       <option value="Other">Other Utility</option>
+                      {editModal.bill_type && !['SSV', 'MB', 'Torrent Power', 'UGVCL', 'PGVCL', 'DGVCL', 'MGVCL', 'Other'].includes(editModal.bill_type) && (
+                        <option value={editModal.bill_type}>{editModal.bill_type}</option>
+                      )}
                     </select>
                   </div>
                   <div className="scooh-field">
@@ -3354,10 +6368,14 @@ function ElectricityView() {
                 </div>
               </div>
               <div className="scooh-modalfoot">
-                <button type="button" className="scooh-btn ghost" onClick={() => setEditModal(null)}>Cancel</button>
-                <button type="submit" className="scooh-btn purple-btn" disabled={saving}>
-                  {saving ? 'Saving…' : editModal.id ? 'Update Electricity Bill' : 'Save Electricity Bill'}
+                <button type="button" className="scooh-btn ghost" onClick={() => setEditModal(null)}>
+                  {isReadOnly ? 'Close' : 'Cancel'}
                 </button>
+                {!isReadOnly && (
+                  <button type="submit" className="scooh-btn purple-btn" disabled={saving}>
+                    {saving ? 'Saving…' : editModal.id ? 'Update Electricity Bill' : 'Save Electricity Bill'}
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -3421,23 +6439,47 @@ function ElectricityView() {
 
 function DataToolsView() {
   const [xlsxFile, setXlsxFile] = useState(null);
+  const [elecFile, setElecFile] = useState(null);
   const [jsonFile, setJsonFile] = useState(null);
   const [xlsxStatus, setXlsxStatus] = useState('No Excel file selected.');
+  const [elecStatus, setElecStatus] = useState('No Electricity Excel selected.');
   const [jsonStatus, setJsonStatus] = useState('No JSON file selected.');
   const [loading, setLoading] = useState(false);
 
   async function importXlsx() {
-    if (!xlsxFile) return alert('Please choose an Excel file (.xlsx) first.');
+    if (!xlsxFile) return alert('Please choose an Excel file (.xlsx, .xls) first.');
     setLoading(true);
     setXlsxStatus(`Importing ${xlsxFile.name}…`);
     try {
       const f = new FormData();
       f.append('file', xlsxFile);
       const r = await api.post('/import/xlsx', f, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setXlsxStatus(`✓ Successfully imported ${r.data.rows} sites from ${xlsxFile.name}!`);
-      alert(`Success: ${r.data.rows} sites imported successfully.`);
+      const msg = r.data.message || `✓ Processed ${r.data.rows} sites (${r.data.updated} updated, ${r.data.created} created).`;
+      setXlsxStatus(msg);
+      alert(`✓ Excel Import Successful!\n\n${msg}`);
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
     } catch (e) {
       setXlsxStatus(`✕ Import failed: ${e.response?.data?.message || e.message}`);
+      alert('Import failed: ' + (e.response?.data?.message || e.message));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function importElecXlsx() {
+    if (!elecFile) return alert('Please choose an Electricity Excel file (.xlsx, .xls) first.');
+    setLoading(true);
+    setElecStatus(`Importing ${elecFile.name}…`);
+    try {
+      const f = new FormData();
+      f.append('file', elecFile);
+      const r = await api.post('/import/electricity-xlsx', f, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const msg = r.data.message || `✓ Processed ${r.data.rows} electricity bills (${r.data.updated} updated, ${r.data.created} created).`;
+      setElecStatus(msg);
+      alert(`✓ Electricity Import Successful!\n\n${msg}`);
+      window.dispatchEvent(new CustomEvent('mb-electricity-updated'));
+    } catch (e) {
+      setElecStatus(`✕ Import failed: ${e.response?.data?.message || e.message}`);
       alert('Import failed: ' + (e.response?.data?.message || e.message));
     } finally {
       setLoading(false);
@@ -3646,6 +6688,43 @@ SR NO | AREA | LOCATION | MEDIA | LIGHT | W | H | SQ FT | AVAILABLITY | Selling 
             </button>
           </div>
           {xlsxStatus && <div className="scooh-footnote" style={{ marginTop: '10px', color: '#48c79a', fontWeight: 600 }}>{xlsxStatus}</div>}
+        </div>
+
+        {/* Import Electricity Bills */}
+        <div className="scooh-panel scooh-data-panel">
+          <h3>Import Electricity Bills</h3>
+          <p className="scooh-footnote scooh-data-copy">
+            Select an Excel spreadsheet containing electricity meter bills to auto-log or update monthly utility payments.
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--mb-input)', border: '1px solid var(--mb-border)', borderRadius: '12px', padding: '8px 12px', marginTop: '12px' }}>
+            <label className="scooh-btn ghost" style={{ margin: 0, cursor: 'pointer', flexShrink: 0, padding: '7px 14px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              📁 {elecFile ? 'Change File' : 'Choose Bills Excel'}
+              <input
+                type="file"
+                id="import-elec-xlsx"
+                accept=".xlsx,.xls"
+                hidden
+                onChange={e => {
+                  const f = e.target.files?.[0];
+                  setElecFile(f || null);
+                  setElecStatus(f ? `Selected: ${f.name}` : '');
+                }}
+              />
+            </label>
+            <div style={{ flex: 1, minWidth: 0, fontSize: '12px', color: elecFile ? 'var(--mb-text)' : 'var(--mb-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {elecFile ? `📄 ${elecFile.name} (${(elecFile.size / 1024).toFixed(1)} KB)` : 'No Excel file selected'}
+            </div>
+            <button
+              type="button"
+              className="scooh-btn purple-btn"
+              onClick={importElecXlsx}
+              disabled={loading || !elecFile}
+              style={{ flexShrink: 0, padding: '7px 18px', fontSize: '12.5px' }}
+            >
+              {loading ? 'Importing…' : '⬆ Import Bills'}
+            </button>
+          </div>
+          {elecStatus && <div className="scooh-footnote" style={{ marginTop: '10px', color: '#48c79a', fontWeight: 600 }}>{elecStatus}</div>}
         </div>
 
         {/* Import from JSON Backup */}
@@ -3890,6 +6969,11 @@ function SettingsView() {
   const [users, setUsers] = useState([]);
   const [userModal, setUserModal] = useState(null);
   const [userLoading, setUserLoading] = useState(false);
+  const [modalRole, setModalRole] = useState('staff');
+
+  const currentUser = getCurrentUser();
+  const currentRole = getCurrentRole();
+  const isAdmin = currentRole === 'admin';
 
   useEffect(() => {
     api.get('/settings').then(r => {
@@ -3909,6 +6993,10 @@ function SettingsView() {
 
   async function saveSettings(e) {
     if (e) e.preventDefault();
+    if (!isAdmin) {
+      alert('Action prohibited: Only Workspace Administrators can modify system settings.');
+      return;
+    }
     try {
       await api.put('/settings', s);
       setSaved(true);
@@ -3920,6 +7008,10 @@ function SettingsView() {
 
   async function saveUser(e) {
     e.preventDefault();
+    if (!isAdmin) {
+      alert('Action prohibited: Only Workspace Administrators can manage user accounts.');
+      return;
+    }
     setUserLoading(true);
     const data = Object.fromEntries(new FormData(e.currentTarget));
     try {
@@ -3938,6 +7030,10 @@ function SettingsView() {
   }
 
   async function deleteUser(id) {
+    if (!isAdmin) {
+      alert('Action prohibited: Only Workspace Administrators can delete user accounts.');
+      return;
+    }
     if (confirm('Delete this user account?')) {
       try {
         await api.delete(`/users/${id}`);
@@ -3954,17 +7050,25 @@ function SettingsView() {
         title="Settings"
         desc="Manage company defaults, operational rules, notifications, proposal preferences and data retention."
         actions={
-          activeTab !== 'users' ? (
-            <button type="button" className="scooh-btn purple-btn" onClick={() => saveSettings()}>
-              Save Changes
-            </button>
-          ) : (
-            <button type="button" className="scooh-btn purple-btn" onClick={() => setUserModal({})}>
-              + Add User
-            </button>
-          )
+          isAdmin ? (
+            activeTab !== 'users' ? (
+              <button type="button" className="scooh-btn purple-btn" onClick={() => saveSettings()}>
+                Save Changes
+              </button>
+            ) : (
+              <button type="button" className="scooh-btn purple-btn" onClick={() => { setUserModal({}); setModalRole('staff'); }}>
+                + Add User
+              </button>
+            )
+          ) : null
         }
       />
+
+      {!isAdmin && (
+        <div className="scooh-banner" style={{ display: 'block', marginBottom: '14px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+          🔒 Read-Only Workspace Settings: You are logged in as <strong>{ROLE_CONFIG[currentRole]?.label || currentRole}</strong>. Modifying workspace configuration or managing user credentials requires Administrator privileges.
+        </div>
+      )}
 
       {saved && <div className="scooh-banner" style={{ display: 'block' }}>Settings saved successfully!</div>}
 
@@ -4219,77 +7323,324 @@ function SettingsView() {
 
           {/* User Management Tab */}
           <section className={`scooh-settings-section ${activeTab === 'users' ? 'active' : ''}`}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <div>
-                <h3>Users & Role Permissions</h3>
-                <p className="scooh-footnote" style={{ color: '#828f9e', fontSize: '11px', margin: '4px 0 0' }}>
-                  Create workspace staff accounts and assign granular security roles.
+            {!isAdmin ? (
+              <div style={{
+                padding: '40px 24px',
+                textAlign: 'center',
+                background: 'rgba(15, 23, 42, 0.65)',
+                borderRadius: '12px',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                maxWidth: '620px',
+                margin: '20px auto'
+              }}>
+                <div style={{ fontSize: '44px', marginBottom: '12px' }}>🛡️</div>
+                <h3 style={{ fontSize: '18px', color: '#f87171', marginBottom: '8px', fontWeight: 800 }}>Administrator Privileges Required</h3>
+                <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: '1.6', marginBottom: '16px' }}>
+                  User account provisioning, security role assignment, and access control management are restricted strictly to <strong>Workspace Administrators</strong>.
+                </p>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 14px', borderRadius: '20px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', fontSize: '12px', color: '#cbd5e1' }}>
+                  Your current account role: <strong style={{ color: ROLE_CONFIG[currentRole]?.color || '#fff', textTransform: 'uppercase' }}>{currentRole}</strong>
+                </div>
+                <p style={{ fontSize: '11.5px', color: '#64748b', marginTop: '16px' }}>
+                  Please contact a system administrator if your responsibilities require elevated workspace permissions.
                 </p>
               </div>
-              <button type="button" className="scooh-btn purple-btn" onClick={() => setUserModal({})}>
-                + Add User
-              </button>
-            </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 800 }}>Users & Security Role Management</h3>
+                    <p className="scooh-footnote" style={{ color: '#828f9e', fontSize: '12px', margin: 0 }}>
+                      Manage staff accounts and assign granular security roles across the workspace.
+                    </p>
+                  </div>
+                  <button type="button" className="scooh-btn purple-btn" onClick={() => { setUserModal({}); setModalRole('staff'); }}>
+                    + Add User
+                  </button>
+                </div>
 
-            <div className="scooh-tablewrap">
-              <table className="scooh-table">
-                <thead>
-                  <tr>
-                    <th>User</th>
-                    <th>Email Address</th>
-                    <th>Role Assigned</th>
-                    <th>Status</th>
-                    <th>Joined</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.length === 0 ? (
-                    <tr><td colSpan="6" className="scooh-empty">No users configured</td></tr>
-                  ) : (
-                    users.map(u => (
-                      <tr key={u.id}>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className="scooh-user-avatar" style={{ width: '28px', height: '28px', fontSize: '11px' }}>
-                              {(u.name || u.email || 'U').slice(0, 1).toUpperCase()}
-                            </span>
-                            <strong>{u.name || 'User'}</strong>
-                          </div>
-                        </td>
-                        <td>{u.email}</td>
-                        <td>
-                          <span
-                            className="scooh-badgechip"
-                            style={{
-                              background: u.role === 'admin' ? 'rgba(139,92,246,0.18)' : u.role === 'manager' ? 'rgba(72,199,154,0.18)' : 'rgba(255,255,255,0.06)',
-                              color: u.role === 'admin' ? '#c4b5fd' : u.role === 'manager' ? '#48c79a' : '#d0d7de',
-                              textTransform: 'uppercase',
-                              fontWeight: 800,
-                              fontSize: '10px'
-                            }}
-                          >
-                            {u.role || 'staff'}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`scooh-pill ${u.status === 'active' ? 'active' : 'vacant'}`}>
-                            {u.status || 'active'}
-                          </span>
-                        </td>
-                        <td style={{ fontSize: '11px', color: '#8995a1' }}>{formatDate(u.created_at)}</td>
-                        <td>
-                          <div className="scooh-rowactions">
-                            <button className="scooh-iconbtn scooh-text-action" onClick={() => setUserModal(u)}>Edit</button>
-                            <button className="scooh-iconbtn danger-icon" onClick={() => deleteUser(u.id)}>×</button>
-                          </div>
-                        </td>
+                {/* Role Statistics Counters */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                  gap: '10px',
+                  marginBottom: '18px'
+                }}>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '10px 14px' }}>
+                    <div style={{ fontSize: '10.5px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Total Members</div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#f8fafc', marginTop: '2px' }}>{users.length}</div>
+                  </div>
+                  <div style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: '8px', padding: '10px 14px' }}>
+                    <div style={{ fontSize: '10.5px', color: '#c4b5fd', textTransform: 'uppercase', fontWeight: 700 }}>👑 Admins</div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#ddd6fe', marginTop: '2px' }}>
+                      {users.filter(u => u.role === 'admin').length}
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '8px', padding: '10px 14px' }}>
+                    <div style={{ fontSize: '10.5px', color: '#86efac', textTransform: 'uppercase', fontWeight: 700 }}>💼 Managers</div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#bbf7d0', marginTop: '2px' }}>
+                      {users.filter(u => u.role === 'manager').length}
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '8px', padding: '10px 14px' }}>
+                    <div style={{ fontSize: '10.5px', color: '#7dd3fc', textTransform: 'uppercase', fontWeight: 700 }}>🛠️ Staff (Ops)</div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#bae6fd', marginTop: '2px' }}>
+                      {users.filter(u => u.role === 'staff').length}
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '8px', padding: '10px 14px' }}>
+                    <div style={{ fontSize: '10.5px', color: '#fcd34d', textTransform: 'uppercase', fontWeight: 700 }}>👁️ Viewers</div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#fde68a', marginTop: '2px' }}>
+                      {users.filter(u => u.role === 'viewer').length}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="scooh-tablewrap">
+                  <table className="scooh-table">
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Email Address</th>
+                        <th>Role Assigned</th>
+                        <th>Status</th>
+                        <th>Joined</th>
+                        <th>Actions</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {users.length === 0 ? (
+                        <tr><td colSpan="6" className="scooh-empty">No users configured</td></tr>
+                      ) : (
+                        users.map(u => {
+                          const roleConf = ROLE_CONFIG[u.role || 'staff'] || ROLE_CONFIG.staff;
+                          const isSelf = u.id === currentUser.id || u.email === currentUser.email;
+                          return (
+                            <tr key={u.id}>
+                              <td>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span className="scooh-user-avatar" style={{
+                                    width: '30px',
+                                    height: '30px',
+                                    fontSize: '11px',
+                                    background: roleConf.bg,
+                                    border: `1px solid ${roleConf.border}`,
+                                    color: roleConf.color
+                                  }}>
+                                    {(u.name || u.email || 'U').slice(0, 1).toUpperCase()}
+                                  </span>
+                                  <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <strong>{u.name || 'User'}</strong>
+                                      {isSelf && (
+                                        <span style={{
+                                          fontSize: '10px',
+                                          padding: '1px 6px',
+                                          borderRadius: '10px',
+                                          background: 'rgba(139,92,246,0.25)',
+                                          color: '#c4b5fd',
+                                          fontWeight: 700
+                                        }}>
+                                          You
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#cbd5e1' }}>{u.email}</span>
+                              </td>
+                              <td>
+                                <span
+                                  className="scooh-badgechip"
+                                  style={{
+                                    background: roleConf.bg,
+                                    color: roleConf.color,
+                                    border: `1px solid ${roleConf.border}`,
+                                    textTransform: 'uppercase',
+                                    fontWeight: 800,
+                                    fontSize: '10.5px',
+                                    padding: '3px 9px',
+                                    borderRadius: '6px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                >
+                                  {u.role === 'admin' ? '👑' : u.role === 'manager' ? '💼' : u.role === 'staff' ? '🛠️' : '👁️'} {roleConf.label}
+                                </span>
+                              </td>
+                              <td>
+                                <span className={`scooh-pill ${u.status === 'active' ? 'active' : 'vacant'}`}>
+                                  {u.status || 'active'}
+                                </span>
+                              </td>
+                              <td style={{ fontSize: '11px', color: '#8995a1' }}>{formatDate(u.created_at)}</td>
+                              <td>
+                                <div className="scooh-rowactions">
+                                  <button
+                                    type="button"
+                                    className="scooh-iconbtn scooh-text-action"
+                                    onClick={() => { setUserModal(u); setModalRole(u.role || 'staff'); }}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="scooh-iconbtn danger-icon"
+                                    disabled={isSelf}
+                                    title={isSelf ? 'You cannot delete your own administrator account' : 'Delete user account'}
+                                    style={isSelf ? { opacity: 0.3, cursor: 'not-allowed' } : {}}
+                                    onClick={() => !isSelf && deleteUser(u.id)}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Role Capabilities & Access Matrix Grid */}
+                <div style={{ marginTop: '28px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '22px' }}>
+                  <div style={{ marginBottom: '14px' }}>
+                    <h4 style={{ margin: '0 0 4px', fontSize: '14px', fontWeight: 800, color: '#f1f5f9', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🛡️</span> Security Role Capabilities & Access Matrix
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '11.5px', color: '#828f9e' }}>
+                      Operational permissions breakdown across all workspace modules and functions.
+                    </p>
+                  </div>
+
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                    gap: '12px'
+                  }}>
+                    {/* Admin Card */}
+                    <div style={{
+                      background: 'rgba(139,92,246,0.06)',
+                      border: '1px solid rgba(139,92,246,0.25)',
+                      borderRadius: '10px',
+                      padding: '14px 16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontWeight: 800, fontSize: '13px', color: '#c4b5fd', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          👑 Administrator
+                        </span>
+                        <span style={{ fontSize: '10px', background: 'rgba(139,92,246,0.2)', color: '#ddd6fe', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          Full Control
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '11.5px', color: '#94a3b8', lineHeight: '1.4' }}>
+                        Complete workspace governance, user provisioning, operational rules, and permanent data purge.
+                      </p>
+                      <div style={{ fontSize: '11px', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> User Management & Role Assignment</div>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Workspace & Campaign Settings</div>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Batch Delete & Hard Record Deletes</div>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Full Operations (Sites, Vault, Bills)</div>
+                      </div>
+                    </div>
+
+                    {/* Manager Card */}
+                    <div style={{
+                      background: 'rgba(34,197,94,0.06)',
+                      border: '1px solid rgba(34,197,94,0.25)',
+                      borderRadius: '10px',
+                      padding: '14px 16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontWeight: 800, fontSize: '13px', color: '#86efac', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          💼 Manager
+                        </span>
+                        <span style={{ fontSize: '10px', background: 'rgba(34,197,94,0.2)', color: '#bbf7d0', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          Operations Lead
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '11.5px', color: '#94a3b8', lineHeight: '1.4' }}>
+                        Operational & commercial control across inventory, client campaigns, proposals, and vault.
+                      </p>
+                      <div style={{ fontSize: '11px', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Sites & Campaigns Full CRUD</div>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Create Proposals, Invoices, Clients</div>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Batch Delete Records & Storage Vault</div>
+                        <div><span style={{ color: '#f87171', marginRight: '5px' }}>✕</span> Restricted from User Management & Settings</div>
+                      </div>
+                    </div>
+
+                    {/* Staff Card */}
+                    <div style={{
+                      background: 'rgba(56,189,248,0.06)',
+                      border: '1px solid rgba(56,189,248,0.25)',
+                      borderRadius: '10px',
+                      padding: '14px 16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontWeight: 800, fontSize: '13px', color: '#7dd3fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          🛠️ Staff (Field Ops)
+                        </span>
+                        <span style={{ fontSize: '10px', background: 'rgba(56,189,248,0.2)', color: '#bae6fd', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          Field Execution
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '11.5px', color: '#94a3b8', lineHeight: '1.4' }}>
+                        Field tracking: View sites, update campaign mounting/printing progress, and log electricity meter bills.
+                      </p>
+                      <div style={{ fontSize: '11px', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> View Sites, Campaigns, Occupancy</div>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Update Mounting & Printing Status</div>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Add & Pay Electricity Meter Bills</div>
+                        <div><span style={{ color: '#f87171', marginRight: '5px' }}>✕</span> No Deletions, Batch Delete, or Proposals</div>
+                      </div>
+                    </div>
+
+                    {/* Viewer Card */}
+                    <div style={{
+                      background: 'rgba(245,158,11,0.06)',
+                      border: '1px solid rgba(245,158,11,0.25)',
+                      borderRadius: '10px',
+                      padding: '14px 16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontWeight: 800, fontSize: '13px', color: '#fcd34d', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          👁️ Viewer
+                        </span>
+                        <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.2)', color: '#fde68a', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                          Read-Only
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '11.5px', color: '#94a3b8', lineHeight: '1.4' }}>
+                        Stakeholder oversight: Browse dashboards, sites, campaigns, and download generated PPT/Excel archives.
+                      </p>
+                      <div style={{ fontSize: '11px', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Read-Only Browse Across Modules</div>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Download Generated PPTs & Excel Sheets</div>
+                        <div><span style={{ color: '#f87171', marginRight: '5px' }}>✕</span> Cannot Create, Edit, or Import Records</div>
+                        <div><span style={{ color: '#f87171', marginRight: '5px' }}>✕</span> All Record Deletions Prohibited</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </section>
         </div>
       </div>
@@ -4297,7 +7648,7 @@ function SettingsView() {
       {/* Add / Edit User Modal */}
       {userModal && (
         <div className="scooh-modal-overlay">
-          <div className="scooh-modal" style={{ maxWidth: '520px' }}>
+          <div className="scooh-modal" style={{ maxWidth: '540px' }}>
             <div className="scooh-modalhead">
               <div>
                 <h2>{userModal.id ? 'Edit User Account' : 'Add New Workspace User'}</h2>
@@ -4321,20 +7672,84 @@ function SettingsView() {
                 </div>
                 <div className="scooh-grid2">
                   <div className="scooh-field">
-                    <label>Role</label>
-                    <select name="role" defaultValue={userModal.role ?? 'staff'}>
-                      <option value="admin">Admin (Full Access & Settings)</option>
-                      <option value="manager">Manager (Sites, Campaigns, Proposals)</option>
-                      <option value="staff">Staff (Field Ops, Mounting & Meters)</option>
-                      <option value="viewer">Viewer (Read-Only Access)</option>
+                    <label>Assigned Role</label>
+                    <select
+                      name="role"
+                      value={modalRole}
+                      onChange={e => setModalRole(e.target.value)}
+                    >
+                      <option value="admin">👑 Admin (Full Workspace & Settings Access)</option>
+                      <option value="manager">💼 Manager (Sites, Campaigns, Proposals & Vault)</option>
+                      <option value="staff">🛠️ Staff (Field Operations & Billing Tracking)</option>
+                      <option value="viewer">👁️ Viewer (Read-Only Access & Downloads)</option>
                     </select>
                   </div>
                   <div className="scooh-field">
-                    <label>Status</label>
+                    <label>Account Status</label>
                     <select name="status" defaultValue={userModal.status ?? 'active'}>
                       <option value="active">Active</option>
                       <option value="disabled">Disabled</option>
                     </select>
+                  </div>
+                </div>
+
+                {/* Dynamic Role Capabilities Preview */}
+                <div style={{
+                  marginTop: '10px',
+                  padding: '12px 14px',
+                  borderRadius: '8px',
+                  background: ROLE_CONFIG[modalRole]?.bg || 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${ROLE_CONFIG[modalRole]?.border || 'rgba(255,255,255,0.1)'}`
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <span style={{ fontWeight: 800, fontSize: '12px', color: ROLE_CONFIG[modalRole]?.color || '#fff' }}>
+                      {modalRole === 'admin' ? '👑 Administrator Privileges' :
+                       modalRole === 'manager' ? '💼 Manager Privileges' :
+                       modalRole === 'staff' ? '🛠️ Staff Privileges' : '👁️ Viewer Privileges'}
+                    </span>
+                    <span style={{
+                      fontSize: '10px',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      background: 'rgba(0,0,0,0.3)',
+                      color: ROLE_CONFIG[modalRole]?.color || '#cbd5e1',
+                      fontWeight: 700,
+                      textTransform: 'uppercase'
+                    }}>
+                      {modalRole}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '11.5px', color: '#cbd5e1', lineHeight: '1.45', marginBottom: '8px' }}>
+                    {ROLE_CONFIG[modalRole]?.description}
+                  </div>
+                  <div style={{ fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    {modalRole === 'admin' && (
+                      <>
+                        <div style={{ color: '#86efac' }}>✓ Can manage users, settings, and database retention</div>
+                        <div style={{ color: '#86efac' }}>✓ Can batch delete and hard-delete any record</div>
+                      </>
+                    )}
+                    {modalRole === 'manager' && (
+                      <>
+                        <div style={{ color: '#86efac' }}>✓ Full control over sites, campaigns, proposals, vault</div>
+                        <div style={{ color: '#86efac' }}>✓ Can batch delete and delete operational records</div>
+                        <div style={{ color: '#fca5a5' }}>✕ Cannot manage user accounts or modify workspace settings</div>
+                      </>
+                    )}
+                    {modalRole === 'staff' && (
+                      <>
+                        <div style={{ color: '#86efac' }}>✓ Can view sites and update mounting/printing operational status</div>
+                        <div style={{ color: '#86efac' }}>✓ Can enter and pay electricity meter bills</div>
+                        <div style={{ color: '#fca5a5' }}>✕ Cannot delete records, batch delete, or create proposals/invoices</div>
+                      </>
+                    )}
+                    {modalRole === 'viewer' && (
+                      <>
+                        <div style={{ color: '#86efac' }}>✓ Read-only access to all dashboards, tables, and archives</div>
+                        <div style={{ color: '#86efac' }}>✓ Can download generated PPTs and Excel occupancy sheets</div>
+                        <div style={{ color: '#fca5a5' }}>✕ All record creation, modification, and deletion are blocked</div>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -4365,7 +7780,7 @@ const fieldMeta = {
   invoice_status: { select: ['Pending', 'Draft', 'Sent', 'Paid'] },
   hard_copy_status: { select: ['Pending', 'Dispatched', 'Delivered'] },
   payment_status: { select: ['Pending', 'Paid', 'Overdue', 'Partial'] },
-  bill_type: { select: ['UGVCL', 'Torrent Power', 'PGVCL', 'DGVCL', 'MGVCL'] },
+  bill_type: { select: ['SSV', 'MB', 'Torrent Power', 'UGVCL', 'PGVCL', 'DGVCL', 'MGVCL', 'Other'] },
   invoice_requested: { select: ['No', 'Yes'] },
   invoice_required: { select: ['1', '0'] },
   hard_copy_required: { select: ['1', '0'] },
@@ -4408,7 +7823,17 @@ function Crud({ entity, title }) {
   const [sortState, setSortState] = useState({ key: '', dir: 'asc' });
   const [saving, setSaving] = useState(false);
   const [saveBanner, setSaveBanner] = useState('');
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const fs = fields[entity] || [];
+
+  const currentRole = getCurrentRole();
+  const isAdmin = currentRole === 'admin';
+  const isManager = currentRole === 'manager';
+  const isStaff = currentRole === 'staff';
+  const isReadOnly = currentRole === 'viewer';
+  const canDelete = isAdmin || isManager;
+  const canCreate = !isReadOnly && !(isStaff && ['clients', 'invoices', 'proposals'].includes(entity));
+  const canEdit = !isReadOnly && !(isStaff && ['invoices', 'proposals'].includes(entity));
 
   async function load() {
     try {
@@ -4437,8 +7862,63 @@ function Crud({ entity, title }) {
     return list;
   }, [rows, search, sortState]);
 
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const visibleIds = shown.map(r => r.id).filter(Boolean);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.add(id));
+        return next;
+      });
+    }
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(shown.map(r => r.id).filter(Boolean)));
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set());
+  }
+
+  async function handleBatchDelete() {
+    if (!canDelete || selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    const isCampaign = entity === 'campaigns';
+    const actionWord = isCampaign ? 'permanently delete' : 'delete';
+    if (!confirm(`Are you sure you want to ${actionWord} all ${count} selected ${isCampaign ? 'campaign' : title.toLowerCase()} record${count > 1 ? 's' : ''}?`)) {
+      return;
+    }
+    try {
+      await api.post(`/${entity}/batch-delete`, { ids: Array.from(selectedIds), hard: isCampaign });
+      setSaveBanner(`✓ ${count} record${count > 1 ? 's' : ''} deleted successfully.`);
+      setSelectedIds(new Set());
+      await load();
+      setTimeout(() => setSaveBanner(''), 3500);
+    } catch (err) {
+      alert('Failed to delete records: ' + (err.response?.data?.message || err.message));
+    }
+  }
+
   async function save(e) {
     e.preventDefault();
+    if (!canEdit) return;
     setSaving(true);
     const data = Object.fromEntries(new FormData(e.currentTarget));
     try {
@@ -4459,9 +7939,22 @@ function Crud({ entity, title }) {
   }
 
   async function del(id) {
-    if (confirm('Archive this record?')) {
-      await api.delete(`/${entity}/${id}`);
-      await load();
+    if (!canDelete) return;
+    const isCampaign = entity === 'campaigns';
+    if (confirm(isCampaign ? 'Are you sure you want to permanently delete this campaign record?' : 'Archive this record?')) {
+      try {
+        await api.delete(`/${entity}/${id}?hard=${isCampaign}`);
+        setSelectedIds(prev => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        await load();
+        setSaveBanner(`✓ ${isCampaign ? 'Campaign record deleted successfully.' : 'Record archived.'}`);
+        setTimeout(() => setSaveBanner(''), 3500);
+      } catch (err) {
+        alert('Failed to delete record: ' + (err.response?.data?.message || err.message));
+      }
     }
   }
 
@@ -4473,10 +7966,18 @@ function Crud({ entity, title }) {
         actions={
           <>
             <button type="button" className="scooh-btn ghost" onClick={load}>🔄 Refresh</button>
-            <button type="button" className="scooh-btn purple-btn" onClick={() => setEdit({})}>+ Add {title.replace(/s$/, '')}</button>
+            {canCreate && (
+              <button type="button" className="scooh-btn purple-btn" onClick={() => setEdit({})}>+ Add {title.replace(/s$/, '')}</button>
+            )}
           </>
         }
       />
+
+      {isReadOnly && (
+        <div className="scooh-banner" style={{ display: 'block', marginBottom: '14px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+          🔒 Read-Only Workspace: You are viewing {title.toLowerCase()} in Viewer mode. Modifying or deleting records is disabled.
+        </div>
+      )}
 
       {saveBanner && <div className="scooh-banner" style={{ display: 'block', marginBottom: '14px' }}>{saveBanner}</div>}
 
@@ -4518,10 +8019,82 @@ function Crud({ entity, title }) {
         )}
       </div>
 
+      {/* Batch Selection Action Bar */}
+      {canDelete && selectedIds.size > 0 && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '11px 18px',
+          background: 'linear-gradient(90deg, rgba(239,68,68,0.18), rgba(239,68,68,0.08))',
+          borderBottom: '1px solid rgba(239,68,68,0.3)',
+          borderRadius: '8px',
+          margin: '10px 0',
+          color: '#fca5a5',
+          fontSize: '13px',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 800, color: '#ffffff', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }}></span>
+              {selectedIds.size} record{selectedIds.size > 1 ? 's' : ''} selected
+            </span>
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={selectAllVisible}
+              style={{ fontSize: '11.5px', padding: '4px 10px', color: '#f1f5f9', borderColor: '#475569' }}
+            >
+              Select all visible ({shown.length})
+            </button>
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={deselectAll}
+              style={{ fontSize: '11.5px', padding: '4px 10px', color: '#cbd5e1', borderColor: '#475569' }}
+            >
+              Deselect all
+            </button>
+          </div>
+          <button
+            type="button"
+            className="scooh-btn danger"
+            onClick={handleBatchDelete}
+            style={{
+              background: '#ef4444',
+              color: '#ffffff',
+              border: 'none',
+              fontWeight: 800,
+              padding: '7px 16px',
+              borderRadius: '7px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 2px 10px rgba(239,68,68,0.45)'
+            }}
+          >
+            🗑 Delete selected ({selectedIds.size})
+          </button>
+        </div>
+      )}
+
       <div className="scooh-tablewrap">
         <table className="scooh-table">
           <thead>
             <tr>
+              {canDelete && (
+                <th style={{ width: '42px', textAlign: 'center', padding: '10px 8px' }}>
+                  <input
+                    type="checkbox"
+                    checked={shown.length > 0 && shown.every(r => selectedIds.has(r.id))}
+                    onChange={toggleSelectAll}
+                    title="Select all visible records"
+                    style={{ cursor: 'pointer' }}
+                  />
+                </th>
+              )}
               {fs.slice(0, 8).map(f => (
                 <SortHeader key={f} label={label(f)} sortKey={f} currentSort={sortState} onSort={handleSort} />
               ))}
@@ -4530,10 +8103,20 @@ function Crud({ entity, title }) {
           </thead>
           <tbody>
             {shown.length === 0 ? (
-              <tr><td colSpan={fs.slice(0, 8).length + 1} className="scooh-empty">No records found</td></tr>
+              <tr><td colSpan={fs.slice(0, 8).length + (canDelete ? 2 : 1)} className="scooh-empty">No records found</td></tr>
             ) : (
               shown.map(r => (
                 <tr key={r.id}>
+                  {canDelete && (
+                    <td style={{ textAlign: 'center', padding: '10px 8px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(r.id)}
+                        onChange={() => toggleSelect(r.id)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </td>
+                  )}
                   {fs.slice(0, 8).map(f => (
                     <td key={f}>
                       {/cost|rate|amount|revenue/.test(f) ? (
@@ -4551,8 +8134,18 @@ function Crud({ entity, title }) {
                   ))}
                   <td>
                     <div className="scooh-rowactions">
-                      <button className="scooh-iconbtn scooh-text-action" onClick={() => setEdit(r)}>Edit</button>
-                      <button className="scooh-iconbtn danger-icon" onClick={() => del(r.id)}>×</button>
+                      <button className="scooh-iconbtn scooh-text-action" onClick={() => setEdit(r)}>
+                        {canEdit ? 'Edit' : 'View'}
+                      </button>
+                      {canDelete && (
+                        <button
+                          className={`scooh-iconbtn danger-icon ${entity === 'campaigns' ? 'scooh-text-action' : ''}`}
+                          title={entity === 'campaigns' ? 'Delete campaign record' : 'Archive record'}
+                          onClick={() => del(r.id)}
+                        >
+                          {entity === 'campaigns' ? 'Delete' : '×'}
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -4567,8 +8160,8 @@ function Crud({ entity, title }) {
           <div className="scooh-modal">
             <div className="scooh-modalhead">
               <div>
-                <h2>{edit.id ? 'Edit' : 'Add'} {title.replace(/s$/, '')}</h2>
-                <span className="scooh-modal-subtitle">Enter details and save</span>
+                <h2>{edit.id ? (canEdit ? 'Edit' : 'View') : 'Add'} {title.replace(/s$/, '')}</h2>
+                <span className="scooh-modal-subtitle">{canEdit ? 'Enter details and save' : 'Read-only record details'}</span>
               </div>
               <button type="button" className="scooh-modal-close" onClick={() => setEdit(null)}>×</button>
             </div>
@@ -4584,9 +8177,9 @@ function Crud({ entity, title }) {
                       <div className="scooh-field" key={f} style={isTextarea ? { gridColumn: '1 / -1' } : {}}>
                         <label>{label(f)}</label>
                         {isTextarea ? (
-                          <textarea name={f} defaultValue={edit[f] ?? ''} placeholder={meta.placeholder || ''} rows={3} />
+                          <textarea name={f} defaultValue={edit[f] ?? ''} placeholder={meta.placeholder || ''} rows={3} disabled={!canEdit} />
                         ) : hasSelect ? (
-                          <select name={f} defaultValue={edit[f] ?? meta.select[0]}>
+                          <select name={f} defaultValue={edit[f] ?? meta.select[0]} disabled={!canEdit}>
                             {meta.select.map(opt => (
                               <option key={opt} value={opt}>{opt}</option>
                             ))}
@@ -4598,6 +8191,7 @@ function Crud({ entity, title }) {
                             type={/date/.test(f) ? 'date' : /cost|rate|amount|revenue|width|height|tax|discount|days|site_id|client_id/.test(f) ? 'number' : 'text'}
                             step={meta.step || 'any'}
                             placeholder={meta.placeholder || ''}
+                            disabled={!canEdit}
                           />
                         )}
                       </div>
@@ -4606,10 +8200,14 @@ function Crud({ entity, title }) {
                 </div>
               </div>
               <div className="scooh-modalfoot">
-                <button type="button" className="scooh-btn ghost" onClick={() => setEdit(null)}>Cancel</button>
-                <button className="scooh-btn purple-btn" disabled={saving}>
-                  {saving ? 'Saving…' : edit.id ? 'Update Record' : 'Save Record'}
+                <button type="button" className="scooh-btn ghost" onClick={() => setEdit(null)}>
+                  {canEdit ? 'Cancel' : 'Close'}
                 </button>
+                {canEdit && (
+                  <button className="scooh-btn purple-btn" disabled={saving}>
+                    {saving ? 'Saving…' : edit.id ? 'Update Record' : 'Save Record'}
+                  </button>
+                )}
               </div>
             </form>
           </div>

@@ -230,4 +230,19 @@ The system includes a dual-theme design system:
    - In case of server migration, upload any previously downloaded `sc_backup_*.json` file in **Import / Export** $\rightarrow$ Click **"Restore Data"** to recreate all sites, campaigns, bills, vendors, clients, and settings instantly.
 
 ---
+
+## 9. Security, Authentication & Role-Based Access Control (RBAC)
+
+The platform provides granular, multi-tiered security and role-based access control across all 12 operational modules.
+
+- **Security Roles**:
+  1. **👑 Administrator (`admin`)**: Complete workspace governance, user account provisioning, system settings, hard record purge, and full access.
+  2. **💼 Manager (`manager`)**: Operational lead for Sites, Campaigns, Proposals, Storage Vault, Invoices, Clients, and Vendors. (Restricted from User Management & System Settings).
+  3. **🛠️ Staff (`staff`)**: Operational tracking (View sites, update mounting & printing status, log & pay electricity bills). (Restricted from deletions, batch deletes, and proposal creation).
+  4. **👁️ Viewer (`viewer`)**: Read-only oversight across Dashboards, Sites, Campaigns, Occupancy, and Storage Vault. (All record creation, editing, and deletion are blocked).
+
+For the complete technical specification, endpoint security matrix, and token lifecycle details, see:
+👉 **[AUTH_RBAC_DOCUMENTATION.md](file:///c:/Users/reeha/OneDrive/Desktop/MB%20DASH/AUTH_RBAC_DOCUMENTATION.md)**
+
+---
 *Media Buzz OOH Operations Management System · Built for Production · 2026*
