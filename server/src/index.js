@@ -1617,13 +1617,13 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
           }
         }
 
-        const advtFees = parseNum(getVal([
+        let advtFees = parseNum(getVal([
           'advt fees per month', 'advt. fees per month', 'advt fees', 'advt. fees', 'advt_fees',
           'advt rate', 'monthly rent', 'rent per month', 'rent', 'rental', 'display charges',
           'hire charges', 'fees', 'rate', 'charges'
         ]));
 
-        const printingMounting = parseNum(getVal([
+        let printingMounting = parseNum(getVal([
           'printing & mounting', 'printing and mounting', 'printing & mounting cost',
           'printing_mounting_cost', 'printing mounting', 'p&m', 'p & m', 'pm cost',
           'printing cost', 'mounting cost', 'printing', 'mounting', 'fabrication', 'installation', 'production'
