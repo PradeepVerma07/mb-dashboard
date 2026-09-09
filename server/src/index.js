@@ -1264,6 +1264,9 @@ app.post('/api/import/electricity-xlsx', auth, managerOrAdmin, upload.single('fi
 app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No workbook provided' });
   try {
+    // Auto-migrate any missing columns before doing anything else
+    await ensureCampaignColumns();
+
     const wb = XLSX.readFile(req.file.path, { cellDates: true });
     if (!wb.SheetNames || wb.SheetNames.length === 0) {
       return res.status(400).json({ message: 'Excel workbook contains no sheets' });
