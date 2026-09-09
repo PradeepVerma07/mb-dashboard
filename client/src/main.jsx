@@ -3609,15 +3609,12 @@ function fmtMonthYear(date) {
   return date.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
 }
 
-// Color for occupancy value cell (heat-map)
-function occCellColor(val) {
+// Format a value as a percentage string
+function formatPct(val) {
+  if (val === '' || val === null || val === undefined) return '—';
   const n = Number(val);
-  if (isNaN(n) || val === '' || val === null) return { bg: '#0d1520', text: '#475569' };
-  if (n >= 80) return { bg: '#064e2a', text: '#4ade80' };
-  if (n >= 60) return { bg: '#1a3a14', text: '#86efac' };
-  if (n >= 40) return { bg: '#3b2a07', text: '#fbbf24' };
-  if (n >= 20) return { bg: '#3b1a07', text: '#fb923c' };
-  return { bg: '#3b0a0a', text: '#f87171' };
+  if (isNaN(n)) return String(val);
+  return `${Math.round(n * 10) / 10}%`;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -3631,7 +3628,7 @@ function occCellColor(val) {
      Columns = Months (sorted chronologically)
      Cell    = occupancy value, colour-coded as heat-map
    
-   View tabs: Monthly (pivot) | Date (raw rows) | Weekly | Yearly
+   View tabs: 6 Months | Yearly
    ───────────────────────────────────────────────────────────────────────── */
 function OccupancyView() {
   const [rawRows,   setRawRows]   = useState([]);   // raw rows from file
@@ -3639,7 +3636,7 @@ function OccupancyView() {
   const [siteCol,   setSiteCol]   = useState('');   // site code column
   const [monthCol,  setMonthCol]  = useState('');   // month/date column
   const [valueCol,  setValueCol]  = useState('');   // occupancy value column
-  const [viewTab,   setViewTab]   = useState('monthly'); // monthly|date|weekly|yearly
+  const [viewTab,   setViewTab]   = useState('6months'); // 6months|yearly
   const [search,    setSearch]    = useState('');
   const [fileName,  setFileName]  = useState('');
   const fileRef = useRef();
@@ -3679,7 +3676,7 @@ function OccupancyView() {
     reader.readAsArrayBuffer(file);
   }
 
-  // ── Build pivot: site × month ─────────────────────────────────────────
+  // ── Build pivot: site × period ────────────────────────────────────────
   const { sites, months, pivot } = useMemo(() => {
     if (!rawRows.length || !siteCol || !monthCol) return { sites: [], months: [], pivot: {} };
 
@@ -3689,7 +3686,7 @@ function OccupancyView() {
 
     const siteSet  = new Set();
     const monthMap = new Map(); // key → {label, sortKey}
-    const pivotMap = {}; // pivot[site][monthKey] = value
+    const pivotMap = {}; // pivotMap[site][periodKey] = {sum, count}
 
     filtered.forEach(row => {
       const site = String(row[siteCol] || '').trim();
@@ -3701,18 +3698,10 @@ function OccupancyView() {
       let monthKey, monthLabel, sortKey;
 
       if (d) {
-        if (viewTab === 'monthly' || viewTab === 'date') {
+        if (viewTab === '6months') {
+          // aggregate by calendar month
           monthKey   = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
           monthLabel = fmtMonthYear(d);
-          sortKey    = monthKey;
-        } else if (viewTab === 'weekly') {
-          // ISO week
-          const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-          utc.setUTCDate(utc.getUTCDate() + 4 - (utc.getUTCDay() || 7));
-          const yr = utc.getUTCFullYear();
-          const wk = Math.ceil(((utc - new Date(Date.UTC(yr, 0, 1))) / 86400000 + 1) / 7);
-          monthKey   = `${yr}-W${String(wk).padStart(2, '0')}`;
-          monthLabel = monthKey;
           sortKey    = monthKey;
         } else { // yearly
           monthKey   = String(d.getFullYear());
@@ -3720,7 +3709,6 @@ function OccupancyView() {
           sortKey    = monthKey;
         }
       } else {
-        // Treat as string label
         monthKey   = String(rawDate || '—');
         monthLabel = monthKey;
         sortKey    = monthKey;
@@ -3729,21 +3717,27 @@ function OccupancyView() {
       if (!monthMap.has(monthKey)) monthMap.set(monthKey, { label: monthLabel, sortKey });
 
       if (!pivotMap[site]) pivotMap[site] = {};
-      // If multiple rows for same site+month, average the values
       const existing = pivotMap[site][monthKey];
       const newVal   = row[valueCol];
-      const numVal   = isNaN(Number(newVal)) ? newVal : Number(newVal);
+      // strip trailing % if present
+      const cleaned  = typeof newVal === 'string' ? newVal.replace('%', '').trim() : newVal;
+      const numVal   = isNaN(Number(cleaned)) ? NaN : Number(cleaned);
       if (existing === undefined) {
-        pivotMap[site][monthKey] = { sum: isNaN(numVal) ? 0 : numVal, count: isNaN(numVal) ? 0 : 1, raw: isNaN(numVal) ? newVal : null };
+        pivotMap[site][monthKey] = { sum: isNaN(numVal) ? 0 : numVal, count: isNaN(numVal) ? 0 : 1 };
       } else {
         existing.sum   += isNaN(numVal) ? 0 : numVal;
         existing.count += isNaN(numVal) ? 0 : 1;
       }
     });
 
-    const monthsSorted = [...monthMap.entries()]
+    let monthsSorted = [...monthMap.entries()]
       .sort(([, a], [, b]) => a.sortKey.localeCompare(b.sortKey))
       .map(([key, { label }]) => ({ key, label }));
+
+    // For 6months tab: keep only the last 6 months
+    if (viewTab === '6months' && monthsSorted.length > 6) {
+      monthsSorted = monthsSorted.slice(-6);
+    }
 
     const sitesSorted = [...siteSet].sort();
 
@@ -3753,9 +3747,8 @@ function OccupancyView() {
       resolved[site] = {};
       monthsSorted.forEach(({ key }) => {
         const entry = pivotMap[site]?.[key];
-        if (!entry) { resolved[site][key] = ''; return; }
-        if (entry.raw !== null) { resolved[site][key] = entry.raw; return; }
-        resolved[site][key] = entry.count > 0 ? Math.round((entry.sum / entry.count) * 10) / 10 : '';
+        if (!entry || entry.count === 0) { resolved[site][key] = ''; return; }
+        resolved[site][key] = Math.round((entry.sum / entry.count) * 10) / 10;
       });
     });
 
@@ -3775,10 +3768,8 @@ function OccupancyView() {
   }, [rawRows, sites, months]);
 
   const TABS = [
-    { key: 'monthly', label: 'Monthly',  icon: '🗓️'  },
-    { key: 'weekly',  label: 'Weekly',   icon: '📆' },
+    { key: '6months', label: '6 Months', icon: '🗓️' },
     { key: 'yearly',  label: 'Yearly',   icon: '📊' },
-    { key: 'date',    label: 'Raw Rows', icon: '📋' },
   ];
 
   const colSelStyle = { padding: '4px 8px', borderRadius: '6px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px', fontWeight: 600, width: '100%' };
@@ -3795,7 +3786,7 @@ function OccupancyView() {
               📂 Import Occupancy Excel
             </h2>
             <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b', lineHeight: 1.5 }}>
-              Upload your occupancy Excel file. The data will be pivoted into a <strong style={{ color: '#94a3b8' }}>Site × Month</strong> history matrix with heat-map coloring.
+              Upload your occupancy Excel file. View the last <strong style={{ color: '#94a3b8' }}>6 Months</strong> or aggregate by <strong style={{ color: '#94a3b8' }}>Year</strong> — all values shown as percentages.
               <br />Expected columns: <code>Site Code</code> · <code>Month/Date</code> · <code>Occupancy %</code>
             </p>
           </div>
@@ -3859,20 +3850,7 @@ function OccupancyView() {
               ))}
             </div>
 
-            {/* Colour legend */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Occupancy heat-map:</span>
-              {[
-                { label: '≥ 80%', ...occCellColor(85) },
-                { label: '60–79%', ...occCellColor(65) },
-                { label: '40–59%', ...occCellColor(45) },
-                { label: '20–39%', ...occCellColor(25) },
-                { label: '< 20%', ...occCellColor(5) },
-                { label: 'No data', ...occCellColor('') },
-              ].map(l => (
-                <span key={l.label} style={{ padding: '2px 10px', borderRadius: '4px', background: l.bg, color: l.text, fontSize: '11px', fontWeight: 700 }}>{l.label}</span>
-              ))}
-            </div>
+
           </>
         )}
       </section>
@@ -3902,103 +3880,77 @@ function OccupancyView() {
             <input className="scooh-search" style={{ maxWidth: '220px' }} placeholder="Search site…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
 
-          {/* ── PIVOT matrix view (Monthly / Weekly / Yearly) ───────── */}
-          {viewTab !== 'date' && (
-            <>
-              <div style={{ fontSize: '12px', color: '#475569', fontWeight: 600, marginBottom: '10px' }}>
-                {sites.length} sites × {months.length} {viewTab === 'monthly' ? 'months' : viewTab === 'weekly' ? 'weeks' : 'years'}
-                {' '} — values show occupancy (avg if multiple rows per period)
-              </div>
-              <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
-                <table style={{ borderCollapse: 'collapse', minWidth: '400px', fontSize: '12px' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ position: 'sticky', left: 0, zIndex: 2, background: '#0b101a', color: '#94a3b8', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', padding: '10px 16px', borderBottom: '2px solid #1e293b', whiteSpace: 'nowrap', letterSpacing: '.5px', minWidth: '120px' }}>
-                        Site Code
-                      </th>
-                      {months.map(m => (
-                        <th key={m.key} style={{ background: '#0b101a', color: '#94a3b8', fontWeight: 700, fontSize: '11px', padding: '10px 10px', borderBottom: '2px solid #1e293b', whiteSpace: 'nowrap', letterSpacing: '.3px', textAlign: 'center', minWidth: '80px' }}>
-                          {m.label}
+          {/* ── PIVOT matrix view (6 Months / Yearly) ───────────────── */}
+          {(() => {
+            // Compute per-site average across visible months
+            const avgKey = viewTab === '6months' ? 'Avg (6M)' : 'Avg (All)';
+            return (
+              <>
+                <div style={{ fontSize: '12px', color: '#475569', fontWeight: 600, marginBottom: '10px' }}>
+                  {sites.length} sites × {months.length} {viewTab === '6months' ? 'months' : 'years'}
+                  {' '} — occupancy % (avg when multiple rows per period)
+                </div>
+                <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
+                  <table style={{ borderCollapse: 'collapse', minWidth: '400px', fontSize: '12px' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ position: 'sticky', left: 0, zIndex: 2, background: '#0b101a', color: '#94a3b8', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', padding: '10px 16px', borderBottom: '2px solid #1e293b', whiteSpace: 'nowrap', letterSpacing: '.5px', minWidth: '120px' }}>
+                          Site Code
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sites.length === 0 ? (
-                      <tr><td colSpan={months.length + 1} className="scooh-empty">No matching sites</td></tr>
-                    ) : sites.map((site, si) => (
-                      <tr key={site} style={{ background: si % 2 === 0 ? 'transparent' : '#080e1a' }}>
-                        <td style={{ position: 'sticky', left: 0, zIndex: 1, background: si % 2 === 0 ? '#0b101a' : '#080e1a', padding: '8px 16px', fontWeight: 800, color: '#f2c94c', fontSize: '12px', borderBottom: '1px solid #0f1c2e', whiteSpace: 'nowrap', borderRight: '1px solid #1e293b' }}>
-                          <span className="scooh-plate">{site}</span>
-                        </td>
-                        {months.map(m => {
-                          const val = pivot[site]?.[m.key] ?? '';
-                          const { bg, text } = occCellColor(val);
-                          return (
-                            <td key={m.key} title={`${site} · ${m.label}: ${val !== '' ? val : 'No data'}`}
-                              style={{ padding: '6px 8px', textAlign: 'center', borderBottom: '1px solid #0f1c2e', borderRight: '1px solid #0d1520' }}>
-                              {val !== '' ? (
-                                <span style={{ display: 'inline-block', minWidth: '52px', padding: '3px 8px', borderRadius: '6px', background: bg, color: text, fontWeight: 700, fontSize: '11px' }}>
-                                  {typeof val === 'number' ? val.toLocaleString() : val}
-                                </span>
+                        {months.map(m => (
+                          <th key={m.key} style={{ background: '#0b101a', color: '#94a3b8', fontWeight: 700, fontSize: '11px', padding: '10px 10px', borderBottom: '2px solid #1e293b', whiteSpace: 'nowrap', letterSpacing: '.3px', textAlign: 'center', minWidth: '80px' }}>
+                            {m.label}
+                          </th>
+                        ))}
+                        <th style={{ background: '#0d1a2e', color: '#7dd3fc', fontWeight: 800, fontSize: '11px', padding: '10px 10px', borderBottom: '2px solid #1e293b', whiteSpace: 'nowrap', letterSpacing: '.3px', textAlign: 'center', minWidth: '80px', borderLeft: '2px solid #1e3a5f' }}>
+                          {avgKey}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sites.length === 0 ? (
+                        <tr><td colSpan={months.length + 2} className="scooh-empty">No matching sites</td></tr>
+                      ) : sites.map((site, si) => {
+                        const vals = months.map(m => pivot[site]?.[m.key]).filter(v => v !== '' && v !== undefined && v !== null && !isNaN(Number(v)));
+                        const siteAvg = vals.length > 0 ? Math.round((vals.reduce((a, b) => a + Number(b), 0) / vals.length) * 10) / 10 : '';
+                        return (
+                          <tr key={site} style={{ background: si % 2 === 0 ? 'transparent' : '#080e1a' }}>
+                            <td style={{ position: 'sticky', left: 0, zIndex: 1, background: si % 2 === 0 ? '#0b101a' : '#080e1a', padding: '8px 16px', fontWeight: 800, color: '#f2c94c', fontSize: '12px', borderBottom: '1px solid #0f1c2e', whiteSpace: 'nowrap', borderRight: '1px solid #1e293b' }}>
+                              <span className="scooh-plate">{site}</span>
+                            </td>
+                            {months.map(m => {
+                              const val = pivot[site]?.[m.key] ?? '';
+                              return (
+                                <td key={m.key} title={`${site} · ${m.label}: ${val !== '' ? val + '%' : 'No data'}`}
+                                  style={{ padding: '6px 8px', textAlign: 'center', borderBottom: '1px solid #0f1c2e', borderRight: '1px solid #0d1520' }}>
+                                  {val !== '' ? (
+                                    <span style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '12px' }}>
+                                      {formatPct(val)}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: '#334155', fontSize: '11px' }}>—</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td style={{ padding: '6px 8px', textAlign: 'center', borderBottom: '1px solid #0f1c2e', borderLeft: '2px solid #1e3a5f' }}>
+                              {siteAvg !== '' ? (
+                                <span style={{ color: '#7dd3fc', fontWeight: 800, fontSize: '12px' }}>{formatPct(siteAvg)}</span>
                               ) : (
-                                <span style={{ color: '#1e293b', fontSize: '10px' }}>—</span>
+                                <span style={{ color: '#334155', fontSize: '11px' }}>—</span>
                               )}
                             </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
 
-          {/* ── Raw rows view ──────────────────────────────────────────── */}
-          {viewTab === 'date' && (
-            <>
-              <div style={{ fontSize: '12px', color: '#475569', fontWeight: 600, marginBottom: '10px' }}>
-                Showing {rawRows.filter(r => !search.trim() || Object.values(r).some(v => String(v).toLowerCase().includes(search.toLowerCase()))).length} raw rows
-              </div>
-              <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
-                <table className="scooh-table" style={{ minWidth: '500px' }}>
-                  <thead>
-                    <tr>
-                      {headers.map(h => (
-                        <th key={h} style={{ whiteSpace: 'nowrap', padding: '10px 14px', background: '#0d1520', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '.5px', borderBottom: '1px solid #1e293b' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rawRows
-                      .filter(r => !search.trim() || Object.values(r).some(v => String(v).toLowerCase().includes(search.toLowerCase())))
-                      .map((row, i) => (
-                        <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : '#0a1120' }}>
-                          {headers.map(h => {
-                            const val = row[h];
-                            const isSite  = h === siteCol;
-                            const isValue = h === valueCol;
-                            const displayVal = val instanceof Date
-                              ? val.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-                              : String(val ?? '');
-                            const { bg, text } = isValue ? occCellColor(val) : { bg: 'transparent', text: '#e2e8f0' };
-                            return (
-                              <td key={h} style={{ padding: '8px 14px', fontSize: '12px', borderBottom: '1px solid #0f1c2e' }}>
-                                {isSite ? <span className="scooh-plate">{displayVal}</span>
-                                  : isValue && val !== ''
-                                    ? <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '5px', background: bg, color: text, fontWeight: 700, fontSize: '11px' }}>{displayVal}</span>
-                                    : <span style={{ color: '#e2e8f0' }}>{displayVal}</span>}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+
         </section>
       )}
 
