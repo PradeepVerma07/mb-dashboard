@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';import cors from 'cors';import helmet from 'helmet';import path from 'path';import fs from 'fs';import multer from 'multer';import bcrypt from 'bcryptjs';import {fileURLToPath} from 'url';import * as xlsxModule from 'xlsx';
 const XLSX = xlsxModule.default || xlsxModule;
 import {pool,q} from './db.js';import {auth,admin,sign,managerOrAdmin,notViewer,requireRole} from './auth.js';
+import {computeAllOccupied, canonicalSiteCode, getConflictSummary, syncLinkedCampaigns, deleteLinkedCampaigns, batchDeleteLinkedCampaigns, syncAllLinkedCampaigns} from './siteHierarchy.js';
 const __dirname=path.dirname(fileURLToPath(import.meta.url));const app=express();const PORT=Number(process.env.PORT||3000);const uploadDir=path.resolve(__dirname,'..',process.env.UPLOAD_DIR||'uploads');fs.mkdirSync(uploadDir,{recursive:true});
 app.use(helmet({crossOriginResourcePolicy:false}));app.use(cors({origin:true,credentials:true}));app.use(express.json({limit:'10mb'}));app.use('/uploads',express.static(uploadDir));
 const upload=multer({dest:uploadDir,limits:{fileSize:Number(process.env.MAX_UPLOAD_MB||20)*1024*1024}});
@@ -13,6 +14,59 @@ function safeEntity(req,res){const e=entities[req.params.entity];if(!e){res.stat
 async function tableColumns(table){const rows=await q(`SHOW COLUMNS FROM \`${table}\``);return new Set(rows.map(r=>r.Field))}
 async function cleanData(table,body){const cols=await tableColumns(table),out={};for(const [k,v] of Object.entries(body||{})){if(cols.has(k)&&!blocked.has(k)){if(typeof v==='object'&&v!==null)out[k]=JSON.stringify(v);else out[k]=v===''?null:v}}return out}
 async function audit(user,action,type,id,before=null,after=null){try{await q('INSERT INTO activity_log (user_id,user_name,action,object_type,object_id,old_value,new_value,created_at) VALUES (?,?,?,?,?,?,?,NOW())',[user?.id||null,user?.name||'',action,type,id||null,before?JSON.stringify(before):null,after?JSON.stringify(after):null])}catch{}}
+
+/**
+ * syncSiteAvailability() – Recalculates and persists availability for ALL sites
+ * based on currently active campaigns. Uses the physical panel conflict map
+ * so booking a combined site automatically marks all overlapping split sites
+ * as Occupied, and vice-versa.
+ */
+async function syncSiteAvailability() {
+  try {
+    // 1. Get all active campaign site codes
+    const activeCampaigns = await q(
+      `SELECT site_code FROM campaigns WHERE record_status='active' AND site_code != '' AND (end_date IS NULL OR end_date >= CURDATE())`
+    );
+    const directBooked = [];
+    for (const c of activeCampaigns) {
+      const raw = String(c.site_code || '').trim();
+      const matches = raw.match(/MB[-_ ]?\d+/gi);
+      if (matches) {
+        for (const m of matches) directBooked.push(canonicalSiteCode(m));
+      } else if (raw) {
+        directBooked.push(canonicalSiteCode(raw));
+      }
+    }
+
+    // 2. Compute all occupied site codes (direct + linked via panel conflicts)
+    const occupiedMap = computeAllOccupied(directBooked); // Map<siteCode, reason>
+
+    // 3. Get all active sites
+    const allSites = await q(`SELECT id, site_code, availability FROM sites WHERE record_status='active'`);
+
+    // 4. Update each site's availability based on computed map
+    for (const site of allSites) {
+      const code = canonicalSiteCode(site.site_code);
+      const occupiedEntry = occupiedMap.get(code);
+      const currentAvail = String(site.availability || '').toLowerCase().trim();
+
+      if (occupiedEntry) {
+        // Site should be Occupied
+        const reason = occupiedEntry === 'Direct' ? 'Occupied' : `Occupied (${occupiedEntry})`;
+        if (currentAvail !== reason.toLowerCase() && currentAvail !== 'maintenance') {
+          await q(`UPDATE sites SET availability=?, updated_at=NOW() WHERE id=?`, [reason, site.id]);
+        }
+      } else {
+        // Site should be Available (revert only if previously marked occupied)
+        if (currentAvail.startsWith('occupied')) {
+          await q(`UPDATE sites SET availability='Available', updated_at=NOW() WHERE id=?`, [site.id]);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[syncSiteAvailability] Error:', err.message);
+  }
+}
 app.get('/api/health',async(req,res)=>{try{await q('SELECT 1');res.json({ok:true})}catch(e){res.status(500).json({ok:false,message:e.message})}});
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -1408,12 +1462,16 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
       }
     }
 
+    // Auto-sync all linked campaigns and site availability after Excel campaign import
+    await syncAllLinkedCampaigns(q);
+    await syncSiteAvailability();
+
     res.json({
       success: true,
       updated: updatedCount,
       created: newCount,
       rows: updatedCount + newCount,
-      message: `Successfully processed ${updatedCount + newCount} campaigns (${updatedCount} updated, ${newCount} created).`
+      message: `Successfully processed ${updatedCount + newCount} campaigns (${updatedCount} updated, ${newCount} created). Combined & single linked sites auto-booked.`
     });
   } catch (err) {
     console.error('Import Campaigns XLSX error:', err);
@@ -1803,6 +1861,11 @@ app.post('/api/:entity', auth, notViewer, async (req, res) => {
     const sql = `INSERT INTO \`${e.table}\` (${keys.map(k => '`' + k + '`').join(',')},created_at,updated_at) VALUES (${keys.map(() => '?').join(',')},NOW(),NOW())`;
     const result = await q(sql, keys.map(k => data[k]));
     await audit(req.user, 'Created', req.params.entity, result.insertId, null, data);
+    // Auto-sync linked campaigns and site availability after any campaign change
+    if (req.params.entity === 'campaigns') {
+      await syncLinkedCampaigns(q, result.insertId);
+      await syncSiteAvailability();
+    }
     const rows = await q(`SELECT * FROM \`${e.table}\` WHERE id=?`, [result.insertId]);
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -1844,6 +1907,11 @@ app.put('/api/:entity/:id', auth, notViewer, async (req, res) => {
   if (keys.length) await q(`UPDATE \`${e.table}\` SET ${keys.map(k => '`' + k + '`=?').join(',')},updated_at=NOW() WHERE id=?`, [...keys.map(k => data[k]), req.params.id]);
   const after = (await q(`SELECT * FROM \`${e.table}\` WHERE id=?`, [req.params.id]))[0];
   await audit(req.user, 'Updated', req.params.entity, req.params.id, before, after);
+  // Auto-sync linked campaigns and site availability after any campaign update
+  if (req.params.entity === 'campaigns') {
+    await syncLinkedCampaigns(q, req.params.id);
+    await syncSiteAvailability();
+  }
   res.json(after);
 });
 
@@ -1858,6 +1926,11 @@ app.delete('/api/:entity/:id', auth, managerOrAdmin, async (req, res) => {
   } else {
     await q(`UPDATE \`${e.table}\` SET record_status='archived',updated_at=NOW() WHERE id=?`, [req.params.id]);
     await audit(req.user, 'Archived', req.params.entity, req.params.id);
+  }
+  // Auto-delete linked campaigns and sync site availability after any campaign deletion
+  if (req.params.entity === 'campaigns') {
+    await deleteLinkedCampaigns(q, req.params.id);
+    await syncSiteAvailability();
   }
   res.json({ success: true });
 });
@@ -1888,7 +1961,20 @@ app.post('/api/:entity/batch-delete', auth, managerOrAdmin, async (req, res) => 
       await audit(req.user, 'Archived', req.params.entity, id);
     }
   }
+  if (req.params.entity === 'campaigns') {
+    await batchDeleteLinkedCampaigns(q, cleanIds);
+    await syncSiteAvailability();
+  }
   res.json({ success: true, count: cleanIds.length });
+});
+
+// Linked site conflict check & manual sync endpoints
+app.get('/api/sites/conflicts/:code', auth, (req, res) => {
+  res.json(getConflictSummary(req.params.code) || {});
+});
+app.post('/api/sites/sync-availability', auth, managerOrAdmin, async (req, res) => {
+  await syncSiteAvailability();
+  res.json({ success: true, message: 'All site availabilities synchronized.' });
 });
 const distCandidates = [
   path.resolve(__dirname, '../../client/dist'),
@@ -2114,6 +2200,9 @@ async function initDb() {
           ('occupancy', 'June 2026 Site Occupancy Snapshot', 'Occupancy_June_2026.json', '', '14 KB', 'json', '{"month":"June 2026","totalSites":22,"occupiedSites":15,"vacantSites":7,"occupancyPct":68,"revenue":1020000,"activeCampaignsCount":4}', 'active', DATE_SUB(NOW(), INTERVAL 99 DAY), NOW())`);
         console.log('Seeded initial storage archives with generated PPTs, Excels, and historical occupancy snapshots.');
       }
+      // Synchronize linked campaigns and site availability on startup
+      await syncAllLinkedCampaigns(q);
+      await syncSiteAvailability();
     } catch (seedErr) {
       console.warn('Site seed notice:', seedErr.message);
     }

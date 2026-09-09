@@ -6,6 +6,7 @@ import ExcelJS from 'exceljs';
 import PptxGenJS from 'pptxgenjs';
 import api from './api';
 import { defaultSites, defaultSettings } from './defaultSites';
+import { canonicalSiteCode, isCombinedSite, getSiteTypeTag, getConflictSummary, getOverlappingSiteCodes } from './siteHierarchy';
 import './styles.css';
 
 // Class ErrorBoundary to prevent any white/black screens
@@ -746,9 +747,11 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
       x: 9.03, y: 0.76, w: 2.10, h: 0.46,
       fill: { color: 'FFC200' }, line: { color: 'FFC200' }, rectRadius: 0.23
     });
+    const trackerUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/campaigns?site=${encodeURIComponent(siteCodeText)}`;
     s.addText(siteCodeText, {
       x: 9.03, y: 0.76, w: 2.10, h: 0.46,
-      fontFace: 'Arial', fontSize: 14, bold: true, color: '000000', align: 'center', valign: 'middle', margin: 0
+      fontFace: 'Arial', fontSize: 14, bold: true, color: '000000', align: 'center', valign: 'middle', margin: 0,
+      hyperlink: { url: trackerUrl, tooltip: `Open ${siteCodeText} in Campaign Tracker` }
     });
 
     // 4. Headline: Area (Bold White, 30pt) & Landmark (Bold Light Sky Blue, 20-24pt)
@@ -800,17 +803,19 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
       fontFace: 'Arial', fontSize: 16, bold: true, color: 'FFFFFF', margin: 0
     });
 
-    // 6. Availability Green Pill - Big & perfectly padded
+    // 6. Availability Pill — green if available, amber/orange if booked
     const availText = String(site._availability || site.ppt_availability || site.availability || 'Available').trim();
+    const isBooked = availText.toLowerCase().startsWith('booked') || availText.toLowerCase().startsWith('occupied');
+    const pillColor = isBooked ? 'E07B00' : '00A859';
     const pillH = 0.38;
     const pillY = 6.01;
     const pillX = 9.70;
-    const pillW = Math.max(1.65, Math.min(3.20, (availText.length * 0.11) + 0.55));
+    const pillW = Math.max(1.65, Math.min(3.60, (availText.length * 0.11) + 0.55));
     const pillRadius = pillH / 2;
 
     s.addShape(pptx.ShapeType.roundRect, {
       x: pillX, y: pillY, w: pillW, h: pillH,
-      fill: { color: '00A859' }, line: { color: '00A859' }, rectRadius: pillRadius
+      fill: { color: pillColor }, line: { color: pillColor }, rectRadius: pillRadius
     });
     s.addText(availText, {
       x: pillX, y: pillY, w: pillW, h: pillH,
@@ -825,12 +830,20 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
       fit: 'shrink'
     });
 
+    // 6b. Campaign End Date (Only shown if availability pill does not already include it)
+    if (site._endDate && !availText.includes(site._endDate)) {
+      s.addText(`📅 End Date: ${site._endDate}`, {
+        x: 9.55, y: 6.48, w: 3.60, h: 0.26,
+        fontFace: 'Arial', fontSize: 10.5, bold: false, color: 'FFC870', margin: 0, align: 'left'
+      });
+    }
+
     // 7. Location Coordinates (Always shown by default)
     const { lat, lng } = getCoords(site);
     const coordsText = `Latitude ${lat}  |  Longitude ${lng}`;
     s.addText(coordsText, {
-      x: 9.55, y: 6.77, w: 3.60, h: 0.32,
-      fontFace: 'Arial', fontSize: 12, bold: true, color: 'FFFFFF', margin: 0
+      x: 9.55, y: 6.81, w: 3.60, h: 0.28,
+      fontFace: 'Arial', fontSize: 11, bold: true, color: 'FFFFFF', margin: 0
     });
   }
 
@@ -1557,6 +1570,7 @@ function Dashboard() {
 }
 
 function SitesView() {
+  const navigate = useNavigate();
   const currentRole = getCurrentRole();
   const isAdmin = currentRole === 'admin';
   const isManager = currentRole === 'manager';
@@ -1940,7 +1954,46 @@ function SitesView() {
                       />
                     </td>
                   )}
-                  <td><span className="scooh-plate">{s.site_code}</span></td>
+                  <td>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
+                        className="scooh-plate"
+                        title={`Open ${s.site_code} in Campaign Tracker`}
+                        style={{
+                          cursor: 'pointer',
+                          background: 'rgba(56, 189, 248, 0.12)',
+                          border: '1px solid rgba(56, 189, 248, 0.45)',
+                          color: '#38bdf8',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '2px 7px',
+                          borderRadius: '5px',
+                          fontWeight: 800
+                        }}
+                      >
+                        <span>{s.site_code}</span>
+                        <span style={{ fontSize: '10px', opacity: 0.75 }}>↗</span>
+                      </button>
+                      {getSiteTypeTag(s.site_code) !== 'Single' && (
+                        <span
+                          style={{
+                            fontSize: '10.5px',
+                            padding: '2px 6px',
+                            background: getSiteTypeTag(s.site_code) === 'Combined' ? 'rgba(168,85,247,0.18)' : 'rgba(56,189,248,0.18)',
+                            color: getSiteTypeTag(s.site_code) === 'Combined' ? '#c084fc' : '#38bdf8',
+                            borderRadius: '4px',
+                            fontWeight: 700
+                          }}
+                          title={getConflictSummary(s.site_code)?.message || ''}
+                        >
+                          {getSiteTypeTag(s.site_code)}
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td>
                     <strong>{s.area || s.city}</strong>
                     <div className="scooh-footnote">{s.address}</div>
@@ -1949,9 +2002,21 @@ function SitesView() {
                   <td>{s.size}</td>
                   <td><span className="scooh-badge">{s.lighting}</span></td>
                   <td>
-                    <span className={`scooh-pill ${s.availability === 'Available' ? 'active' : s.availability === 'Occupied' ? 'vacant' : 'watch'}`}>
-                      {s.ppt_availability || s.availability}
-                    </span>
+                    {String(s.availability || '').startsWith('Occupied (Linked') ? (
+                      <span
+                        className="scooh-pill watch"
+                        title={s.availability}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', whiteSpace: 'nowrap', background: 'rgba(245,158,11,0.15)', color: '#fbbf24', borderColor: 'rgba(245,158,11,0.35)' }}
+                      >
+                        🔗 {s.availability}
+                      </span>
+                    ) : String(s.availability || '').toLowerCase() === 'occupied' ? (
+                      <span className="scooh-pill vacant">Occupied</span>
+                    ) : (
+                      <span className={`scooh-pill ${s.availability === 'Available' ? 'active' : 'watch'}`}>
+                        {s.availability || 'Available'}
+                      </span>
+                    )}
                   </td>
                   <td><b>{money(s.ppt_rate || s.monthly_rate)}</b></td>
                   <td>
@@ -2117,6 +2182,7 @@ function SitesView() {
 }
 
 function PptView() {
+  const navigate = useNavigate();
   const [sites, setSites] = useState(defaultSites.map(unpackSite));
   const [pages, setPages] = useState({});
   const [sel, setSel] = useState({});
@@ -2127,6 +2193,8 @@ function PptView() {
   const [pptName, setPptName] = useState('MediaBuzz_Automated-PPT');
   const [alsoGenerateExcel, setAlsoGenerateExcel] = useState(true);
   const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
+  // Campaign tracker map: site_code (uppercase) → latest active campaign row
+  const [campaignMap, setCampaignMap] = useState({});
 
   function getCleanPptName() {
     let clean = (pptName || '').trim();
@@ -2135,16 +2203,43 @@ function PptView() {
     return clean.replace(/[\\/:*?"<>|]/g, '_');
   }
 
+  function fmtDate(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch { return iso; }
+  }
+
   async function load() {
     try {
-      const [sRes, pRes] = await Promise.all([
+      const [sRes, pRes, cRes] = await Promise.all([
         api.get('/sites'),
-        api.get('/ppt-pages')
+        api.get('/ppt-pages'),
+        api.get('/campaigns').catch(() => ({ data: [] }))
       ]);
       if (Array.isArray(sRes.data) && sRes.data.length > 0) {
         setSites(sRes.data.map(unpackSite));
       }
       if (pRes.data) setPages(pRes.data);
+      // Build site_code → active campaign map from Campaign Tracker
+      // Primary campaigns take precedence, then latest start_date desc
+      if (Array.isArray(cRes.data)) {
+        const map = {};
+        const sorted = cRes.data
+          .filter(c => c.record_status === 'active')
+          .sort((a, b) => {
+            const isLinkedA = String(a.parent_campaign || '').startsWith('LINKED:');
+            const isLinkedB = String(b.parent_campaign || '').startsWith('LINKED:');
+            if (isLinkedA !== isLinkedB) return isLinkedA ? 1 : -1; // primary first
+            return new Date(b.start_date || 0) - new Date(a.start_date || 0);
+          });
+        for (const c of sorted) {
+          const code = String(c.site_code || '').toUpperCase().trim();
+          if (code && !map[code]) map[code] = c;
+        }
+        setCampaignMap(map);
+      }
     } catch (e) {
       console.warn('PPT load notice:', e);
     }
@@ -2286,6 +2381,23 @@ function PptView() {
 
       const rows = targetSites.map((x, idx) => {
         const v = sel[x.id || x.site_code] || {};
+        const cCode = String(x.site_code || '').toUpperCase().trim();
+        const camp = campaignMap[cCode];
+        let autoAvail = v.availability ?? x.ppt_availability ?? x.availability ?? 'Available';
+        let endDateFmt = '';
+        if (camp && camp.end_date) {
+          const endFmt = fmtDate(camp.end_date);
+          const endDate = new Date(camp.end_date);
+          const now = new Date();
+          if (endDate >= now) {
+            endDateFmt = endFmt;
+            if (!v.availability) {
+              autoAvail = `Booked till ${endFmt}`;
+            }
+          } else {
+            if (!v.availability) autoAvail = 'Available';
+          }
+        }
         let w = x.width || '', h = x.height || '';
         if ((!w || !h) && x.size) {
           const parts = String(x.size).toLowerCase().split('x');
@@ -2296,6 +2408,7 @@ function PptView() {
 
         return {
           'SR NO': idx + 1,
+          'SITE CODE': x.site_code || '',
           'AREA': x.area || x.city || '',
           'LOCATION': x.address || '',
           'MEDIA': x.media_type || 'Hoarding',
@@ -2303,7 +2416,8 @@ function PptView() {
           'W': w || '',
           'H': h || '',
           'SQ FT': sqft,
-          'AVAILABLITY': v.availability ?? x.ppt_availability ?? x.availability ?? 'Available',
+          'AVAILABLITY': autoAvail,
+          'End Date': endDateFmt,
           'Selling Amount': Number(v.rate ?? x.ppt_rate ?? x.monthly_rate ?? 0),
           'Latitude Longitude': coords
         };
@@ -2320,11 +2434,31 @@ function PptView() {
       .filter(s => sel[s.id || s.site_code]?.checked)
       .map(s => {
         const v = sel[s.id || s.site_code] || {};
+        // Look up active campaign from Campaign Tracker for this site (only end date)
+        const cCode = String(s.site_code || '').toUpperCase().trim();
+        const camp = campaignMap[cCode];
+        let autoAvail = v.availability ?? s.ppt_availability ?? s.availability;
+        let endDateFmt = '';
+        if (camp && camp.end_date) {
+          const endFmt = fmtDate(camp.end_date);
+          const endDate = new Date(camp.end_date);
+          const now = new Date();
+          if (endDate >= now) {
+            endDateFmt = endFmt;
+            // Auto-set availability to only show the end date unless user manually overrode it
+            if (!v.availability) {
+              autoAvail = `Booked till ${endFmt}`;
+            }
+          } else {
+            if (!v.availability) autoAvail = 'Available';
+          }
+        }
         return {
           ...s,
-          _availability: v.availability ?? s.ppt_availability ?? s.availability,
+          _availability: autoAvail,
           _rate: v.rate ?? s.ppt_rate ?? s.monthly_rate,
-          _showRate: !!v.showRate
+          _showRate: !!v.showRate,
+          _endDate: endDateFmt
         };
       });
 
@@ -2351,6 +2485,7 @@ function PptView() {
 
           return {
             'SR NO': idx + 1,
+            'SITE CODE': x.site_code || '',
             'AREA': x.area || x.city || '',
             'LOCATION': x.address || '',
             'MEDIA': x.media_type || 'Hoarding',
@@ -2359,6 +2494,7 @@ function PptView() {
             'H': h || '',
             'SQ FT': sqft,
             'AVAILABLITY': x._availability ?? 'Available',
+            'End Date': x._endDate || '',
             'Selling Amount': Number(x._rate ?? 0),
             'Latitude Longitude': coords
           };
@@ -2600,6 +2736,22 @@ function PptView() {
             const v = sel[siteKey] || {};
             const isChecked = !!v.checked;
             const imgs = s.ppt_images || [];
+            const cCode = String(s.site_code || '').toUpperCase().trim();
+            const camp = campaignMap[cCode];
+            let autoAvail = '';
+            let endDateText = '';
+            if (camp && camp.end_date) {
+              const endFmt = fmtDate(camp.end_date);
+              const endDate = new Date(camp.end_date);
+              const now = new Date();
+              if (endDate >= now) {
+                autoAvail = `Booked till ${endFmt}`;
+                endDateText = endFmt;
+              } else {
+                autoAvail = 'Available';
+                endDateText = '';
+              }
+            }
 
             return (
               <label
@@ -2650,20 +2802,78 @@ function PptView() {
                   )}
                 </div>
 
-                <strong>{s.site_code || 'Site'}</strong>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', margin: '4px 0 6px', flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
+                    className="scooh-plate"
+                    title={`Open ${s.site_code} in Campaign Tracker`}
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      color: '#38bdf8',
+                      border: '1px solid rgba(56, 189, 248, 0.45)',
+                      padding: '3px 8px',
+                      borderRadius: '6px'
+                    }}
+                  >
+                    <span>{s.site_code || 'Site'}</span>
+                    <span style={{ fontSize: '10px', opacity: 0.8 }}>↗ Tracker</span>
+                  </button>
+                  {camp && endDateText && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
+                      title={`Active Campaign End Date: ${endDateText}\nClick to view in Campaign Tracker`}
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: '5px',
+                        background: 'rgba(245, 158, 11, 0.2)',
+                        color: '#fbbf24',
+                        border: '1px solid rgba(245, 158, 11, 0.45)',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>📅 End Date: {endDateText}</span>
+                    </button>
+                  )}
+                </div>
                 <small>{s.location || s.address || s.area || s.city || ''}</small>
                 <small className="scooh-ppt-coordinates">Latitude: {s.latitude ?? '—'}</small>
                 <small className="scooh-ppt-coordinates">Longitude: {s.longitude ?? '—'}</small>
 
                 <div className="scooh-ppt-availability" onClick={e => e.stopPropagation()}>
-                  <label>Availability for PPT</label>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <label style={{ margin: 0 }}>Availability for PPT</label>
+                    {endDateText && (
+                      <span style={{ fontSize: '10.5px', color: '#fbbf24', fontWeight: 600 }}>
+                        Auto from Campaign Tracker
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     className="scooh-ppt-availability-input"
-                    value={v.availability ?? s.ppt_availability ?? ''}
-                    placeholder="Immediate or DD.MM.YYYY"
+                    value={v.availability ?? s.ppt_availability ?? (autoAvail || '')}
+                    placeholder={autoAvail || "Immediate or DD.MM.YYYY"}
                     onChange={e => setSel({ ...sel, [siteKey]: { ...v, availability: e.target.value } })}
                   />
+                  {endDateText && (
+                    <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span>📅 End Date:</span>
+                      <span style={{ fontWeight: 600 }}>{endDateText}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="scooh-ppt-output-options" onClick={e => e.stopPropagation()}>
@@ -3609,10 +3819,14 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
 }
 
 function CampaignTrackerView() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editModal, setEditModal] = useState(null);
+  const [modalSiteCode, setModalSiteCode] = useState('');
   const [search, setSearch] = useState('');
+  const [siteQueryParam, setSiteQueryParam] = useState('');
   const [monthFilter, setMonthFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [vendorFilter, setVendorFilter] = useState('ALL');
@@ -3651,6 +3865,18 @@ function CampaignTrackerView() {
     const interval = setInterval(loadData, 35000);
     return () => clearInterval(interval);
   }, []);
+
+  // Sync search/filter when navigating with ?site=MB-XX or ?search=...
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const siteParam = (params.get('site') || params.get('search') || '').trim();
+    if (siteParam) {
+      setSearch(siteParam);
+      setSiteQueryParam(siteParam);
+    } else {
+      setSiteQueryParam('');
+    }
+  }, [location.search]);
 
   const months = Array.from(new Set(rows.map(r => r.month).filter(Boolean)));
   const types = Array.from(new Set(['Hoarding', 'Gantry', 'Unipole', 'Billboard', 'DOOH', ...rows.map(r => r.type).filter(Boolean)]));
@@ -3804,9 +4030,12 @@ function CampaignTrackerView() {
     }
   }
 
-  function openNewCampaign() {
+  function openNewCampaign(code) {
     if (!canAdd) return;
+    const initialSiteCode = typeof code === 'string' && code ? code : (siteQueryParam || (search.trim().startsWith('MB-') ? search.trim() : ''));
+    setModalSiteCode(initialSiteCode);
     setEditModal({
+      site_code: initialSiteCode,
       month: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
       booking_date: new Date().toISOString().slice(0, 10),
       client: '',
@@ -3971,6 +4200,54 @@ function CampaignTrackerView() {
           </div>
         </div>
 
+        {/* Site Filter Active Banner */}
+        {siteQueryParam && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 20px',
+            background: 'linear-gradient(90deg, rgba(56, 189, 248, 0.16), rgba(56, 189, 248, 0.04))',
+            borderBottom: '1px solid rgba(56, 189, 248, 0.35)',
+            color: '#38bdf8',
+            fontSize: '13px',
+            flexWrap: 'wrap',
+            gap: '10px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+              <span style={{ fontSize: '16px' }}>📍</span>
+              <span style={{ fontWeight: 600 }}>
+                Filtered by Site Code: <strong style={{ color: '#fff', fontSize: '13.5px', background: 'rgba(56, 189, 248, 0.25)', padding: '2px 8px', borderRadius: '5px', border: '1px solid #38bdf8' }}>{siteQueryParam}</strong>
+                <span style={{ color: '#94a3b8', marginLeft: '10px', fontSize: '12px' }}>({filtered.length} campaign{filtered.length !== 1 ? 's' : ''} found)</span>
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {canAdd && (
+                <button
+                  type="button"
+                  className="scooh-btn purple-btn"
+                  style={{ fontSize: '11.5px', padding: '4px 10px' }}
+                  onClick={() => openNewCampaign(siteQueryParam)}
+                >
+                  + Book for {siteQueryParam}
+                </button>
+              )}
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                style={{ fontSize: '11px', padding: '4px 10px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.5)' }}
+                onClick={() => {
+                  setSearch('');
+                  setSiteQueryParam('');
+                  navigate('/campaigns', { replace: true });
+                }}
+              >
+                ✕ Clear Site Filter
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Toolbar */}
         <div className="scooh-toolbar" style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
           <input
@@ -4042,12 +4319,21 @@ function CampaignTrackerView() {
             <option value="pending:desc">Sort: Pending (High–Low)</option>
             <option value="days:desc">Sort: Duration Days</option>
           </select>
-          {(search || monthFilter !== 'ALL' || typeFilter !== 'ALL' || vendorFilter !== 'ALL' || statusFilter !== 'ALL' || sortState.key !== 'id' || sortState.dir !== 'desc') && (
+          {(search || siteQueryParam || monthFilter !== 'ALL' || typeFilter !== 'ALL' || vendorFilter !== 'ALL' || statusFilter !== 'ALL' || sortState.key !== 'id' || sortState.dir !== 'desc') && (
             <button
               type="button"
               className="scooh-btn ghost"
               style={{ fontSize: '11px', padding: '6px 10px' }}
-              onClick={() => { setSearch(''); setMonthFilter('ALL'); setTypeFilter('ALL'); setVendorFilter('ALL'); setStatusFilter('ALL'); setSortState({ key: 'id', dir: 'desc' }); }}
+              onClick={() => {
+                setSearch('');
+                setSiteQueryParam('');
+                setMonthFilter('ALL');
+                setTypeFilter('ALL');
+                setVendorFilter('ALL');
+                setStatusFilter('ALL');
+                setSortState({ key: 'id', dir: 'desc' });
+                navigate('/campaigns', { replace: true });
+              }}
             >
               Reset Filters
             </button>
@@ -4178,9 +4464,41 @@ function CampaignTrackerView() {
                         </td>
                       )}
                       <td>
-                        <span className="scooh-plate" style={{ fontSize: '11.5px', fontWeight: 800 }}>
-                          {r.site_code || '—'}
-                        </span>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="scooh-plate" style={{ fontSize: '11.5px', fontWeight: 800 }}>
+                            {r.site_code || '—'}
+                          </span>
+                          {String(r.parent_campaign || '').startsWith('LINKED:') ? (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                background: 'rgba(245,158,11,0.2)',
+                                color: '#fbbf24',
+                                border: '1px solid rgba(245,158,11,0.4)',
+                                fontWeight: 700
+                              }}
+                              title={r.notes || 'Auto-booked linked entry'}
+                            >
+                              🔗 Linked
+                            </span>
+                          ) : getSiteTypeTag(r.site_code) !== 'Single' && (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                background: getSiteTypeTag(r.site_code) === 'Combined' ? 'rgba(168,85,247,0.2)' : 'rgba(56,189,248,0.2)',
+                                color: getSiteTypeTag(r.site_code) === 'Combined' ? '#c084fc' : '#38bdf8',
+                                fontWeight: 700
+                              }}
+                              title={getConflictSummary(r.site_code)?.message || ''}
+                            >
+                              {getSiteTypeTag(r.site_code)}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ color: '#cbd5e1', fontSize: '12px', fontWeight: 600 }}>
                         {r.month || '—'}
@@ -4230,13 +4548,27 @@ function CampaignTrackerView() {
                         {r.days ?? '30'}
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 600, color: '#e2e8f0', fontSize: '12.5px' }}>
-                        {money(r.advt_fees || 0)}
+                        {String(r.parent_campaign || '').startsWith('LINKED:') ? (
+                          <span style={{ color: '#94a3b8', fontSize: '11.5px', fontStyle: 'italic' }}>—</span>
+                        ) : (
+                          money(r.advt_fees || 0)
+                        )}
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 600, color: '#e2e8f0', fontSize: '12.5px' }}>
-                        {money(r.printing_mounting_cost || (Number(r.printing_cost || 0) + Number(r.mounting_cost || 0)))}
+                        {String(r.parent_campaign || '').startsWith('LINKED:') ? (
+                          <span style={{ color: '#94a3b8', fontSize: '11.5px', fontStyle: 'italic' }}>—</span>
+                        ) : (
+                          money(r.printing_mounting_cost || (Number(r.printing_cost || 0) + Number(r.mounting_cost || 0)))
+                        )}
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 800, color: '#4ade80', fontSize: '13px' }}>
-                        {money(r.total_amount || r.revenue || 0)}
+                        {String(r.parent_campaign || '').startsWith('LINKED:') ? (
+                          <span style={{ color: '#94a3b8', fontSize: '11.5px', fontStyle: 'italic', fontWeight: 600 }} title="Covered under primary booking">
+                            Covered
+                          </span>
+                        ) : (
+                          money(r.total_amount || r.revenue || 0)
+                        )}
                       </td>
                       <td>
                         {r.po ? <span className="scooh-plate" style={{ fontSize: '11px' }}>{r.po}</span> : '—'}
@@ -4249,20 +4581,42 @@ function CampaignTrackerView() {
                       </td>
                       <td>
                         <div className="scooh-rowactions" style={{ justifyContent: 'center' }}>
-                          <button
-                            type="button"
-                            className="scooh-iconbtn scooh-text-action"
-                            onClick={() => setEditModal(r)}
-                            title={isReadOnly ? 'View Campaign Details' : 'Edit Campaign'}
-                          >
-                            {isReadOnly ? 'View' : 'Edit'}
-                          </button>
+                          {String(r.parent_campaign || '').startsWith('LINKED:') ? (
+                            <button
+                              type="button"
+                              className="scooh-iconbtn scooh-text-action"
+                              style={{ color: '#fbbf24', borderColor: 'rgba(245,158,11,0.4)' }}
+                              onClick={() => {
+                                const parentId = Number(r.parent_campaign.replace('LINKED:', ''));
+                                const parentRow = rows.find(x => x.id === parentId);
+                                if (parentRow) {
+                                  setModalSiteCode(parentRow.site_code || '');
+                                  setEditModal(parentRow);
+                                } else {
+                                  setModalSiteCode(r.site_code || '');
+                                  setEditModal(r);
+                                }
+                              }}
+                              title="Jump to Primary Booking"
+                            >
+                              Primary ↗
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="scooh-iconbtn scooh-text-action"
+                              onClick={() => { setModalSiteCode(r.site_code || ''); setEditModal(r); }}
+                              title={isReadOnly ? 'View Campaign Details' : 'Edit Campaign'}
+                            >
+                              {isReadOnly ? 'View' : 'Edit'}
+                            </button>
+                          )}
                           {canDelete && (
                             <button
                               type="button"
                               className="scooh-iconbtn danger-icon"
                               onClick={() => deleteRecord(r.id)}
-                              title="Delete Campaign"
+                              title={String(r.parent_campaign || '').startsWith('LINKED:') ? "Remove linked campaign" : "Delete Campaign"}
                             >
                               ×
                             </button>
@@ -4296,8 +4650,40 @@ function CampaignTrackerView() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
                   <div className="scooh-field">
                     <label>Site Code</label>
-                    <input name="site_code" defaultValue={editModal.site_code ?? ''} placeholder="e.g. MB01 or SG-04" disabled={isReadOnly} />
+                    <input
+                      name="site_code"
+                      value={modalSiteCode}
+                      onChange={e => setModalSiteCode(e.target.value)}
+                      placeholder="e.g. MB-06 or MB-02"
+                      disabled={isReadOnly}
+                    />
                   </div>
+                  {(() => {
+                    const conflict = getConflictSummary(modalSiteCode);
+                    if (!conflict) return null;
+                    return (
+                      <div style={{
+                        gridColumn: '1 / -1',
+                        padding: '9px 13px',
+                        borderRadius: '8px',
+                        background: conflict.isCombined ? 'rgba(168, 85, 247, 0.12)' : 'rgba(56, 189, 248, 0.12)',
+                        border: `1px solid ${conflict.isCombined ? 'rgba(168, 85, 247, 0.35)' : 'rgba(56, 189, 248, 0.35)'}`,
+                        fontSize: '12px',
+                        color: '#f1f5f9',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px'
+                      }}>
+                        <span style={{ fontSize: '16px' }}>{conflict.isCombined ? '🧩' : '🔗'}</span>
+                        <div>
+                          <strong style={{ color: conflict.isCombined ? '#c084fc' : '#38bdf8' }}>
+                            {conflict.type}:
+                          </strong>{' '}
+                          {conflict.message}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div className="scooh-field">
                     <label>Month</label>
                     <input name="month" defaultValue={editModal.month ?? ''} placeholder="e.g. Oct 2026" disabled={isReadOnly} />
