@@ -5889,15 +5889,15 @@ function CampaignTrackerView() {
                   </div>
                   <div className="scooh-field" style={{ gridColumn: 'span 2' }}>
                     <label>Client/Agency Name *</label>
-                    <input name="client" defaultValue={editModal.client ?? editModal.client_name ?? ''} required placeholder="e.g. Rajyash Group / Nexus Media" disabled={isReadOnly} />
+                    <input name="client" defaultValue={editModal.client ?? editModal.client_name ?? ''} required placeholder="Enter Client or Agency Name" disabled={isReadOnly} />
                   </div>
                   <div className="scooh-field" style={{ gridColumn: 'span 2' }}>
                     <label>Display (Brand / Campaign Headline)</label>
-                    <input name="display" defaultValue={editModal.display ?? editModal.campaign_name ?? ''} placeholder="e.g. Rajyash Skyz Launch Campaign" disabled={isReadOnly} />
+                    <input name="display" defaultValue={editModal.display ?? editModal.campaign_name ?? ''} placeholder="Enter Brand / Campaign Headline" disabled={isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>Vendor Name</label>
-                    <input name="vendor_name" defaultValue={editModal.vendor_name ?? ''} placeholder="e.g. Gujarat Outdoor Signs" disabled={isReadOnly} />
+                    <input name="vendor_name" defaultValue={editModal.vendor_name ?? ''} placeholder="Enter Vendor Name" disabled={isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>Location</label>
@@ -9367,22 +9367,22 @@ const fieldMeta = {
   hard_copy_required: { select: ['1', '0'] },
 
   // Placeholders
-  client_name: { placeholder: 'e.g. Rajyash Group' },
-  company: { placeholder: 'e.g. Rajyash Estates Pvt Ltd' },
-  primary_contact: { placeholder: 'e.g. Pratik Patel' },
-  email: { placeholder: 'e.g. contact@client.com' },
-  phone: { placeholder: 'e.g. +91 98250 11223' },
-  gst_number: { placeholder: 'e.g. 24AAACR1234F1Z5' },
-  name: { placeholder: 'e.g. Gujarat Printers & Signage' },
-  contact_person: { placeholder: 'e.g. Mukesh Bhai' },
-  cities: { placeholder: 'e.g. Ahmedabad, Gandhinagar, Surat' },
-  rating: { placeholder: '4.85', step: '0.05' },
-  booking_code: { placeholder: 'e.g. MB-BK-2026-001' },
-  parent_campaign: { placeholder: 'e.g. Annual Media Contract' },
-  site_code: { placeholder: 'e.g. AMD-GT-001' },
-  client: { placeholder: 'e.g. Rajyash Group' },
-  brand: { placeholder: 'e.g. Rajyash Estates' },
-  campaign_name: { placeholder: 'e.g. Diwali Launch Ahmedabad' },
+  client_name: { placeholder: 'Enter Client Name' },
+  company: { placeholder: 'Enter Company Name' },
+  primary_contact: { placeholder: 'Enter Contact Person' },
+  email: { placeholder: 'contact@client.com' },
+  phone: { placeholder: '+91 98765 43210' },
+  gst_number: { placeholder: 'Enter GST Number' },
+  name: { placeholder: 'Enter Name' },
+  contact_person: { placeholder: 'Contact Person' },
+  cities: { placeholder: 'e.g. Ahmedabad, Surat' },
+  rating: { placeholder: '5.0', step: '0.05' },
+  booking_code: { placeholder: 'Enter Booking Code' },
+  parent_campaign: { placeholder: 'Parent Campaign / Contract' },
+  site_code: { placeholder: 'Enter Site Code' },
+  client: { placeholder: 'Enter Client Name' },
+  brand: { placeholder: 'Enter Brand Name' },
+  campaign_name: { placeholder: 'Enter Campaign Name' },
   meter_no: { placeholder: 'e.g. MTR-UGVCL-8841' },
   service_number: { placeholder: 'e.g. SRV-998241' },
   t_number: { placeholder: 'e.g. T-4401' },

@@ -2456,18 +2456,6 @@ async function initDb() {
         }
       }
 
-      // Seed Clients if empty
-      const clientCount = await q('SELECT COUNT(*) c FROM clients');
-      if (!clientCount[0]?.c) {
-        await q(`INSERT INTO clients (client_name, company, primary_contact, email, phone, billing_address, gst_number, status, created_at, updated_at) VALUES
-          ('Rajyash Group', 'Rajyash Estates Pvt Ltd', 'Pratik Patel', 'contact@rajyash.com', '+91 98250 11223', 'Rajyash House, Ambli-Bopal Road, Ahmedabad', '24AAACR1234F1Z5', 'active', NOW(), NOW()),
-          ('Adani Realty', 'Adani Infrastructure Developers', 'Vikram Mehta', 'ooh@adani.com', '+91 79 2656 5555', 'Adani Corporate House, Shantigram, Ahmedabad', '24AAACA5678B1Z2', 'active', NOW(), NOW()),
-          ('Zydus Healthcare', 'Zydus Lifesciences Ltd', 'Sneha Dave', 'media@zyduslife.com', '+91 79 4804 0000', 'Zydus Corporate Park, SG Highway, Ahmedabad', '24AAACZ9988G1Z9', 'active', NOW(), NOW()),
-          ('Havmor Ice Cream', 'Havmor Foods Ltd', 'Amit Shah', 'marketing@havmor.com', '+91 79 2642 1100', 'Commerce House, Navrangpura, Ahmedabad', '24AAACH4433H1Z1', 'active', NOW(), NOW()),
-          ('Iscon Group', 'JP Iscon Builders', 'Rajesh Agarwal', 'info@iscongroup.com', '+91 98795 44332', 'Iscon Elegance, Prahladnagar, Ahmedabad', '24AAACI7766K1Z4', 'active', NOW(), NOW())`);
-        console.log('Seeded initial clients.');
-      }
-
       // Seed Vendors if empty
       const vendorCount = await q('SELECT COUNT(*) c FROM vendors');
       if (!vendorCount[0]?.c) {
@@ -2477,28 +2465,6 @@ async function initDb() {
           ('Om Sai Mounting Services', 'Mounting', 'Ramesh Parmar', '+91 94260 88776', 'omsaimounting@gmail.com', 'Ahmedabad, Rajkot', 4.65, 'active', NOW(), NOW()),
           ('Apex Outdoor Fabricators', 'Fabrication & Maintenance', 'Ketan Shah', '+91 98255 33221', 'ketan@apexfab.in', 'Ahmedabad', 4.75, 'active', NOW(), NOW())`);
         console.log('Seeded initial vendors.');
-      }
-
-      // Seed Campaigns if empty
-      const campCount = await q('SELECT COUNT(*) c FROM campaigns');
-      if (!campCount[0]?.c) {
-        const sRows = await q('SELECT id, site_code FROM sites LIMIT 5');
-        const s1 = sRows[0]?.id || 1, code1 = sRows[0]?.site_code || 'AMD-GT-001';
-        const s2 = sRows[1]?.id || 2, code2 = sRows[1]?.site_code || 'AMD-UP-002';
-        const s3 = sRows[2]?.id || 3, code3 = sRows[2]?.site_code || 'AMD-HD-005';
-
-        await q(`INSERT INTO campaigns (
-          booking_code, site_id, site_code, client, brand, campaign_name,
-          booking_date, start_date, end_date, mounting_date, printing_status, mounting_status,
-          validation_15_date, final_validation_date, revenue, vendor_cost, printing_cost, mounting_cost,
-          electricity_cost, other_cost, invoice_status, hard_copy_status, notes, record_status, created_at, updated_at
-        ) VALUES
-          ('MB-BK-2026-001', ?, ?, 'Rajyash Group', 'Rajyash Estates', 'Diwali Launch Ahmedabad', CURDATE(), CURDATE(), DATE_ADD(CURDATE(), INTERVAL 30 DAY), NULL, 'Completed', 'Pending', DATE_ADD(CURDATE(), INTERVAL 15 DAY), DATE_ADD(CURDATE(), INTERVAL 30 DAY), 350000, 45000, 32000, 18000, 8500, 2000, 'Pending', 'Pending', 'Prime gantry Diwali campaign', 'active', NOW(), NOW()),
-          ('MB-BK-2026-002', ?, ?, 'Adani Realty', 'Adani Shantigram', 'Township Phase 2 Launch', DATE_SUB(CURDATE(), INTERVAL 24 DAY), DATE_SUB(CURDATE(), INTERVAL 20 DAY), DATE_ADD(CURDATE(), INTERVAL 5 DAY), DATE_SUB(CURDATE(), INTERVAL 19 DAY), 'Completed', 'Mounted', DATE_SUB(CURDATE(), INTERVAL 5 DAY), DATE_ADD(CURDATE(), INTERVAL 5 DAY), 420000, 52000, 38000, 22000, 9200, 3000, 'Sent', 'Dispatched', '15-day validation complete', 'active', NOW(), NOW()),
-          ('MB-BK-2026-003', ?, ?, 'Zydus Healthcare', 'Zydus Wellness', 'Health First Hoardings', DATE_SUB(CURDATE(), INTERVAL 16 DAY), DATE_SUB(CURDATE(), INTERVAL 15 DAY), DATE_ADD(CURDATE(), INTERVAL 15 DAY), DATE_SUB(CURDATE(), INTERVAL 14 DAY), 'Completed', 'Mounted', CURDATE(), DATE_ADD(CURDATE(), INTERVAL 15 DAY), 280000, 35000, 26000, 15000, 6800, 1500, 'Pending', 'Pending', '15-day validation photo due today', 'active', NOW(), NOW())`,
-          [s1, code1, s2, code2, s3, code3]
-        );
-        console.log('Seeded initial campaigns.');
       }
 
       // Seed Electricity if empty
@@ -2515,25 +2481,10 @@ async function initDb() {
         console.log('Seeded initial electricity bills.');
       }
 
-      // Seed Invoices if empty
-      const invCount = await q('SELECT COUNT(*) c FROM invoices');
-      if (!invCount[0]?.c) {
-        await q(`INSERT INTO invoices (
-          campaign_id, client_id, requested_date, invoice_no, invoice_date, invoice_amount,
-          invoice_status, hard_copy_required, hard_copy_status, courier_name, tracking_number,
-          dispatch_date, delivered_date, payment_status, notes, record_status, created_at, updated_at
-        ) VALUES
-          (2, 2, DATE_SUB(CURDATE(), INTERVAL 8 DAY), 'MB-INV-2026-088', DATE_SUB(CURDATE(), INTERVAL 7 DAY), 495600, 'Sent', 1, 'Dispatched', 'BlueDart', 'BD998234109IN', DATE_SUB(CURDATE(), INTERVAL 5 DAY), NULL, 'Pending', 'Adani Shantigram GST invoice', 'active', NOW(), NOW()),
-          (1, 1, CURDATE(), 'MB-INV-2026-089', CURDATE(), 413000, 'Pending', 1, 'Pending', '', '', NULL, NULL, 'Pending', 'Rajyash Diwali advance invoice', 'active', NOW(), NOW())`);
-        console.log('Seeded initial invoices.');
-      }
-
       // Seed Notifications if empty
       const notifCount = await q('SELECT COUNT(*) c FROM notifications');
       if (!notifCount[0]?.c) {
         await q(`INSERT INTO notifications (user_id, type, object_type, title, message, is_read, fingerprint, created_at) VALUES
-          (0, 'mounting_due', 'campaign', 'Mounting Overdue: AMD-GT-001', 'Rajyash Group campaign scheduled start date was reached but mounting is pending.', 0, 'notif-mount-001', NOW()),
-          (0, 'validation_due', 'campaign', '15-Day Validation Due: AMD-HD-005', 'Zydus Healthcare campaign requires day/night inspection photo proof.', 0, 'notif-val-002', NOW()),
           (0, 'electricity_due', 'electricity', 'Electricity Bill Overdue: MTR-UGVCL-8841', 'Bill amount ₹7,850 for AMD-GT-001 is past due date.', 0, 'notif-elec-003', NOW())`);
         console.log('Seeded initial notifications.');
       }
