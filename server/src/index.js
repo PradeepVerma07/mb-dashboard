@@ -1675,8 +1675,8 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
       return res.status(400).json({ message: 'Excel workbook contains no sheets' });
     }
 
-    const existingSites = await q('SELECT id, site_code, address, area, width, height, size FROM sites WHERE record_status="active"');
-    const existingCampaigns = await q('SELECT id, site_code, client, start_date, end_date FROM campaigns WHERE record_status="active"');
+    let existingSites = await q('SELECT id, site_code, address, area, width, height, size FROM sites WHERE record_status="active"');
+    let existingCampaigns = await q('SELECT id, site_code, client, start_date, end_date FROM campaigns WHERE record_status="active"');
 
     // Check if the workbook contains the Site Block format (Site Code + Location header, followed by Up Date / Down Date / Client rows)
     for (const name of wb.SheetNames) {
@@ -1851,13 +1851,13 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
     const campCols = await tableColumns('campaigns');
 
     let updatedCount = 0, newCount = 0;
-    const existingSites = await q('SELECT id, site_code, address, area, width, height, size FROM sites WHERE record_status="active"');
+    existingSites = await q('SELECT id, site_code, address, area, width, height, size FROM sites WHERE record_status="active"');
 
     const selectCols = ['id', 'site_code', 'client', 'start_date', 'end_date'];
     ['month', 'booking_date', 'display', 'vendor_name', 'location', 'po', 'total_amount'].forEach(c => {
       if (campCols.has(c)) selectCols.push(c);
     });
-    const existingCampaigns = await q(`SELECT ${selectCols.join(', ')} FROM campaigns WHERE record_status="active"`);
+    existingCampaigns = await q(`SELECT ${selectCols.join(', ')} FROM campaigns WHERE record_status="active"`);
 
     const parseNum = (val) => {
       if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -2380,8 +2380,7 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
       return res.status(400).json({ message: 'Excel workbook contains no sheets' });
     }
 
-    const existingSites = await q('SELECT id, site_code, address, area, city, size, width, height FROM sites WHERE record_status="active"');
-    const existingCampaigns = await q('SELECT id, site_code, client, start_date, end_date FROM campaigns WHERE record_status="active"');
+    let existingSites = await q('SELECT id, site_code, address, area, city, size, width, height FROM sites WHERE record_status="active"');
 
     // Check if the workbook contains the Site Block format (Site Code + Location header, followed by Up Date / Down Date / Client rows)
     for (const name of wb.SheetNames) {
@@ -2538,7 +2537,7 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
       candidateSheets.push({ name: wb.SheetNames[0], sheet: wb.Sheets[wb.SheetNames[0]], headerIdx: 0, score: 0 });
     }
 
-    const existingSites = await q('SELECT id, site_code, address, area, city, size, width, height FROM sites WHERE record_status="active"');
+    existingSites = await q('SELECT id, site_code, address, area, city, size, width, height FROM sites WHERE record_status="active"');
 
     const parseNum = (val) => {
       if (typeof val === 'number') return isNaN(val) ? 0 : val;
