@@ -6,8 +6,16 @@ import ExcelJS from 'exceljs';
 import PptxGenJS from 'pptxgenjs';
 import api from './api';
 import { defaultSites, defaultSettings } from './defaultSites';
-import { canonicalSiteCode, isCombinedSite, getSiteTypeTag, getConflictSummary, getOverlappingSiteCodes } from './siteHierarchy';
+import { canonicalSiteCode, isCombinedSite, getSiteTypeTag, getConflictSummary, getOverlappingSiteCodes, SITE_PANELS } from './siteHierarchy';
 import './styles.css';
+
+// Helper to sanitize display titles and prevent "[Split Face via ...]" or "[Combined Block ...]" from showing anywhere
+export function cleanDisplayTitle(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/\s*\[(?:Split Face|Combined Block)[^\]]*\]/gi, '')
+    .trim();
+}
 
 // Class ErrorBoundary to prevent any white/black screens
 class ErrorBoundary extends Component {
@@ -4112,6 +4120,7 @@ function OccupancyView() {
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState('history'); // 'history' | '6months' | 'overview'
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
+  const [siteTypeFilter, setSiteTypeFilter] = useState('ALL'); // 'ALL' | 'Combined' | 'Split Face'
   const [search, setSearch] = useState('');
   const [modalData, setModalData] = useState(null); // For inspecting month/site booking history details
   
@@ -4333,16 +4342,48 @@ function OccupancyView() {
       return Array.from(siteMap.values()).sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
     }
 
-    // Default: calculate from Live DB Sites and Campaigns
-    const activeSites = dbSites.filter(s => s.record_status !== 'archived');
+    // Default: calculate from Live DB Sites, synthesized Combined/Split-face hierarchy, and Campaigns
+    const activeDbSites = dbSites.filter(s => s.record_status !== 'archived');
     const activeCampaigns = dbCampaigns.filter(c => c.record_status !== 'archived');
 
-    return activeSites.map(site => {
-      const cleanSite = (site.site_code || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    // Build complete site directory guaranteeing all combined & split-face sites exist
+    const siteMap = new Map();
+    activeDbSites.forEach(s => {
+      const c = canonicalSiteCode(s.site_code || `MB-${s.id}`);
+      if (c) siteMap.set(c, { ...s, site_code: c });
+    });
+
+    // Synthesize any missing combined or split-face sites defined in SITE_PANELS
+    Object.keys(SITE_PANELS).forEach(panelCode => {
+      const code = canonicalSiteCode(panelCode);
+      if (!siteMap.has(code)) {
+        // Inherit location/city context from an overlapping site in DB if available
+        const overlapCodes = getOverlappingSiteCodes(code);
+        const refSite = overlapCodes.map(oc => siteMap.get(oc)).find(Boolean);
+        siteMap.set(code, {
+          id: `v-${code}`,
+          site_code: code,
+          city: refSite?.city || 'Ahmedabad',
+          area: refSite?.area || refSite?.address || `Group ${code} Display`,
+          address: refSite?.address || refSite?.area || `Group ${code} Display`,
+          type: isCombinedSite(code) ? 'Combined Hoarding' : 'Split Face',
+          size: refSite?.size || '—',
+          isSynthesized: true
+        });
+      }
+    });
+
+    const allSitesList = Array.from(siteMap.values());
+
+    return allSitesList.map(site => {
+      const siteCode = canonicalSiteCode(site.site_code);
+      const overlappingCodes = new Set(getOverlappingSiteCodes(siteCode).map(canonicalSiteCode));
+      overlappingCodes.add(siteCode);
+
       const siteCamps = activeCampaigns.filter(c => {
         if (c.site_id && site.id && String(c.site_id) === String(site.id)) return true;
-        const cCode = (c.site_code || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        return cCode && cleanSite && (cCode === cleanSite || cCode.includes(cleanSite) || cleanSite.includes(cCode));
+        const cCode = canonicalSiteCode(c.site_code);
+        return cCode && overlappingCodes.has(cCode);
       });
 
       // Helper to calculate exact non-overlapping occupied days and track clients in window
@@ -4455,7 +4496,8 @@ function OccupancyView() {
 
       return {
         id: site.id,
-        site_code: site.site_code || `MB-${site.id}`,
+        site_code: siteCode,
+        siteType: getSiteTypeTag(siteCode), // 'Combined' | 'Split Face' | 'Single'
         city: site.city || '—',
         area: site.area || site.address || '—',
         currentClient,
@@ -4471,9 +4513,12 @@ function OccupancyView() {
     }).sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
   }, [dataSource, rawRows, dbSites, dbCampaigns, periods6M, periodsYearly, period365]);
 
-  // ── Filtered sites with simple Status Filter (All / Occupied / Vacant) ──
+  // ── Filtered sites with simple Status Filter (All / Occupied / Vacant) and Site Type Filter ──
   const filteredSites = useMemo(() => {
     return siteHistory.filter(s => {
+      if (siteTypeFilter === 'Combined' && s.siteType !== 'Combined') return false;
+      if (siteTypeFilter === 'Split Face' && s.siteType !== 'Split Face') return false;
+
       const isOccupied = s.currentStatus === 'active' || (s.pct365 && s.pct365 > 0);
       if (statusFilter === 'occupied' && !isOccupied) return false;
       if (statusFilter === 'vacant' && isOccupied) return false;
@@ -4489,7 +4534,7 @@ function OccupancyView() {
         (s.clients365 && s.clients365.some(c => c.toLowerCase().includes(q)))
       );
     });
-  }, [siteHistory, search, statusFilter]);
+  }, [siteHistory, search, statusFilter, siteTypeFilter]);
 
   // ── Complete Chronological Bookings Ledger (All Previous, Current, Upcoming) ──
   const allBookings = useMemo(() => {
@@ -4503,14 +4548,16 @@ function OccupancyView() {
           const eDate = parseFlexibleDate(c.end_date) || (sDate ? new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0, 23, 59, 59) : null);
           const isAct = sDate && eDate && sDate <= now && eDate >= now;
           const isUpc = sDate && sDate > now;
+          const sCode = canonicalSiteCode(s.site_code);
           list.push({
-            id: c.id || `${s.site_code}-${cIdx}`,
-            site_code: s.site_code,
+            id: c.id || `${sCode}-${cIdx}`,
+            site_code: sCode,
+            siteType: getSiteTypeTag(sCode),
             location: s.area,
             city: s.city,
             client: c.client || c.client_name || '—',
             brand: c.brand || '—',
-            display: c.campaign_name || c.display || '—',
+            display: cleanDisplayTitle(c.campaign_name || c.display || '—'),
             vendor_name: c.vendor_name || '—',
             month: c.month || (sDate ? fmtMonthYear(sDate) : '—'),
             start_date: c.start_date || c.booking_date,
@@ -4528,12 +4575,12 @@ function OccupancyView() {
       });
     } else {
       const activeSitesMap = new Map();
-      dbSites.forEach(s => activeSitesMap.set(String(s.site_code || '').toUpperCase(), s));
+      dbSites.forEach(s => activeSitesMap.set(canonicalSiteCode(s.site_code), s));
 
       dbCampaigns
         .filter(c => c.record_status !== 'archived')
         .forEach(c => {
-          const sCode = String(c.site_code || '').toUpperCase();
+          const sCode = canonicalSiteCode(c.site_code);
           const site = activeSitesMap.get(sCode);
           const sDate = parseFlexibleDate(c.start_date || c.booking_date);
           const eDate = parseFlexibleDate(c.end_date) || (sDate ? new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0, 23, 59, 59) : null);
@@ -4542,12 +4589,13 @@ function OccupancyView() {
 
           list.push({
             id: c.id,
-            site_code: c.site_code || '—',
+            site_code: sCode || '—',
+            siteType: getSiteTypeTag(sCode),
             location: c.location || site?.address || site?.area || '—',
             city: c.city || site?.city || 'Ahmedabad',
             client: c.client || c.client_name || '—',
             brand: c.brand || '—',
-            display: c.display || c.campaign_name || '—',
+            display: cleanDisplayTitle(c.display || c.campaign_name || '—'),
             vendor_name: c.vendor_name || '—',
             month: c.month || (sDate ? fmtMonthYear(sDate) : '—'),
             start_date: c.start_date || c.booking_date,
@@ -4575,6 +4623,9 @@ function OccupancyView() {
 
   const filteredBookings = useMemo(() => {
     return allBookings.filter(b => {
+      if (siteTypeFilter === 'Combined' && b.siteType !== 'Combined') return false;
+      if (siteTypeFilter === 'Split Face' && b.siteType !== 'Split Face') return false;
+
       if (statusFilter === 'occupied' && b.status !== 'active') return false;
       if (statusFilter === 'past' && b.status !== 'past') return false;
       if (statusFilter === 'upcoming' && b.status !== 'upcoming') return false;
@@ -4592,7 +4643,7 @@ function OccupancyView() {
         (b.bill && b.bill.toLowerCase().includes(q))
       );
     });
-  }, [allBookings, statusFilter, search]);
+  }, [allBookings, statusFilter, siteTypeFilter, search]);
 
   const activeBookingsCount = useMemo(() => allBookings.filter(b => b.status === 'active').length, [allBookings]);
   const pastBookingsCount = useMemo(() => allBookings.filter(b => b.status === 'past').length, [allBookings]);
@@ -4999,6 +5050,61 @@ function OccupancyView() {
                 </button>
               )}
             </div>
+
+            {/* Site Hierarchy Filter: All, Combined, Split Face */}
+            <div style={{ display: 'inline-flex', gap: '4px', background: 'rgba(15, 23, 42, 0.6)', padding: '3px', borderRadius: '20px', border: '1px solid #1e293b' }}>
+              <button
+                type="button"
+                onClick={() => setSiteTypeFilter('ALL')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: siteTypeFilter === 'ALL' ? 'rgba(148, 163, 184, 0.2)' : 'transparent',
+                  color: siteTypeFilter === 'ALL' ? '#f1f5f9' : '#94a3b8',
+                  fontWeight: siteTypeFilter === 'ALL' ? 800 : 600,
+                  fontSize: '11px',
+                  cursor: 'pointer'
+                }}
+                title="Show all single, combined, and split-face sites"
+              >
+                All Types
+              </button>
+              <button
+                type="button"
+                onClick={() => setSiteTypeFilter(prev => prev === 'Combined' ? 'ALL' : 'Combined')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: siteTypeFilter === 'Combined' ? 'rgba(168, 85, 247, 0.25)' : 'transparent',
+                  color: siteTypeFilter === 'Combined' ? '#c084fc' : '#94a3b8',
+                  fontWeight: siteTypeFilter === 'Combined' ? 800 : 600,
+                  fontSize: '11px',
+                  cursor: 'pointer'
+                }}
+                title="Filter multi-panel combined sites (e.g. MB-04, MB-05, MB-06, MB-10, MB-17)"
+              >
+                🔀 Combined
+              </button>
+              <button
+                type="button"
+                onClick={() => setSiteTypeFilter(prev => prev === 'Split Face' ? 'ALL' : 'Split Face')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: siteTypeFilter === 'Split Face' ? 'rgba(56, 189, 248, 0.25)' : 'transparent',
+                  color: siteTypeFilter === 'Split Face' ? '#38bdf8' : '#94a3b8',
+                  fontWeight: siteTypeFilter === 'Split Face' ? 800 : 600,
+                  fontSize: '11px',
+                  cursor: 'pointer'
+                }}
+                title="Filter individual split face panels"
+              >
+                ✂️ Split Face
+              </button>
+            </div>
           </div>
 
           {/* Right: Clean View Switcher & Action Buttons */}
@@ -5155,9 +5261,26 @@ function OccupancyView() {
                     return (
                       <tr key={b.id || bIdx}>
                         <td>
-                          <span className="scooh-plate" style={{ fontSize: '11.5px', fontWeight: 800 }}>
-                            {b.site_code}
-                          </span>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span className="scooh-plate" style={{ fontSize: '11.5px', fontWeight: 800 }}>
+                              {b.site_code}
+                            </span>
+                            {b.siteType && b.siteType !== 'Single' && (
+                              <span
+                                style={{
+                                  fontSize: '9.5px',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  background: b.siteType === 'Combined' ? 'rgba(168,85,247,0.2)' : 'rgba(56,189,248,0.2)',
+                                  color: b.siteType === 'Combined' ? '#c084fc' : '#38bdf8',
+                                  border: `1px solid ${b.siteType === 'Combined' ? 'rgba(168,85,247,0.4)' : 'rgba(56,189,248,0.4)'}`,
+                                  fontWeight: 700
+                                }}
+                              >
+                                {b.siteType}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td>
                           <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '12.5px', lineHeight: 1.3 }}>
@@ -5326,14 +5449,31 @@ function OccupancyView() {
                     return (
                       <tr key={s.site_code || idx}>
                         <td style={{ position: 'sticky', left: 0, zIndex: 2, background: idx % 2 === 0 ? '#0b1016' : '#10161e' }}>
-                          <span 
-                            className="scooh-plate" 
-                            style={{ cursor: 'pointer' }}
-                            onClick={() => setModalData({ siteCode: s.site_code, area: s.area, periodLabel: 'All Bookings History', campaigns: s.allCampaigns || [] })}
-                            title="Click to view all booking history"
-                          >
-                            {s.site_code}
-                          </span>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span 
+                              className="scooh-plate" 
+                              style={{ cursor: 'pointer' }}
+                              onClick={() => setModalData({ siteCode: s.site_code, area: s.area, periodLabel: 'All Bookings History', campaigns: s.allCampaigns || [] })}
+                              title="Click to view all booking history"
+                            >
+                              {s.site_code}
+                            </span>
+                            {s.siteType && s.siteType !== 'Single' && (
+                              <span
+                                style={{
+                                  fontSize: '9.5px',
+                                  padding: '1px 5px',
+                                  borderRadius: '4px',
+                                  background: s.siteType === 'Combined' ? 'rgba(168,85,247,0.2)' : 'rgba(56,189,248,0.2)',
+                                  color: s.siteType === 'Combined' ? '#c084fc' : '#38bdf8',
+                                  border: `1px solid ${s.siteType === 'Combined' ? 'rgba(168,85,247,0.4)' : 'rgba(56,189,248,0.4)'}`,
+                                  fontWeight: 700
+                                }}
+                              >
+                                {s.siteType}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td><b>{s.area}</b></td>
                         {clientCell}
@@ -5379,14 +5519,31 @@ function OccupancyView() {
                   return (
                     <tr key={s.site_code || idx}>
                       <td style={{ position: 'sticky', left: 0, zIndex: 2, background: idx % 2 === 0 ? '#0b1016' : '#10161e' }}>
-                        <span 
-                          className="scooh-plate" 
-                          style={{ cursor: 'pointer' }}
-                          onClick={() => setModalData({ siteCode: s.site_code, area: s.area, periodLabel: 'All Bookings History', campaigns: s.allCampaigns || [] })}
-                          title="Click to view all booking history"
-                        >
-                          {s.site_code}
-                        </span>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span 
+                            className="scooh-plate" 
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => setModalData({ siteCode: s.site_code, area: s.area, periodLabel: 'All Bookings History', campaigns: s.allCampaigns || [] })}
+                            title="Click to view all booking history"
+                          >
+                            {s.site_code}
+                          </span>
+                          {s.siteType && s.siteType !== 'Single' && (
+                            <span
+                              style={{
+                                fontSize: '9.5px',
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                background: s.siteType === 'Combined' ? 'rgba(168,85,247,0.2)' : 'rgba(56,189,248,0.2)',
+                                color: s.siteType === 'Combined' ? '#c084fc' : '#38bdf8',
+                                border: `1px solid ${s.siteType === 'Combined' ? 'rgba(168,85,247,0.4)' : 'rgba(56,189,248,0.4)'}`,
+                                fontWeight: 700
+                              }}
+                            >
+                              {s.siteType}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td><b>{s.area}</b></td>
                       {clientCell}
@@ -5712,6 +5869,7 @@ function CampaignTrackerView() {
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState('');
   const [importingExcel, setImportingExcel] = useState(false);
+  const [isViewingOnly, setIsViewingOnly] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   const topScrollRef = useRef(null);
@@ -6122,6 +6280,28 @@ function CampaignTrackerView() {
     }
   }
 
+  async function handleDeleteAllCampaigns() {
+    if (!canDelete) return;
+    const allVisibleCampIds = filteredLatest.map(r => r.campaign_id).filter(Boolean);
+    const count = allVisibleCampIds.length;
+    if (count === 0) {
+      alert('There are no active or visible campaign records to delete.');
+      return;
+    }
+    if (!confirm(`⚠️ DANGER: Are you sure you want to permanently delete ALL ${count} visible campaign records from the Campaign Tracker?\n\nThis will clear all booking data for these sites. This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await api.post('/campaigns/batch-delete', { ids: allVisibleCampIds, hard: true });
+      setBanner(`✓ All ${count} campaign records deleted successfully.`);
+      setSelectedIds(new Set());
+      await loadData();
+      setTimeout(() => setBanner(''), 5000);
+    } catch (err) {
+      alert('Failed to delete all campaigns: ' + (err.response?.data?.message || err.message));
+    }
+  }
+
   async function deleteRecord(id) {
     if (!canDelete) return;
     if (confirm('Are you sure you want to permanently delete this campaign record?')) {
@@ -6165,6 +6345,7 @@ function CampaignTrackerView() {
 
   function openNewCampaign(code) {
     if (!canAdd) return;
+    setIsViewingOnly(false);
     const initialSiteCode = typeof code === 'string' && code ? code : (siteQueryParam || (search.trim().startsWith('MB-') ? search.trim() : ''));
     setModalSiteCode(initialSiteCode);
     const foundSite = sites.find(s => String(s.site_code || '').toUpperCase() === initialSiteCode.toUpperCase());
@@ -6206,6 +6387,20 @@ function CampaignTrackerView() {
 
   function openEditCampaign(r) {
     if (!r) return;
+    setIsViewingOnly(false);
+    setModalSiteCode(r.site_code || '');
+    setModalLocation(r.location || '');
+    setModalWidth(r.width ?? '');
+    setModalHeight(r.height ?? '');
+    setModalSize(r.size || '');
+    setModalType(r.type || 'Hoarding');
+    setAutoMatchedSite(null);
+    setEditModal(r);
+  }
+
+  function openViewCampaign(r) {
+    if (!r) return;
+    setIsViewingOnly(true);
     setModalSiteCode(r.site_code || '');
     setModalLocation(r.location || '');
     setModalWidth(r.width ?? '');
@@ -6370,7 +6565,7 @@ function CampaignTrackerView() {
         <td>
           {item.display ? (
             <div style={{ color: '#38bdf8', fontWeight: 600, fontSize: '12.5px' }}>
-              📢 {item.display}
+              📢 {cleanDisplayTitle(item.display)}
             </div>
           ) : (
             <span style={{ color: '#64748b' }}>—</span>
@@ -6452,7 +6647,29 @@ function CampaignTrackerView() {
         </td>
         <td>
           <div className="scooh-rowactions" style={{ justifyContent: 'center', gap: '5px' }}>
-            {canAdd && (
+            {item.campaign && (
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                style={{ fontSize: '11px', padding: '3px 8px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.4)' }}
+                onClick={() => openViewCampaign(item.campaign)}
+                title="View campaign specifications and billing details"
+              >
+                👁 View
+              </button>
+            )}
+            {item.campaign && canEdit && !isReadOnly && (
+              <button
+                type="button"
+                className="scooh-iconbtn scooh-text-action"
+                style={{ fontSize: '11px', padding: '3px 8px' }}
+                onClick={() => openEditCampaign(item.campaign)}
+                title="Edit campaign record"
+              >
+                ✏️ Edit
+              </button>
+            )}
+            {canAdd && !item.campaign && (
               <button
                 type="button"
                 className="scooh-btn purple-btn"
@@ -6463,21 +6680,10 @@ function CampaignTrackerView() {
                 + Book
               </button>
             )}
-            {item.campaign && canEdit && (
-              <button
-                type="button"
-                className="scooh-iconbtn scooh-text-action"
-                style={{ fontSize: '11px', padding: '3px 8px' }}
-                onClick={() => openEditCampaign(item.campaign)}
-                title="Edit latest campaign"
-              >
-                {isReadOnly ? 'View' : 'Edit'}
-              </button>
-            )}
             <button
               type="button"
               className="scooh-btn ghost"
-              style={{ fontSize: '11px', padding: '3px 8px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}
+              style={{ fontSize: '11px', padding: '3px 8px', color: '#cbd5e1', borderColor: 'rgba(255, 255, 255, 0.15)' }}
               onClick={() => navigate(`/occupancy?site=${encodeURIComponent(item.site_code)}`)}
               title={`View all ${item.campaignCount} historical bookings for ${item.site_code} in Occupancy`}
             >
@@ -6741,15 +6947,48 @@ function CampaignTrackerView() {
               </button>
             )}
 
-            {canDelete && selectedIds.size > 0 && (
-              <button
-                type="button"
-                className="scooh-btn danger"
-                style={{ fontSize: '11.5px', padding: '5px 12px' }}
-                onClick={handleBatchDelete}
-              >
-                🗑 Delete Selected ({selectedIds.size})
-              </button>
+            {canDelete && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginLeft: '4px' }}>
+                <button
+                  type="button"
+                  className="scooh-btn ghost"
+                  style={{ fontSize: '11.5px', padding: '5px 10px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}
+                  onClick={selectAllVisible}
+                  title="Select all visible campaign records"
+                >
+                  ☑ Select All
+                </button>
+                {selectedIds.size > 0 && (
+                  <button
+                    type="button"
+                    className="scooh-btn ghost"
+                    style={{ fontSize: '11.5px', padding: '5px 10px' }}
+                    onClick={deselectAll}
+                    title="Clear selection"
+                  >
+                    ☐ Deselect All
+                  </button>
+                )}
+                {selectedIds.size > 0 && (
+                  <button
+                    type="button"
+                    className="scooh-btn danger"
+                    style={{ fontSize: '11.5px', padding: '5px 12px' }}
+                    onClick={handleBatchDelete}
+                  >
+                    🗑 Delete Selected ({selectedIds.size})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="scooh-btn danger"
+                  style={{ fontSize: '11.5px', padding: '5px 12px', background: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.35)', color: '#f87171' }}
+                  onClick={handleDeleteAllCampaigns}
+                  title="Delete all visible campaign records with confirmation"
+                >
+                  🗑 Delete All
+                </button>
+              </div>
             )}
           </div>
 
@@ -6863,9 +7102,9 @@ function CampaignTrackerView() {
           <div className="scooh-modal" style={{ maxWidth: '780px', width: '92%' }} onClick={e => e.stopPropagation()}>
             <div className="scooh-modalhead">
               <div>
-                <h2>{editModal.id ? (isReadOnly ? 'View Campaign Record' : 'Edit Campaign Record') : 'Add Campaign Record'}</h2>
+                <h2>{editModal.id ? (isViewingOnly || isReadOnly ? '👁 View Campaign Details' : 'Edit Campaign Record') : 'Add Campaign Record'}</h2>
                 <span className="scooh-modal-subtitle">
-                  {isReadOnly ? 'Read-only view of campaign specifications and billing details' : 'Enter outdoor campaign specifications and billing details'}
+                  {isViewingOnly || isReadOnly ? 'Detailed specification, schedule, and financial preview for this booking' : 'Enter outdoor campaign specifications and billing details'}
                 </span>
               </div>
               <button type="button" className="scooh-modalclose" onClick={() => setEditModal(null)}>×</button>
@@ -6888,7 +7127,7 @@ function CampaignTrackerView() {
                       value={modalSiteCode}
                       onChange={e => handleSiteCodeChange(e.target.value)}
                       placeholder="e.g. MB-06 or MB-02"
-                      disabled={isReadOnly}
+                      disabled={isViewingOnly || isReadOnly}
                     />
                     <datalist id="campaign-site-codes-list">
                       {sites.map(s => (
@@ -6898,7 +7137,7 @@ function CampaignTrackerView() {
                       ))}
                     </datalist>
                   </div>
-                  {autoMatchedSite && (
+                  {autoMatchedSite && !isViewingOnly && (
                     <div style={{
                       gridColumn: '1 / -1',
                       padding: '9px 13px',
@@ -6978,39 +7217,33 @@ function CampaignTrackerView() {
                   })()}
                   <div className="scooh-field">
                     <label>Month</label>
-                    <input name="month" defaultValue={editModal.month ?? ''} placeholder="e.g. Oct 2026" disabled={isReadOnly} />
+                    <input name="month" defaultValue={editModal.month ?? ''} placeholder="e.g. Oct 2026" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
-                    <label>Date</label>
-                    <input type="date" name="booking_date" defaultValue={editModal.booking_date ? editModal.booking_date.slice(0, 10) : new Date().toISOString().slice(0, 10)} disabled={isReadOnly} />
+                    <label>Booking Date</label>
+                    <input type="date" name="booking_date" defaultValue={editModal.booking_date ? editModal.booking_date.slice(0, 10) : ''} disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field" style={{ gridColumn: 'span 2' }}>
-                    <label>Client/Agency Name *</label>
-                    <input name="client" defaultValue={editModal.client ?? editModal.client_name ?? ''} required placeholder="Enter Client or Agency Name" disabled={isReadOnly} />
+                    <label>Client / Agency</label>
+                    <input name="client" defaultValue={editModal.client ?? editModal.client_name ?? ''} placeholder="Client company or agency" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field" style={{ gridColumn: 'span 2' }}>
-                    <label>Display (Brand / Campaign Headline)</label>
-                    <input name="display" defaultValue={editModal.display ?? editModal.campaign_name ?? ''} placeholder="Enter Brand / Campaign Headline" disabled={isReadOnly} />
+                    <label>Display / Brand</label>
+                    <input name="display" defaultValue={cleanDisplayTitle(editModal.display ?? editModal.campaign_name ?? '')} placeholder="Display title or brand" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>Vendor Name</label>
-                    <input name="vendor_name" defaultValue={editModal.vendor_name ?? ''} placeholder="Enter Vendor Name" disabled={isReadOnly} />
+                    <input name="vendor_name" defaultValue={editModal.vendor_name ?? ''} placeholder="Printing/Mounting vendor" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
-                    <label>Location</label>
+                    <label>Location / Address</label>
                     <input
                       name="location"
-                      list="campaign-location-suggestions"
                       value={modalLocation}
                       onChange={e => setModalLocation(e.target.value)}
-                      placeholder="e.g. SG Highway, Bodakdev"
-                      disabled={isReadOnly}
+                      placeholder="e.g. Nr DMart / Shivranjani"
+                      disabled={isViewingOnly || isReadOnly}
                     />
-                    <datalist id="campaign-location-suggestions">
-                      {Array.from(new Set(sites.map(s => s.address || s.area).filter(Boolean))).map((loc, idx) => (
-                        <option key={idx} value={loc} />
-                      ))}
-                    </datalist>
                   </div>
                   <div className="scooh-field">
                     <label>Width (ft)</label>
@@ -7024,8 +7257,8 @@ function CampaignTrackerView() {
                         setModalWidth(val);
                         if (val && modalHeight) setModalSize(`${val}x${modalHeight} ft`);
                       }}
-                      placeholder="40"
-                      disabled={isReadOnly}
+                      placeholder="e.g. 40"
+                      disabled={isViewingOnly || isReadOnly}
                     />
                   </div>
                   <div className="scooh-field">
@@ -7040,8 +7273,8 @@ function CampaignTrackerView() {
                         setModalHeight(val);
                         if (modalWidth && val) setModalSize(`${modalWidth}x${val} ft`);
                       }}
-                      placeholder="20"
-                      disabled={isReadOnly}
+                      placeholder="e.g. 20"
+                      disabled={isViewingOnly || isReadOnly}
                     />
                   </div>
                   <div className="scooh-field">
@@ -7049,15 +7282,9 @@ function CampaignTrackerView() {
                     <input
                       name="size"
                       value={modalSize}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setModalSize(val);
-                        const parsed = parseDimensions(val);
-                        if (parsed.width) setModalWidth(parsed.width);
-                        if (parsed.height) setModalHeight(parsed.height);
-                      }}
+                      onChange={e => setModalSize(e.target.value)}
                       placeholder="e.g. 40x20 ft"
-                      disabled={isReadOnly}
+                      disabled={isViewingOnly || isReadOnly}
                     />
                   </div>
                   <div className="scooh-field">
@@ -7066,7 +7293,7 @@ function CampaignTrackerView() {
                       name="type"
                       value={modalType}
                       onChange={e => setModalType(e.target.value)}
-                      disabled={isReadOnly}
+                      disabled={isViewingOnly || isReadOnly}
                     >
                       <option value="Hoarding">Hoarding</option>
                       <option value="Gantry">Gantry</option>
@@ -7077,55 +7304,70 @@ function CampaignTrackerView() {
                   </div>
                   <div className="scooh-field">
                     <label>Start Date</label>
-                    <input type="date" name="start_date" defaultValue={editModal.start_date ? editModal.start_date.slice(0, 10) : ''} disabled={isReadOnly} />
+                    <input type="date" name="start_date" defaultValue={editModal.start_date ? editModal.start_date.slice(0, 10) : ''} disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>End Date</label>
-                    <input type="date" name="end_date" defaultValue={editModal.end_date ? editModal.end_date.slice(0, 10) : ''} disabled={isReadOnly} />
+                    <input type="date" name="end_date" defaultValue={editModal.end_date ? editModal.end_date.slice(0, 10) : ''} disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>Days</label>
-                    <input type="number" name="days" defaultValue={editModal.days ?? 30} placeholder="30" disabled={isReadOnly} />
+                    <input type="number" name="days" defaultValue={editModal.days ?? 30} placeholder="30" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>Advt. Fees per month (₹)</label>
-                    <input type="number" step="any" name="advt_fees" defaultValue={editModal.advt_fees ?? ''} placeholder="0" disabled={isReadOnly} />
+                    <input type="number" step="any" name="advt_fees" defaultValue={editModal.advt_fees ?? ''} placeholder="0" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>Printing & Mounting (₹)</label>
-                    <input type="number" step="any" name="printing_mounting_cost" defaultValue={editModal.printing_mounting_cost ?? ''} placeholder="0" disabled={isReadOnly} />
+                    <input type="number" step="any" name="printing_mounting_cost" defaultValue={editModal.printing_mounting_cost ?? ''} placeholder="0" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>Total Amount (₹)</label>
-                    <input type="number" step="any" name="total_amount" defaultValue={editModal.total_amount ?? editModal.revenue ?? ''} placeholder="0" disabled={isReadOnly} />
+                    <input type="number" step="any" name="total_amount" defaultValue={editModal.total_amount ?? editModal.revenue ?? ''} placeholder="0" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>PO (Purchase Order)</label>
-                    <input name="po" defaultValue={editModal.po ?? ''} placeholder="e.g. PO-2026-881" disabled={isReadOnly} />
+                    <input name="po" defaultValue={editModal.po ?? ''} placeholder="e.g. PO-2026-881" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>Bill (Invoice No / Status)</label>
-                    <input name="bill" defaultValue={editModal.bill ?? editModal.invoice_no ?? ''} placeholder="e.g. INV-9912 / Sent" disabled={isReadOnly} />
+                    <input name="bill" defaultValue={editModal.bill ?? editModal.invoice_no ?? ''} placeholder="e.g. INV-9912 / Sent" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>Pending (₹)</label>
-                    <input type="number" step="any" name="pending" defaultValue={editModal.pending ?? ''} placeholder="0" disabled={isReadOnly} />
+                    <input type="number" step="any" name="pending" defaultValue={editModal.pending ?? ''} placeholder="0" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field" style={{ gridColumn: 'span 2' }}>
                     <label>Notes</label>
-                    <textarea name="notes" rows="2" defaultValue={editModal.notes ?? ''} placeholder="Campaign notes or instructions…" disabled={isReadOnly} />
+                    <textarea name="notes" rows="2" defaultValue={editModal.notes ?? ''} placeholder="Campaign notes or instructions…" disabled={isViewingOnly || isReadOnly} />
                   </div>
                 </div>
               </div>
-              <div className="scooh-modalfoot">
-                <button type="button" className="scooh-btn ghost" onClick={() => setEditModal(null)}>
-                  {isReadOnly ? 'Close' : 'Cancel'}
-                </button>
-                {!isReadOnly && (
-                  <button type="submit" className="scooh-btn purple-btn" disabled={saving}>
-                    {saving ? 'Saving…' : editModal.id ? 'Update Campaign' : 'Create Campaign'}
+              <div className="scooh-modalfoot" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  {isViewingOnly && canEdit && !isReadOnly && (
+                    <button
+                      type="button"
+                      className="scooh-btn ghost"
+                      style={{ color: '#fbbf24', borderColor: 'rgba(251, 191, 36, 0.4)', fontSize: '12px' }}
+                      onClick={() => setIsViewingOnly(false)}
+                      title="Switch to edit mode"
+                    >
+                      ✏️ Edit This Campaign
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button type="button" className="scooh-btn ghost" onClick={() => setEditModal(null)}>
+                    {isViewingOnly || isReadOnly ? 'Close' : 'Cancel'}
                   </button>
-                )}
+                  {!isViewingOnly && !isReadOnly && (
+                    <button type="submit" className="scooh-btn purple-btn" disabled={saving}>
+                      {saving ? 'Saving…' : editModal.id ? 'Update Campaign' : 'Create Campaign'}
+                    </button>
+                  )}
+                </div>
               </div>
             </form>
           </div>

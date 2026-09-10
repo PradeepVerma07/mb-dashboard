@@ -286,8 +286,7 @@ export async function syncLinkedCampaigns(q, primaryCampaignId) {
     // Sync each linked site
     for (const linkedCode of overlapping) {
       const isComb = isCombinedSite(linkedCode);
-      const linkTag = isComb ? `Combined Block via ${primary.site_code}` : `Split Face via ${primary.site_code}`;
-      const displayTitle = `${primary.campaign_name || 'Campaign'} [${linkTag}]`;
+      const displayTitle = primary.campaign_name || primary.display || primary.brand || 'Standard Display';
       const notesText = `Auto-booked: Linked to ${primary.site_code} booking #${primary.booking_code || primary.id}`;
       const bookingCode = `MB-BK-LNK-${primary.id}-${linkedCode}`;
 
