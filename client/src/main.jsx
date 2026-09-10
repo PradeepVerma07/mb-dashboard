@@ -4127,6 +4127,9 @@ function OccupancyView() {
 
   const currentRole = getCurrentRole();
   const canImport = currentRole === 'admin' || currentRole === 'manager';
+  const canDelete = currentRole === 'admin' || currentRole === 'manager';
+  const [selectedSiteCodes, setSelectedSiteCodes] = useState(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   // Auto-sync search from URL (e.g. /occupancy?site=MB-01)
   useEffect(() => {
@@ -4461,6 +4464,138 @@ function OccupancyView() {
     });
   }, [siteHistory, search, statusFilter, siteTypeFilter]);
 
+  // ── Site Selection & Bulk Delete Operations ────────────────────────────
+  const selectedCount = selectedSiteCodes.size;
+  const allVisibleSelected = filteredSites.length > 0 && filteredSites.every(s => selectedSiteCodes.has(s.site_code));
+
+  const selectedTotalCampCount = useMemo(() => {
+    let count = 0;
+    filteredSites.forEach(s => {
+      if (selectedSiteCodes.has(s.site_code)) {
+        count += (s.allCampaigns || []).length;
+      }
+    });
+    return count;
+  }, [filteredSites, selectedSiteCodes]);
+
+  function toggleSelectSite(code) {
+    if (!code) return;
+    setSelectedSiteCodes(prev => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (allVisibleSelected) {
+      setSelectedSiteCodes(prev => {
+        const next = new Set(prev);
+        filteredSites.forEach(s => next.delete(s.site_code));
+        return next;
+      });
+    } else {
+      setSelectedSiteCodes(prev => {
+        const next = new Set(prev);
+        filteredSites.forEach(s => next.add(s.site_code));
+        return next;
+      });
+    }
+  }
+
+  function deselectAll() {
+    setSelectedSiteCodes(new Set());
+  }
+
+  async function handleBatchDeleteBookings() {
+    if (!canDelete || selectedSiteCodes.size === 0) return;
+    const selectedSitesList = filteredSites.filter(s => selectedSiteCodes.has(s.site_code));
+    const campIds = selectedSitesList.flatMap(s => (s.allCampaigns || []).map(c => c.id)).filter(Boolean);
+    const siteCount = selectedSiteCodes.size;
+    const campCount = campIds.length;
+
+    if (campCount === 0) {
+      alert(`The ${siteCount} selected site(s) currently have no booking records to delete (they are already 0% Vacant).`);
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete all ${campCount} booking record${campCount > 1 ? 's' : ''} on the ${siteCount} selected site${siteCount > 1 ? 's' : ''}?\n\nThis will reset their occupancy to 0% (Vacant). The sites will remain in your inventory.`)) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      await api.post('/campaigns/batch-delete', { ids: campIds, hard: true });
+      alert(`✓ Successfully deleted ${campCount} booking record${campCount > 1 ? 's' : ''} across ${siteCount} site${siteCount > 1 ? 's' : ''}. Occupancy reset to 0% (Vacant).`);
+      setSelectedSiteCodes(new Set());
+      await loadSystemData();
+    } catch (err) {
+      console.error('Failed to delete occupancy bookings:', err);
+      alert('Failed to delete bookings: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function handleBatchDeleteSites() {
+    if (!canDelete || selectedSiteCodes.size === 0) return;
+    const siteCount = selectedSiteCodes.size;
+    const selectedSitesList = filteredSites.filter(s => selectedSiteCodes.has(s.site_code));
+    const siteIds = selectedSitesList.map(s => s.id).filter(Boolean);
+    const campIds = selectedSitesList.flatMap(s => (s.allCampaigns || []).map(c => c.id)).filter(Boolean);
+
+    if (!confirm(`⚠️ PERMANENT DELETION WARNING:\n\nAre you sure you want to permanently delete ${siteCount} site${siteCount > 1 ? 's' : ''} (${Array.from(selectedSiteCodes).slice(0, 5).join(', ')}${siteCount > 5 ? '…' : ''}) and all ${campIds.length} associated booking records completely from the inventory?\n\nThis action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      if (campIds.length > 0) {
+        await api.post('/campaigns/batch-delete', { ids: campIds, hard: true });
+      }
+      if (siteIds.length > 0) {
+        await api.post('/sites/batch-delete', { ids: siteIds, hard: true });
+      }
+      alert(`✓ Successfully deleted ${siteCount} site${siteCount > 1 ? 's' : ''} and all associated records.`);
+      setSelectedSiteCodes(new Set());
+      await loadSystemData();
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+    } catch (err) {
+      console.error('Failed to delete sites:', err);
+      alert('Failed to delete sites: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function handleDeleteAllOccupancy() {
+    if (!canDelete) return;
+    const allCampIds = filteredSites.flatMap(s => (s.allCampaigns || []).map(c => c.id)).filter(Boolean);
+    const count = allCampIds.length;
+    if (count === 0) {
+      alert('There are currently no active booking records across the visible sites.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to clear ALL ${count} booking records across all ${filteredSites.length} visible site(s)?\n\nThis will reset their occupancy to 0% (Vacant) so you can import clean monthly data. Sites will remain intact in inventory.`)) {
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      await api.post('/campaigns/batch-delete', { ids: allCampIds, hard: true });
+      alert(`✓ Successfully cleared ${count} booking record${count > 1 ? 's' : ''}. Occupancy reset to 0% (Vacant).`);
+      setSelectedSiteCodes(new Set());
+      await loadSystemData();
+    } catch (err) {
+      console.error('Failed to clear all occupancy:', err);
+      alert('Failed to clear bookings: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   // ── Overall Stats ─────────────────────────────────────────────────────
   const stats = useMemo(() => {
     const total = siteHistory.length;
@@ -4779,6 +4914,63 @@ function OccupancyView() {
                 ✂️ Split Face
               </button>
             </div>
+
+            {canDelete && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginLeft: '4px' }}>
+                <button
+                  type="button"
+                  className="scooh-btn ghost"
+                  style={{
+                    fontSize: '11px',
+                    padding: '4px 10px',
+                    color: allVisibleSelected ? '#38bdf8' : '#cbd5e1',
+                    borderColor: allVisibleSelected ? 'rgba(56, 189, 248, 0.4)' : 'rgba(255,255,255,0.15)',
+                    background: allVisibleSelected ? 'rgba(56, 189, 248, 0.12)' : 'transparent'
+                  }}
+                  onClick={toggleSelectAll}
+                  title={allVisibleSelected ? "Deselect all visible sites" : "Select all visible sites"}
+                >
+                  {allVisibleSelected ? '☑ Deselect All' : '☑ Select All'}
+                </button>
+
+                {selectedCount > 0 && (
+                  <button
+                    type="button"
+                    className="scooh-btn danger"
+                    style={{ fontSize: '11px', padding: '4px 10px' }}
+                    onClick={handleBatchDeleteBookings}
+                    disabled={deleting}
+                    title="Delete all booking records on selected sites (resets occupancy to 0% Vacant)"
+                  >
+                    🗑 Delete Bookings ({selectedCount})
+                  </button>
+                )}
+
+                {selectedCount > 0 && (
+                  <button
+                    type="button"
+                    className="scooh-btn danger"
+                    style={{ fontSize: '11px', padding: '4px 10px', background: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.35)', color: '#f87171' }}
+                    onClick={handleBatchDeleteSites}
+                    disabled={deleting}
+                    title="Permanently delete selected sites and their records from inventory"
+                  >
+                    ❌ Delete Sites ({selectedCount})
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="scooh-btn danger"
+                  style={{ fontSize: '11px', padding: '4px 10px', background: 'rgba(239, 68, 68, 0.08)', borderColor: 'rgba(239, 68, 68, 0.25)', color: '#fca5a5' }}
+                  onClick={handleDeleteAllOccupancy}
+                  disabled={deleting}
+                  title="Clear all booking and occupancy records across all visible sites"
+                >
+                  🗑 Clear All Bookings
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Right: Clean View Switcher & Action Buttons */}
@@ -4886,6 +5078,66 @@ function OccupancyView() {
         </div>
       </section>
 
+      {/* ── Sticky Selection Bar when 1 or more sites are checked ───────── */}
+      {canDelete && selectedCount > 0 && (
+        <div style={{
+          position: 'sticky',
+          top: '12px',
+          zIndex: 90,
+          background: 'rgba(15, 23, 42, 0.95)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid rgba(56, 189, 248, 0.4)',
+          borderRadius: '12px',
+          padding: '10px 18px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '14px',
+          flexWrap: 'wrap',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+          marginBottom: '16px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '13px', fontWeight: 800, color: '#38bdf8' }}>
+              ✓ {selectedCount} site{selectedCount > 1 ? 's' : ''} selected
+            </span>
+            <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+              ({selectedTotalCampCount} booking record{selectedTotalCampCount !== 1 ? 's' : ''})
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              style={{ fontSize: '11.5px', padding: '4px 12px' }}
+              onClick={deselectAll}
+            >
+              ✕ Deselect All
+            </button>
+            <button
+              type="button"
+              className="scooh-btn danger"
+              style={{ fontSize: '11.5px', padding: '5px 14px' }}
+              onClick={handleBatchDeleteBookings}
+              disabled={deleting}
+              title="Deletes booking history on selected sites, resetting them to 0% Vacant"
+            >
+              🗑️ Delete Bookings ({selectedTotalCampCount})
+            </button>
+            <button
+              type="button"
+              className="scooh-btn danger"
+              style={{ fontSize: '11.5px', padding: '5px 14px', background: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171' }}
+              onClick={handleBatchDeleteSites}
+              disabled={deleting}
+              title="Deletes selected sites and all their records from inventory"
+            >
+              ❌ Delete Sites ({selectedCount})
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Main Occupancy Table ────────────────────────────────────────── */}
       <section className="scooh-panel">
         {loading ? (
@@ -4931,7 +5183,18 @@ function OccupancyView() {
             <table className="scooh-table" style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead>
                 <tr>
-                  <th style={{ position: 'sticky', left: 0, zIndex: 3, background: '#10161e', minWidth: '110px' }}>Site ID</th>
+                  {canDelete && (
+                    <th style={{ width: '42px', minWidth: '42px', textAlign: 'center', position: 'sticky', left: 0, zIndex: 4, background: '#10161e' }}>
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAll}
+                        style={{ cursor: 'pointer', margin: 0 }}
+                        title={allVisibleSelected ? "Deselect all" : "Select all"}
+                      />
+                    </th>
+                  )}
+                  <th style={{ position: 'sticky', left: canDelete ? '42px' : 0, zIndex: 3, background: '#10161e', minWidth: '110px' }}>Site ID</th>
                   <th style={{ minWidth: '140px' }}>Location / Area</th>
                   <th style={{ minWidth: '160px' }}>Client / Brand</th>
 
@@ -5009,10 +5272,22 @@ function OccupancyView() {
                     const statusText = s.pct365 >= 75 ? 'Full' : s.pct365 >= 40 ? 'High' : s.pct365 > 0 ? 'Partial' : 'Vacant';
                     const badgeBg = s.pct365 >= 75 ? 'rgba(16, 185, 129, 0.15)' : s.pct365 >= 40 ? 'rgba(56, 189, 248, 0.15)' : s.pct365 > 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(100, 116, 139, 0.15)';
                     const badgeColor = s.pct365 >= 75 ? '#10b981' : s.pct365 >= 40 ? '#38bdf8' : s.pct365 > 0 ? '#f59e0b' : '#64748b';
+                    const isSelected = selectedSiteCodes.has(s.site_code);
 
                     return (
-                      <tr key={s.site_code || idx}>
-                        <td style={{ position: 'sticky', left: 0, zIndex: 2, background: idx % 2 === 0 ? '#0b1016' : '#10161e' }}>
+                      <tr key={s.site_code || idx} style={{ background: isSelected ? 'rgba(56, 189, 248, 0.08)' : undefined }}>
+                        {canDelete && (
+                          <td style={{ textAlign: 'center', position: 'sticky', left: 0, zIndex: 3, background: isSelected ? '#132338' : (idx % 2 === 0 ? '#0b1016' : '#10161e'), width: '42px', minWidth: '42px' }}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelectSite(s.site_code)}
+                              style={{ cursor: 'pointer', margin: 0 }}
+                              title={`Select site ${s.site_code}`}
+                            />
+                          </td>
+                        )}
+                        <td style={{ position: 'sticky', left: canDelete ? '42px' : 0, zIndex: 2, background: isSelected ? '#132338' : (idx % 2 === 0 ? '#0b1016' : '#10161e') }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                             <span 
                               className="scooh-plate" 
@@ -5079,10 +5354,22 @@ function OccupancyView() {
                     return typeof entry === 'object' ? (entry?.pct ?? 0) : (Number(entry) || 0);
                   });
                   const siteAvg = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 0;
+                  const isSelected = selectedSiteCodes.has(s.site_code);
 
                   return (
-                    <tr key={s.site_code || idx}>
-                      <td style={{ position: 'sticky', left: 0, zIndex: 2, background: idx % 2 === 0 ? '#0b1016' : '#10161e' }}>
+                    <tr key={s.site_code || idx} style={{ background: isSelected ? 'rgba(56, 189, 248, 0.08)' : undefined }}>
+                      {canDelete && (
+                        <td style={{ textAlign: 'center', position: 'sticky', left: 0, zIndex: 3, background: isSelected ? '#132338' : (idx % 2 === 0 ? '#0b1016' : '#10161e'), width: '42px', minWidth: '42px' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelectSite(s.site_code)}
+                            style={{ cursor: 'pointer', margin: 0 }}
+                            title={`Select site ${s.site_code}`}
+                          />
+                        </td>
+                      )}
+                      <td style={{ position: 'sticky', left: canDelete ? '42px' : 0, zIndex: 2, background: isSelected ? '#132338' : (idx % 2 === 0 ? '#0b1016' : '#10161e') }}>
                         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                           <span 
                             className="scooh-plate" 
