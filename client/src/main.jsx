@@ -4744,6 +4744,16 @@ function OccupancyView() {
         return cCode && overlappingCodes.has(cCode);
       });
 
+      // Sort site bookings strictly in ascending chronological order (earliest date first)
+      siteCamps.sort((a, b) => {
+        const da = parseFlexibleDate(a.start_date || a.booking_date) || new Date(0);
+        const db = parseFlexibleDate(b.start_date || b.booking_date) || new Date(0);
+        if (da.getTime() !== db.getTime()) return da - db;
+        const dea = parseFlexibleDate(a.end_date) || new Date(0);
+        const deb = parseFlexibleDate(b.end_date) || new Date(0);
+        return dea - deb;
+      });
+
       // Helper to calculate exact non-overlapping occupied days and track clients in window
       function getDaysAndClientsInWindow(wStart, wEnd) {
         const daySet = new Set();
@@ -4782,6 +4792,15 @@ function OccupancyView() {
           }
         });
 
+        relevantCampaigns.sort((a, b) => {
+          const da = parseFlexibleDate(a.start_date || a.booking_date) || new Date(0);
+          const db = parseFlexibleDate(b.start_date || b.booking_date) || new Date(0);
+          if (da.getTime() !== db.getTime()) return da - db;
+          const dea = parseFlexibleDate(a.end_date) || new Date(0);
+          const deb = parseFlexibleDate(b.end_date) || new Date(0);
+          return dea - deb;
+        });
+
         return {
           days: daySet.size,
           clients: Array.from(clientSet),
@@ -4796,13 +4815,13 @@ function OccupancyView() {
       let currentBrand = null;
       let currentStatus = 'vacant'; // 'active' | 'upcoming' | 'past' | 'vacant'
 
-      const sortedCamps = [...siteCamps].sort((a, b) => {
+      const sortedCampsDesc = [...siteCamps].sort((a, b) => {
         const da = parseFlexibleDate(a.start_date || a.booking_date) || new Date(0);
         const db = parseFlexibleDate(b.start_date || b.booking_date) || new Date(0);
         return db - da;
       });
 
-      for (const c of sortedCamps) {
+      for (const c of sortedCampsDesc) {
         const cStart = parseFlexibleDate(c.start_date || c.booking_date);
         const cEnd = parseFlexibleDate(c.end_date) || (cStart ? new Date(cStart.getFullYear(), cStart.getMonth() + 1, 0, 23, 59, 59) : null);
         const cName = c.client || c.client_name;
@@ -4834,19 +4853,25 @@ function OccupancyView() {
 
       // 6 Months breakdown
       const by6M = {};
+      let sum6M = 0;
       periods6M.forEach(p => {
         const res = getDaysAndClientsInWindow(p.start, p.end);
         const pct = Math.min(100, Math.round((res.days / p.totalDays) * 100));
         by6M[p.key] = { days: res.days, totalDays: p.totalDays, pct, clients: res.clients, brands: res.brands, campaigns: res.campaigns };
+        sum6M += pct;
       });
+      const avg6M = periods6M.length ? Math.round(sum6M / periods6M.length) : 0;
 
       // 12 Months breakdown
       const by12M = {};
+      let sum12M = 0;
       periods12M.forEach(p => {
         const res = getDaysAndClientsInWindow(p.start, p.end);
         const pct = Math.min(100, Math.round((res.days / p.totalDays) * 100));
         by12M[p.key] = { days: res.days, totalDays: p.totalDays, pct, clients: res.clients, brands: res.brands, campaigns: res.campaigns };
+        sum12M += pct;
       });
+      const avg12M = periods12M.length ? Math.round(sum12M / periods12M.length) : 0;
 
       // Yearly breakdown
       const byYearly = {};
@@ -4873,21 +4898,37 @@ function OccupancyView() {
         by6M,
         by12M,
         byYearly,
+        avg6M,
+        avg12M,
         days365: res365.days,
         pct365,
         clients365: res365.clients
       };
-    }).sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
+    }).sort((a, b) => {
+      // Occupied sites come in front
+      const aOcc = a.currentStatus === 'active' || (a.pct365 > 0) || (a.allCampaigns && a.allCampaigns.length > 0);
+      const bOcc = b.currentStatus === 'active' || (b.pct365 > 0) || (b.allCampaigns && b.allCampaigns.length > 0);
+      if (aOcc && !bOcc) return -1;
+      if (!aOcc && bOcc) return 1;
+
+      if (aOcc && bOcc) {
+        if (a.currentStatus === 'active' && b.currentStatus !== 'active') return -1;
+        if (a.currentStatus !== 'active' && b.currentStatus === 'active') return 1;
+        if (b.pct365 !== a.pct365) return b.pct365 - a.pct365;
+      }
+
+      return a.site_code.localeCompare(b.site_code, undefined, { numeric: true });
+    });
   }, [dbSites, dbOccupancy, periods6M, periods12M, periodsYearly, period365]);
 
   // ── Filtered sites with simple Status Filter (All / Occupied / Vacant) and Site Type Filter ──
   const filteredSites = useMemo(() => {
-    return siteHistory.filter(s => {
+    const list = siteHistory.filter(s => {
       if (!siteTypeFilter.has('Combined') && s.siteType === 'Combined') return false;
       if (!siteTypeFilter.has('Split Face') && s.siteType === 'Split Face') return false;
       if (!siteTypeFilter.has('ALL') && s.siteType !== 'Combined' && s.siteType !== 'Split Face') return false;
 
-      const isOccupied = s.currentStatus === 'active' || (s.pct365 && s.pct365 > 0);
+      const isOccupied = s.currentStatus === 'active' || (s.pct365 && s.pct365 > 0) || (s.allCampaigns && s.allCampaigns.length > 0);
       if (statusFilter === 'occupied' && !isOccupied) return false;
       if (statusFilter === 'vacant' && isOccupied) return false;
 
@@ -4902,7 +4943,26 @@ function OccupancyView() {
         (s.clients365 && s.clients365.some(c => c.toLowerCase().includes(q)))
       );
     });
-  }, [siteHistory, search, statusFilter, siteTypeFilter]);
+
+    // Occupied sites come in front for the currently selected viewTab
+    return list.sort((a, b) => {
+      const aOcc = a.currentStatus === 'active' || (a.pct365 > 0) || (a.allCampaigns && a.allCampaigns.length > 0);
+      const bOcc = b.currentStatus === 'active' || (b.pct365 > 0) || (b.allCampaigns && b.allCampaigns.length > 0);
+      if (aOcc && !bOcc) return -1;
+      if (!aOcc && bOcc) return 1;
+
+      if (aOcc && bOcc) {
+        if (a.currentStatus === 'active' && b.currentStatus !== 'active') return -1;
+        if (a.currentStatus !== 'active' && b.currentStatus === 'active') return 1;
+
+        const aAvg = viewTab === '12months' ? (a.avg12M ?? a.pct365) : viewTab === 'overview' ? a.pct365 : (a.avg6M ?? a.pct365);
+        const bAvg = viewTab === '12months' ? (b.avg12M ?? b.pct365) : viewTab === 'overview' ? b.pct365 : (b.avg6M ?? b.pct365);
+        if (bAvg !== aAvg) return bAvg - aAvg;
+      }
+
+      return a.site_code.localeCompare(b.site_code, undefined, { numeric: true });
+    });
+  }, [siteHistory, search, statusFilter, siteTypeFilter, viewTab]);
 
   // ── Site Selection & Bulk Delete Operations ────────────────────────────
   const selectedCount = selectedSiteCodes.size;
@@ -5913,7 +5973,14 @@ function OccupancyView() {
 
             {modalData.campaigns && modalData.campaigns.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {modalData.campaigns.map((c, i) => (
+                {[...modalData.campaigns].sort((a, b) => {
+                  const da = parseFlexibleDate(a.start_date || a.booking_date) || new Date(0);
+                  const db = parseFlexibleDate(b.start_date || b.booking_date) || new Date(0);
+                  if (da.getTime() !== db.getTime()) return da - db;
+                  const dea = parseFlexibleDate(a.end_date) || new Date(0);
+                  const deb = parseFlexibleDate(b.end_date) || new Date(0);
+                  return dea - deb;
+                }).map((c, i) => (
                   <div key={c.id || i} style={{ padding: '14px', background: '#0b1320', borderRadius: '8px', border: '1px solid #1e3a5f' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px', gap: '10px' }}>
                       <div>
@@ -5937,7 +6004,13 @@ function OccupancyView() {
 
                     <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: '#94a3b8', flexWrap: 'wrap', borderTop: '1px solid #1e293b', paddingTop: '8px', marginTop: '8px' }}>
                       {(c.start_date || c.booking_date) && (
-                        <span>🗓️ <b>Dates:</b> {new Date(c.start_date || c.booking_date).toLocaleDateString('en-IN')} to {c.end_date ? new Date(c.end_date).toLocaleDateString('en-IN') : 'Ongoing'}</span>
+                        <span>🗓️ <b>Dates:</b> {(() => {
+                          const sd = parseFlexibleDate(c.start_date || c.booking_date);
+                          const ed = parseFlexibleDate(c.end_date);
+                          const sStr = sd ? sd.toLocaleDateString('en-IN') : String(c.start_date || c.booking_date);
+                          const eStr = ed ? ed.toLocaleDateString('en-IN') : (c.end_date ? String(c.end_date) : 'Ongoing');
+                          return `${sStr} to ${eStr}`;
+                        })()}</span>
                       )}
                       {c.booking_code && (
                         <span>🔖 <b>Code:</b> {c.booking_code}</span>

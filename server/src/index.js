@@ -2794,7 +2794,7 @@ app.get('/api/occupancy', auth, async (req, res) => {
       KEY month(month),
       KEY record_status(record_status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
-    const rows = await q(`SELECT * FROM occupancy_records WHERE record_status="active" ORDER BY site_code ASC, start_date DESC`);
+    const rows = await q(`SELECT * FROM occupancy_records WHERE record_status="active" ORDER BY site_code ASC, start_date ASC, id ASC`);
     res.json(rows);
   } catch (err) {
     console.error('GET /api/occupancy error:', err);
