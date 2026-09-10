@@ -5068,21 +5068,7 @@ function OccupancyView() {
         pct365,
         clients365: res365.clients
       };
-    }).sort((a, b) => {
-      // Occupied sites come in front
-      const aOcc = a.currentStatus === 'active' || (a.pct365 > 0) || (a.occupiedCampaigns && a.occupiedCampaigns.length > 0);
-      const bOcc = b.currentStatus === 'active' || (b.pct365 > 0) || (b.occupiedCampaigns && b.occupiedCampaigns.length > 0);
-      if (aOcc && !bOcc) return -1;
-      if (!aOcc && bOcc) return 1;
-
-      if (aOcc && bOcc) {
-        if (a.currentStatus === 'active' && b.currentStatus !== 'active') return -1;
-        if (a.currentStatus !== 'active' && b.currentStatus === 'active') return 1;
-        if (b.pct365 !== a.pct365) return b.pct365 - a.pct365;
-      }
-
-      return a.site_code.localeCompare(b.site_code, undefined, { numeric: true });
-    });
+    }).sort((a, b) => universalCompare(a.site_code, b.site_code, 'asc'));
   }, [dbSites, dbOccupancy, dbCampaigns, periods6M, periods12M, periodsYearly, period365]);
 
   // ── Filtered sites with simple Status Filter (All / Occupied / Vacant) and Site Type Filter ──
@@ -5092,7 +5078,7 @@ function OccupancyView() {
       if (!siteTypeFilter.has('Split Face') && s.siteType === 'Split Face') return false;
       if (!siteTypeFilter.has('ALL') && s.siteType !== 'Combined' && s.siteType !== 'Split Face') return false;
 
-      const isOccupied = s.currentStatus === 'active' || (s.pct365 && s.pct365 > 0) || (s.occupiedCampaigns && s.occupiedCampaigns.length > 0);
+      const isOccupied = s.currentStatus === 'active';
       if (statusFilter === 'occupied' && !isOccupied) return false;
       if (statusFilter === 'vacant' && isOccupied) return false;
 
@@ -5108,25 +5094,9 @@ function OccupancyView() {
       );
     });
 
-    // Occupied sites come in front for the currently selected viewTab
-    return list.sort((a, b) => {
-      const aOcc = a.currentStatus === 'active' || (a.pct365 > 0) || (a.occupiedCampaigns && a.occupiedCampaigns.length > 0);
-      const bOcc = b.currentStatus === 'active' || (b.pct365 > 0) || (b.occupiedCampaigns && b.occupiedCampaigns.length > 0);
-      if (aOcc && !bOcc) return -1;
-      if (!aOcc && bOcc) return 1;
-
-      if (aOcc && bOcc) {
-        if (a.currentStatus === 'active' && b.currentStatus !== 'active') return -1;
-        if (a.currentStatus !== 'active' && b.currentStatus === 'active') return 1;
-
-        const aAvg = viewTab === '12months' ? (a.avg12M ?? a.pct365) : viewTab === 'overview' ? a.pct365 : (a.avg6M ?? a.pct365);
-        const bAvg = viewTab === '12months' ? (b.avg12M ?? b.pct365) : viewTab === 'overview' ? b.pct365 : (b.avg6M ?? b.pct365);
-        if (bAvg !== aAvg) return bAvg - aAvg;
-      }
-
-      return a.site_code.localeCompare(b.site_code, undefined, { numeric: true });
-    });
-  }, [siteHistory, search, statusFilter, siteTypeFilter, viewTab]);
+    // All site codes everywhere sorted in ascending order
+    return list.sort((a, b) => universalCompare(a.site_code, b.site_code, 'asc'));
+  }, [siteHistory, search, statusFilter, siteTypeFilter]);
 
   // ── Site Selection & Bulk Delete Operations ────────────────────────────
   const selectedCount = selectedSiteCodes.size;
@@ -5281,7 +5251,7 @@ function OccupancyView() {
     let occupiedCount = 0;
 
     siteHistory.forEach(s => {
-      const isOcc = s.currentStatus === 'active' || (s.pct365 && s.pct365 > 0);
+      const isOcc = s.currentStatus === 'active';
       if (isOcc) occupiedCount++;
       const p = s.pct365 || 0;
       totalPct += p;
@@ -6337,10 +6307,7 @@ function getCampaignOccupancy(r) {
   if (end && !isNaN(end.getTime())) {
     end.setHours(23, 59, 59, 999);
     if (end < today) {
-      if (r.status === 'active' || r.status === 'occupied' || r.occupancy_pct === 100) {
-        return { pct: 100, label: '100% Occupied', status: 'occupied' };
-      }
-      return { pct: 0, label: '0% Vacant', sub: 'Past', status: 'vacant' };
+      return { pct: 0, label: '0% Vacant', sub: 'Ended', status: 'vacant' };
     }
     if (start && !isNaN(start.getTime()) && start > today) {
       return {
@@ -6353,7 +6320,7 @@ function getCampaignOccupancy(r) {
     return { pct: 100, label: '100% Occupied', status: 'occupied' };
   }
 
-  if (r.record_status === 'active' || r.status === 'active' || r.status === 'occupied') {
+  if (r.status === 'occupied') {
     return { pct: 100, label: '100% Occupied', status: 'occupied' };
   }
   return { pct: 0, label: '0% Vacant', status: 'vacant' };
@@ -6510,7 +6477,7 @@ function CampaignTrackerView() {
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [vendorFilter, setVendorFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [sortState, setSortState] = useState({ key: 'id', dir: 'desc' });
+  const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState('');
   const [importingExcel, setImportingExcel] = useState(false);
@@ -6703,7 +6670,24 @@ function CampaignTrackerView() {
 
     const siteMap = new Map();
 
-    // Only add sites that have real campaign rows (Blank belongs in Occupancy only!)
+    // Populate all registered sites so every site exists in the master list
+    (sites || []).forEach(s => {
+      const code = String(s.site_code || '').trim().toUpperCase();
+      if (!code) return;
+      siteMap.set(code, {
+        code,
+        id: s.id || null,
+        location: s.address || s.area || '—',
+        city: s.city || 'Ahmedabad',
+        size: s.size || (s.width && s.height ? `${s.width}x${s.height} ft` : '—'),
+        width: s.width ?? null,
+        height: s.height ?? null,
+        type: s.type || 'Hoarding',
+        rows: []
+      });
+    });
+
+    // Add campaign rows to their corresponding site
     rows.forEach(r => {
       if (isVacantClient(r.client || r.client_name || r.display)) return;
       const code = String(r.site_code || 'UNASSIGNED').trim().toUpperCase();
@@ -6753,19 +6737,18 @@ function CampaignTrackerView() {
       const totalAmount = site.rows.reduce((sum, r) => sum + Number(r.total_amount || r.revenue || 0), 0);
       const totalPending = site.rows.reduce((sum, r) => sum + Number(r.pending || 0), 0);
 
-      // When a booking is done, status automatically changes from vacant to occupied!
+      // A site is occupied ONLY if it currently has an active campaign running today!
       let status = 'vacant';
       let currentCampaign = null;
       if (activeCampaign) {
         status = 'occupied';
         currentCampaign = activeCampaign;
       } else if (upcomingCampaign) {
-        status = 'occupied';
+        status = 'upcoming';
         currentCampaign = upcomingCampaign;
       } else if (latestCampaign) {
         currentCampaign = latestCampaign;
-        const isCampActive = latestCampaign.status === 'active' || latestCampaign.status === 'occupied' || latestCampaign.record_status === 'active';
-        status = isCampActive ? 'occupied' : 'vacant';
+        status = 'vacant';
       }
 
       return {
@@ -6782,7 +6765,7 @@ function CampaignTrackerView() {
       };
     });
 
-    return list.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+    return list.sort((a, b) => universalCompare(a.code, b.code, 'asc'));
   }, [sites, rows]);
 
   // Unified dataset: exactly 1 row per physical site displaying ONLY its latest/current booking
@@ -6806,7 +6789,7 @@ function CampaignTrackerView() {
         campaign_id: c?.id || null,
         campaign: c || null,
         month: c?.month || (c?.start_date ? new Date(c.start_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''),
-        occupancy: c ? getCampaignOccupancy(c) : { pct: 0, label: '0% Vacant', status: 'vacant' },
+        occupancy: (s.status === 'occupied' && c) ? getCampaignOccupancy(c) : { pct: 0, label: '0% Vacant', status: 'vacant' },
         booking_date: c?.booking_date || c?.date || '',
         client: c?.client || c?.client_name || '',
         display: c?.display || c?.campaign_name || '',
@@ -6844,7 +6827,7 @@ function CampaignTrackerView() {
   }, [latestSiteCampaigns]);
 
   const selectableSitesList = useMemo(() => {
-    return sites.filter(s => {
+    const list = sites.filter(s => {
       const code = String(s.site_code || '').trim().toUpperCase();
       if (!code) return false;
       if (onlyVacantFilter && !vacantSiteCodeSet.has(code)) return false;
@@ -6858,6 +6841,7 @@ function CampaignTrackerView() {
         String(s.media_type || s.type || '').toLowerCase().includes(q)
       );
     });
+    return list.sort((a, b) => universalCompare(a.site_code, b.site_code, 'asc'));
   }, [sites, siteFilterText, onlyVacantFilter, vacantSiteCodeSet]);
 
   function toggleModalSite(code) {
@@ -8137,7 +8121,7 @@ function CampaignTrackerView() {
                       disabled={isViewingOnly || isReadOnly}
                     />
                     <datalist id="campaign-site-codes-list">
-                      {sites.map(s => (
+                      {[...sites].sort((a, b) => universalCompare(a.site_code, b.site_code, 'asc')).map(s => (
                         <option key={s.id || s.site_code} value={s.site_code}>
                           {s.site_code} — {s.address || s.area || ''} ({s.size || `${s.width}x${s.height}`})
                         </option>
@@ -9358,7 +9342,7 @@ function ElectricityView() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [providerFilter, setProviderFilter] = useState('ALL');
   const [monthFilter, setMonthFilter] = useState('ALL');
-  const [sortState, setSortState] = useState({ key: 'due_date', dir: 'asc' });
+  const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState('');
   const [importingExcel, setImportingExcel] = useState(false);
@@ -11846,9 +11830,11 @@ function Crud({ entity, title }) {
     const list = (Array.isArray(rows) ? rows : []).filter(r => JSON.stringify(r).toLowerCase().includes(search.toLowerCase()));
     if (sortState.key) {
       list.sort((a, b) => universalCompare(a[sortState.key], b[sortState.key], sortState.dir));
+    } else if (fs.includes('site_code')) {
+      list.sort((a, b) => universalCompare(a.site_code, b.site_code, 'asc'));
     }
     return list;
-  }, [rows, search, sortState]);
+  }, [rows, search, sortState, fs]);
 
   function toggleSelect(id) {
     setSelectedIds(prev => {

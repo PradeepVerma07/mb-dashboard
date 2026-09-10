@@ -26,7 +26,7 @@ app.use('/uploads', (req, res, next) => {
 }));
 const upload=multer({dest:uploadDir,limits:{fileSize:Number(process.env.MAX_UPLOAD_MB||20)*1024*1024}});
 const entities={
- sites:{table:'sites',order:'id DESC'},clients:{table:'clients',order:'id DESC'},campaigns:{table:'campaigns',order:'id DESC'},validations:{table:'validations',order:'id DESC'},electricity:{table:'electricity',order:'id DESC'},vendors:{table:'vendors',order:'id DESC'},'vendor-jobs':{table:'vendor_jobs',order:'id DESC'},proposals:{table:'proposals',order:'id DESC'},invoices:{table:'invoices',order:'id DESC'},occupancy:{table:'occupancy_records',order:'id DESC'}
+ sites:{table:'sites',order:'LENGTH(site_code) ASC, site_code ASC, id ASC'},clients:{table:'clients',order:'id DESC'},campaigns:{table:'campaigns',order:'LENGTH(site_code) ASC, site_code ASC, id DESC'},validations:{table:'validations',order:'id DESC'},electricity:{table:'electricity',order:'LENGTH(site_code) ASC, site_code ASC, id DESC'},vendors:{table:'vendors',order:'id DESC'},'vendor-jobs':{table:'vendor_jobs',order:'id DESC'},proposals:{table:'proposals',order:'id DESC'},invoices:{table:'invoices',order:'id DESC'},occupancy:{table:'occupancy_records',order:'LENGTH(site_code) ASC, site_code ASC, id DESC'}
 };
 const blocked=new Set(['id','created_at','updated_at']);
 function safeEntity(req,res){const e=entities[req.params.entity];if(!e){res.status(404).json({message:'Unknown module'});return null}return e}
@@ -78,9 +78,16 @@ export async function ensureCampaignColumns() {
  */
 async function syncSiteAvailability() {
   try {
-    // 1. Get all active campaign site codes
+    // 1. Get all active campaign site codes running today
     const activeCampaigns = await q(
-      `SELECT site_code FROM campaigns WHERE record_status='active' AND site_code != '' AND (end_date IS NULL OR end_date >= CURDATE())`
+      `SELECT site_code FROM campaigns 
+       WHERE record_status='active' 
+         AND site_code != '' 
+         AND (start_date IS NULL OR start_date <= CURDATE())
+         AND (end_date IS NULL OR end_date >= CURDATE())
+         AND LOWER(TRIM(COALESCE(client, ''))) NOT IN ('blank', 'vacant', 'unassigned', '', '-')
+         AND LOWER(TRIM(COALESCE(client, ''))) NOT LIKE 'blank%'
+         AND LOWER(TRIM(COALESCE(client, ''))) NOT LIKE 'vacant%'`
     );
     const directBooked = [];
     for (const c of activeCampaigns) {
