@@ -2572,6 +2572,152 @@ function PptView() {
     }
   }
 
+  const [folderImportStatus, setFolderImportStatus] = useState(null);
+
+  function matchFileToSite(file, allSites) {
+    const relPath = file.webkitRelativePath || file.name || '';
+    const parts = relPath.split(/[/\\]/);
+    const folders = parts.slice(0, -1);
+    const fileName = parts[parts.length - 1] || file.name || '';
+    const baseName = fileName.replace(/\.[^/.]+$/, '').trim();
+
+    const clean = s => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // 1. Check folder segments from deepest to shallowest (e.g. "Photos/MB-01/day/1.jpg" -> checks "day", then "MB-01")
+    for (let i = folders.length - 1; i >= 0; i--) {
+      const seg = folders[i].trim();
+      if (!seg) continue;
+      const cSeg = clean(seg);
+      if (!cSeg) continue;
+
+      let match = allSites.find(s => s.site_code && s.site_code.toLowerCase() === seg.toLowerCase());
+      if (match) return match;
+
+      match = allSites.find(s => s.site_code && clean(s.site_code) === cSeg);
+      if (match) return match;
+    }
+
+    // 2. Check filename
+    const cBase = clean(baseName);
+    if (cBase) {
+      let match = allSites.find(s => s.site_code && s.site_code.toLowerCase() === baseName.toLowerCase());
+      if (match) return match;
+
+      match = allSites.find(s => s.site_code && clean(s.site_code) === cBase);
+      if (match) return match;
+
+      // Prefix match: filename starts with site code (e.g. "MB-01_night.jpg", "MB-01 (1).png", "DEL-04-front.webp")
+      const sorted = [...allSites].sort((a, b) => (b.site_code || '').length - (a.site_code || '').length);
+      for (const s of sorted) {
+        if (!s.site_code) continue;
+        const cs = clean(s.site_code);
+        if (cs && cBase.startsWith(cs)) {
+          return s;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  async function handleFolderPhotoImport(e) {
+    const rawFiles = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!rawFiles.length) return;
+
+    const imageFiles = rawFiles.filter(f => 
+      f.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|gif|bmp)$/i.test(f.name)
+    );
+
+    if (!imageFiles.length) {
+      alert('No image files (.jpg, .png, .webp, etc.) found in the selected folder.');
+      return;
+    }
+
+    const grouped = new Map();
+    const unmatchedFiles = [];
+
+    imageFiles.forEach(file => {
+      const site = matchFileToSite(file, sites);
+      if (site) {
+        if (!grouped.has(site)) grouped.set(site, []);
+        grouped.get(site).push(file);
+      } else {
+        unmatchedFiles.push(file.webkitRelativePath || file.name);
+      }
+    });
+
+    if (grouped.size === 0) {
+      alert(`None of the ${imageFiles.length} photo(s) matched your Site Codes.\n\nPlease ensure your subfolders or filenames are named after your Site Codes (e.g. "MB-01", "MB-02", "DEL-04").`);
+      return;
+    }
+
+    const totalSites = grouped.size;
+    const totalPhotos = Array.from(grouped.values()).reduce((sum, list) => sum + list.length, 0);
+
+    setFolderImportStatus({
+      totalSites,
+      doneSites: 0,
+      currentSite: '',
+      totalPhotos,
+      donePhotos: 0,
+      unmatched: unmatchedFiles,
+      siteResults: [],
+      finished: false
+    });
+
+    let doneSites = 0;
+    let donePhotos = 0;
+    const siteResults = [];
+
+    for (const [site, fileList] of grouped.entries()) {
+      setFolderImportStatus(prev => ({
+        ...prev,
+        currentSite: `${site.site_code} (${fileList.length} photo${fileList.length > 1 ? 's' : ''})`
+      }));
+
+      try {
+        if (site.id) {
+          const fd = new FormData();
+          fileList.forEach(f => fd.append('files', f));
+          const res = await api.post(`/sites/${site.id}/images`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+          const newImages = res.data.images;
+          setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: newImages } : s));
+          siteResults.push({ site_code: site.site_code, count: fileList.length, success: true });
+        } else {
+          const fd = new FormData();
+          fileList.forEach(f => fd.append('files', f));
+          const res = await api.post(`/sites/code/${encodeURIComponent(site.site_code)}/images`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+          const newImages = res.data.images;
+          setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: newImages } : s));
+          siteResults.push({ site_code: site.site_code, count: fileList.length, success: true });
+        }
+      } catch (err) {
+        console.error(`Error uploading photos for ${site.site_code}:`, err);
+        siteResults.push({ site_code: site.site_code, count: fileList.length, success: false, error: err.message });
+      }
+
+      doneSites += 1;
+      donePhotos += fileList.length;
+      setFolderImportStatus(prev => ({
+        ...prev,
+        doneSites,
+        donePhotos,
+        siteResults: [...siteResults]
+      }));
+    }
+
+    try {
+      await load();
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+    } catch {}
+
+    setFolderImportStatus(prev => ({
+      ...prev,
+      finished: true
+    }));
+  }
+
   function selectAllVisible() {
     const newSel = { ...sel };
     filtered.forEach(s => {
@@ -3033,6 +3179,34 @@ function PptView() {
               <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
               <input type="file" accept=".xlsx,.xls" hidden disabled={importingExcel} onChange={handlePptExcelImport} />
             </label>
+            <label
+              className="scooh-btn primary"
+              style={{
+                minHeight: '44px',
+                padding: '0 15px',
+                fontSize: '12.5px',
+                whiteSpace: 'nowrap',
+                cursor: folderImportStatus && !folderImportStatus.finished ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '7px',
+                background: 'linear-gradient(135deg, #0284c7, #4f46e5)',
+                color: '#fff',
+                fontWeight: 700,
+                border: 'none',
+                boxShadow: '0 4px 14px rgba(2, 132, 199, 0.35)'
+              }}
+              title="Import a folder containing site photos (folders or files named by site code e.g. MB-01) to automatically store photos in their matching sites"
+            >
+              <span>📂 {folderImportStatus && !folderImportStatus.finished ? 'Importing Photos…' : 'Import Photo Folder'}</span>
+              <input
+                type="file"
+                {...{ webkitdirectory: '', directory: '', multiple: true }}
+                hidden
+                disabled={Boolean(folderImportStatus && !folderImportStatus.finished)}
+                onChange={handleFolderPhotoImport}
+              />
+            </label>
             <button
               type="button"
               className="scooh-btn ghost"
@@ -3138,8 +3312,8 @@ function PptView() {
                   checked={isChecked}
                   onChange={e => setSel({ ...sel, [siteKey]: { ...v, checked: e.target.checked } })}
                 />
-                <div className="scooh-ppt-card-actions">
-                  <label className="scooh-btn secondary" style={{ cursor: 'pointer' }} onClick={e => e.stopPropagation()}>
+                <div className="scooh-ppt-card-actions" style={{ display: 'flex', gap: '6px' }}>
+                  <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 9px' }} onClick={e => e.stopPropagation()} title="Upload one or more photo files">
                     Add images
                     <input
                       type="file"
@@ -3147,6 +3321,20 @@ function PptView() {
                       accept="image/*"
                       hidden
                       onChange={e => e.target.files.length && addImages(s, e.target.files)}
+                    />
+                  </label>
+                  <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 8px' }} onClick={e => e.stopPropagation()} title={`Import a folder of photos specifically for ${s.site_code}`}>
+                    📁 Folder
+                    <input
+                      type="file"
+                      {...{ webkitdirectory: '', directory: '', multiple: true }}
+                      hidden
+                      onChange={e => {
+                        const imgFiles = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|gif|bmp)$/i.test(f.name));
+                        if (imgFiles.length) addImages(s, imgFiles);
+                        else alert('No image files found in folder.');
+                        e.target.value = '';
+                      }}
                     />
                   </label>
                 </div>
@@ -3272,6 +3460,139 @@ function PptView() {
           })}
         </div>
       </section>
+
+      {/* ── Modal for Folder Photo Auto-Import Progress & Results ───────── */}
+      {folderImportStatus && (
+        <div 
+          className="scooh-modal-backdrop" 
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          onClick={() => { if (folderImportStatus.finished) setFolderImportStatus(null); }}
+        >
+          <div 
+            className="scooh-panel" 
+            style={{ width: '100%', maxWidth: '580px', maxHeight: '88vh', overflowY: 'auto', border: '1px solid #38bdf8', boxShadow: '0 20px 50px rgba(0,0,0,0.7)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #1e293b', paddingBottom: '12px', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#f1f5f9', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '17px' }}>
+                  <span>📂</span>
+                  <span>{folderImportStatus.finished ? 'Folder Photo Import Complete' : 'Auto-Importing Site Photos from Folder'}</span>
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+                  Photos are automatically matched by folder / file names to your inventory site codes
+                </p>
+              </div>
+              {folderImportStatus.finished && (
+                <button 
+                  type="button" 
+                  onClick={() => setFolderImportStatus(null)} 
+                  style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer', padding: '4px' }}
+                  title="Close"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Progress indicator */}
+            <div style={{ marginBottom: '18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 700, marginBottom: '6px' }}>
+                <span style={{ color: folderImportStatus.finished ? '#10b981' : '#38bdf8' }}>
+                  {folderImportStatus.finished 
+                    ? `✓ Successfully stored ${folderImportStatus.donePhotos} photos across ${folderImportStatus.doneSites} sites!` 
+                    : `Uploading: ${folderImportStatus.currentSite || 'Preparing…'}`}
+                </span>
+                <span style={{ color: '#94a3b8' }}>
+                  {folderImportStatus.totalPhotos > 0 
+                    ? `${Math.round((folderImportStatus.donePhotos / folderImportStatus.totalPhotos) * 100)}%` 
+                    : '0%'}
+                </span>
+              </div>
+              <div style={{ height: '8px', background: '#0b1016', borderRadius: '999px', overflow: 'hidden', border: '1px solid #222c37' }}>
+                <div 
+                  style={{ 
+                    height: '100%', 
+                    width: `${folderImportStatus.totalPhotos > 0 ? Math.round((folderImportStatus.donePhotos / folderImportStatus.totalPhotos) * 100) : 0}%`, 
+                    background: folderImportStatus.finished ? 'linear-gradient(90deg, #10b981, #059669)' : 'linear-gradient(90deg, #0284c7, #6366f1)', 
+                    borderRadius: '999px',
+                    transition: 'width 0.3s ease'
+                  }} 
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: '#64748b', marginTop: '6px' }}>
+                <span>Sites: {folderImportStatus.doneSites} / {folderImportStatus.totalSites}</span>
+                <span>Photos: {folderImportStatus.donePhotos} / {folderImportStatus.totalPhotos}</span>
+              </div>
+            </div>
+
+            {/* Site upload results list */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto', paddingRight: '4px', marginBottom: '16px' }}>
+              {(folderImportStatus.siteResults || []).map((res, i) => (
+                <div 
+                  key={i} 
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'space-between', 
+                    padding: '8px 12px', 
+                    background: res.success ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)', 
+                    border: `1px solid ${res.success ? 'rgba(16, 185, 129, 0.25)' : 'rgba(239, 68, 68, 0.25)'}`,
+                    borderRadius: '6px',
+                    fontSize: '12.5px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>{res.success ? '🟢' : '🔴'}</span>
+                    <strong style={{ color: '#f1f5f9' }}>{res.site_code}</strong>
+                  </div>
+                  <span style={{ fontSize: '11.5px', color: res.success ? '#10b981' : '#f87171', fontWeight: 600 }}>
+                    {res.success ? `+${res.count} photo${res.count > 1 ? 's' : ''} stored` : (res.error || 'Failed')}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Unmatched files notice if any */}
+            {folderImportStatus.unmatched && folderImportStatus.unmatched.length > 0 && (
+              <div style={{ padding: '12px', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: '8px', marginBottom: '16px', fontSize: '12px' }}>
+                <div style={{ fontWeight: 700, color: '#f59e0b', marginBottom: '4px' }}>
+                  ⚠️ {folderImportStatus.unmatched.length} photo(s) did not match any site code:
+                </div>
+                <div style={{ maxHeight: '80px', overflowY: 'auto', color: '#cbd5e1', fontSize: '11px', fontFamily: 'monospace' }}>
+                  {folderImportStatus.unmatched.slice(0, 10).map((u, i) => (
+                    <div key={i}>• {u}</div>
+                  ))}
+                  {folderImportStatus.unmatched.length > 10 && (
+                    <div style={{ color: '#94a3b8' }}>…and {folderImportStatus.unmatched.length - 10} more</div>
+                  )}
+                </div>
+                <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#94a3b8' }}>
+                  To match automatically, ensure the subfolder or file name begins with your site code (e.g. "MB-01").
+                </p>
+              </div>
+            )}
+
+            {/* Modal actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px', borderTop: '1px solid #1e293b' }}>
+              {folderImportStatus.finished ? (
+                <button 
+                  type="button" 
+                  className="scooh-btn primary" 
+                  style={{ padding: '8px 24px', fontSize: '13px' }}
+                  onClick={() => setFolderImportStatus(null)}
+                >
+                  ✓ Done
+                </button>
+              ) : (
+                <span style={{ fontSize: '12px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span className="scooh-spin">🔄</span> Processing uploads… please do not close
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

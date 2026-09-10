@@ -365,7 +365,7 @@ app.get('/api/dashboard', auth, async (req, res) => {
 // Dedicated API Endpoints (must be registered BEFORE /api/:entity)
 
 // Site Photos Upload & Delete
-app.post('/api/sites/:id/images', auth, upload.array('files', 12), async (req, res) => {
+app.post('/api/sites/:id/images', auth, upload.array('files', 100), async (req, res) => {
   try {
     const site = (await q('SELECT * FROM sites WHERE id=?', [req.params.id]))[0];
     if (!site) return res.status(404).json({ message: 'Site not found' });
@@ -381,9 +381,34 @@ app.post('/api/sites/:id/images', auth, upload.array('files', 12), async (req, r
     });
     flags.ppt_images = [...existing, ...urls];
     await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), req.params.id]);
-    res.json({ images: flags.ppt_images });
+    res.json({ site_id: site.id, site_code: site.site_code, images: flags.ppt_images });
   } catch (err) {
     console.error('Image upload error:', err);
+    res.status(500).json({ message: 'Upload error: ' + err.message });
+  }
+});
+
+// Upload images by Site Code (e.g. MB-01)
+app.post('/api/sites/code/:site_code/images', auth, upload.array('files', 100), async (req, res) => {
+  try {
+    const code = req.params.site_code;
+    const site = (await q('SELECT * FROM sites WHERE site_code=? OR REPLACE(LOWER(site_code),"-","")=REPLACE(LOWER(?),"-","") LIMIT 1', [code, code]))[0];
+    if (!site) return res.status(404).json({ message: `Site code "${code}" not found` });
+    let flags = {};
+    try { flags = JSON.parse(site.flags || '{}') || {}; } catch {};
+    if (Array.isArray(flags)) flags = { tags: flags };
+    const existing = Array.isArray(flags.ppt_images) ? flags.ppt_images : [];
+    const urls = (req.files || []).map(f => {
+      const ext = path.extname(f.originalname || '');
+      const final = f.path + ext;
+      fs.renameSync(f.path, final);
+      return `/uploads/${path.basename(final)}`;
+    });
+    flags.ppt_images = [...existing, ...urls];
+    await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), site.id]);
+    res.json({ site_id: site.id, site_code: site.site_code, images: flags.ppt_images });
+  } catch (err) {
+    console.error('Image upload by code error:', err);
     res.status(500).json({ message: 'Upload error: ' + err.message });
   }
 });
