@@ -5476,7 +5476,6 @@ function CampaignTrackerView() {
 
   const [timeView, setTimeView] = useState('sitewise'); // 'sitewise' | 'all'
   const [siteStatusFilter, setSiteStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
-  const [expandedSites, setExpandedSites] = useState(new Set());
   const [selectedSiteFilter, setSelectedSiteFilter] = useState('ALL');
 
   // Master directory of all sites with current campaign, status, and amounts
@@ -5664,18 +5663,20 @@ function CampaignTrackerView() {
         }
         return universalCompare(valA, valB, sortState.dir);
       });
+    } else {
+      list.sort((a, b) => {
+        const siteA = String(a.site_code || '');
+        const siteB = String(b.site_code || '');
+        if (siteA && siteB) {
+          const comp = siteA.localeCompare(siteB, undefined, { numeric: true, sensitivity: 'base' });
+          if (comp !== 0) return comp;
+        } else if (siteA) return -1;
+        else if (siteB) return 1;
+        return new Date(b.booking_date || b.start_date || 0) - new Date(a.booking_date || a.start_date || 0);
+      });
     }
     return list;
   }, [rows, search, monthFilter, statusFilter, sortState]);
-
-  function toggleExpandSite(code) {
-    setExpandedSites(prev => {
-      const next = new Set(prev);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
-  }
 
   function toggleSelect(id) {
     setSelectedIds(prev => {
@@ -6441,7 +6442,6 @@ function CampaignTrackerView() {
                   </tr>
                 ) : (
                   filteredSiteList.map(s => {
-                    const isExpanded = expandedSites.has(s.code);
                     const isBooked = s.status === 'occupied';
                     const isUpcoming = s.status === 'upcoming';
                     const statusColor = isBooked ? '#4ade80' : isUpcoming ? '#facc15' : '#94a3b8';
@@ -6449,176 +6449,122 @@ function CampaignTrackerView() {
                     const statusBorder = isBooked ? 'rgba(34, 197, 94, 0.35)' : isUpcoming ? 'rgba(234, 179, 8, 0.35)' : 'rgba(148, 163, 184, 0.2)';
 
                     return (
-                      <React.Fragment key={s.code}>
-                        <tr>
-                          <td>
-                            <span className="scooh-plate" style={{ fontSize: '12px', fontWeight: 800 }}>
-                              {s.code}
-                            </span>
-                          </td>
-                          <td>
-                            <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '12.5px', lineHeight: 1.3 }}>
-                              {s.location}
-                            </div>
-                            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-                              📍 {s.city}
-                            </div>
-                          </td>
-                          <td>
-                            <div style={{ fontSize: '12px', color: '#e2e8f0', fontWeight: 600 }}>
-                              {s.size}
-                            </div>
-                            <span className="scooh-badgechip" style={{ fontSize: '10px', marginTop: '2px' }}>
-                              {s.type}
-                            </span>
-                          </td>
-                          <td>
-                            <span style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '3px 10px',
-                              borderRadius: '8px',
-                              background: statusBg,
-                              color: statusColor,
-                              border: `1px solid ${statusBorder}`,
-                              fontSize: '11.5px',
-                              fontWeight: 800,
-                              whiteSpace: 'nowrap'
-                            }}>
-                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }} />
-                              {isBooked ? 'Occupied' : isUpcoming ? 'Upcoming' : 'Vacant'}
-                            </span>
-                          </td>
-                          <td>
-                            {s.currentCampaign ? (
-                              <div>
-                                <div style={{ fontWeight: 800, color: '#ffffff', fontSize: '12.5px' }}>
-                                  {s.currentCampaign.client || s.currentCampaign.client_name || '—'}
+                      <tr key={s.code}>
+                        <td>
+                          <span className="scooh-plate" style={{ fontSize: '12px', fontWeight: 800 }}>
+                            {s.code}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '12.5px', lineHeight: 1.3 }}>
+                            {s.location}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                            📍 {s.city}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: '12px', color: '#e2e8f0', fontWeight: 600 }}>
+                            {s.size}
+                          </div>
+                          <span className="scooh-badgechip" style={{ fontSize: '10px', marginTop: '2px' }}>
+                            {s.type}
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '3px 10px',
+                            borderRadius: '8px',
+                            background: statusBg,
+                            color: statusColor,
+                            border: `1px solid ${statusBorder}`,
+                            fontSize: '11.5px',
+                            fontWeight: 800,
+                            whiteSpace: 'nowrap'
+                          }}>
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }} />
+                            {isBooked ? 'Occupied' : isUpcoming ? 'Upcoming' : 'Vacant'}
+                          </span>
+                        </td>
+                        <td>
+                          {s.currentCampaign ? (
+                            <div>
+                              <div style={{ fontWeight: 800, color: '#ffffff', fontSize: '12.5px' }}>
+                                {s.currentCampaign.client || s.currentCampaign.client_name || '—'}
+                              </div>
+                              {s.currentCampaign.display && (
+                                <div style={{ fontSize: '11.5px', color: '#38bdf8', marginTop: '2px' }}>
+                                  📢 {s.currentCampaign.display}
                                 </div>
-                                {s.currentCampaign.display && (
-                                  <div style={{ fontSize: '11.5px', color: '#38bdf8', marginTop: '2px' }}>
-                                    📢 {s.currentCampaign.display}
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span style={{ color: '#64748b', fontSize: '12px', fontStyle: 'italic' }}>
-                                — Ready for Booking —
-                              </span>
-                            )}
-                          </td>
-                          <td style={{ fontSize: '12px', color: s.currentCampaign ? '#cbd5e1' : '#64748b' }}>
-                            {s.currentCampaign ? (
-                              <div>
-                                <span>{formatDate(s.currentCampaign.start_date || s.currentCampaign.booking_date)}</span>
-                                <span style={{ color: '#64748b', margin: '0 4px' }}>→</span>
-                                <span>{formatDate(s.currentCampaign.end_date) || 'Ongoing'}</span>
-                              </div>
-                            ) : (
-                              <span style={{ color: '#10b981', fontWeight: 600 }}>Available now</span>
-                            )}
-                          </td>
-                          <td style={{ textAlign: 'right', fontWeight: 800, color: s.totalAmount > 0 ? '#4ade80' : '#64748b', fontSize: '12.5px' }}>
-                            {s.totalAmount > 0 ? money(s.totalAmount) : '—'}
-                          </td>
-                          <td style={{ textAlign: 'right', fontWeight: 700, color: s.totalPending > 0 ? '#f87171' : '#64748b', fontSize: '12px' }}>
-                            {s.totalPending > 0 ? money(s.totalPending) : '—'}
-                          </td>
-                          <td>
-                            <div className="scooh-rowactions" style={{ justifyContent: 'center', gap: '6px' }}>
-                              {canAdd && (
-                                <button
-                                  type="button"
-                                  className="scooh-btn purple-btn"
-                                  style={{ fontSize: '11px', padding: '3px 9px', borderRadius: '6px' }}
-                                  onClick={() => openNewCampaign(s.code)}
-                                  title={`Book new campaign for ${s.code}`}
-                                >
-                                  + Book
-                                </button>
-                              )}
-                              {s.activeCampaign && canEdit && (
-                                <button
-                                  type="button"
-                                  className="scooh-iconbtn scooh-text-action"
-                                  style={{ fontSize: '11px', padding: '3px 8px' }}
-                                  onClick={() => openEditCampaign(s.activeCampaign)}
-                                  title="Edit active campaign"
-                                >
-                                  Edit
-                                </button>
-                              )}
-                              {s.rows.length > 0 && (
-                                <button
-                                  type="button"
-                                  className="scooh-btn ghost"
-                                  style={{ fontSize: '11px', padding: '3px 8px', color: isExpanded ? '#c084fc' : '#94a3b8' }}
-                                  onClick={() => toggleExpandSite(s.code)}
-                                  title="View site campaigns history"
-                                >
-                                  {isExpanded ? 'Hide' : `History (${s.campaignCount})`}
-                                </button>
                               )}
                             </div>
-                          </td>
-                        </tr>
-
-                        {isExpanded && s.rows.length > 0 && (
-                          <tr>
-                            <td colSpan={9} style={{ background: 'rgba(15, 23, 42, 0.65)', padding: '12px 16px 16px 20px', borderLeft: '3px solid #a855f7' }}>
-                              <div style={{ fontSize: '11px', fontWeight: 800, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-                                Campaign History for {s.code} ({s.rows.length})
-                              </div>
-                              <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                                <table className="scooh-table" style={{ fontSize: '12px', width: '100%', margin: 0 }}>
-                                  <thead>
-                                    <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
-                                      <th>Client</th>
-                                      <th>Display</th>
-                                      <th>Dates</th>
-                                      <th style={{ textAlign: 'right' }}>Total Amount</th>
-                                      <th style={{ textAlign: 'right' }}>Pending</th>
-                                      <th>PO / Bill</th>
-                                      <th style={{ textAlign: 'center' }}>Action</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {s.rows.map(r => (
-                                      <tr key={r.id}>
-                                        <td style={{ fontWeight: 700, color: '#fff' }}>{r.client || r.client_name || '—'}</td>
-                                        <td style={{ color: '#38bdf8' }}>{r.display || r.campaign_name || '—'}</td>
-                                        <td style={{ color: '#94a3b8' }}>
-                                          {formatDate(r.start_date || r.booking_date)} → {formatDate(r.end_date) || '—'}
-                                        </td>
-                                        <td style={{ textAlign: 'right', fontWeight: 700, color: '#4ade80' }}>
-                                          {money(r.total_amount || r.revenue || 0)}
-                                        </td>
-                                        <td style={{ textAlign: 'right', fontWeight: 700, color: Number(r.pending || 0) > 0 ? '#f87171' : '#94a3b8' }}>
-                                          {money(r.pending || 0)}
-                                        </td>
-                                        <td style={{ color: '#cbd5e1', fontSize: '11px' }}>
-                                          {r.po ? `PO: ${r.po}` : ''} {r.bill ? `Bill: ${r.bill}` : ''}
-                                        </td>
-                                        <td style={{ textAlign: 'center' }}>
-                                          <button
-                                            type="button"
-                                            className="scooh-iconbtn scooh-text-action"
-                                            style={{ fontSize: '11px', padding: '2px 8px' }}
-                                            onClick={() => openEditCampaign(r)}
-                                          >
-                                            Edit
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
+                          ) : (
+                            <span style={{ color: '#64748b', fontSize: '12px', fontStyle: 'italic' }}>
+                              — Ready for Booking —
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: '12px', color: s.currentCampaign ? '#cbd5e1' : '#64748b' }}>
+                          {s.currentCampaign ? (
+                            <div>
+                              <span>{formatDate(s.currentCampaign.start_date || s.currentCampaign.booking_date)}</span>
+                              <span style={{ color: '#64748b', margin: '0 4px' }}>→</span>
+                              <span>{formatDate(s.currentCampaign.end_date) || 'Ongoing'}</span>
+                            </div>
+                          ) : (
+                            <span style={{ color: '#10b981', fontWeight: 600 }}>Available now</span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 800, color: s.totalAmount > 0 ? '#4ade80' : '#64748b', fontSize: '12.5px' }}>
+                          {s.totalAmount > 0 ? money(s.totalAmount) : '—'}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: s.totalPending > 0 ? '#f87171' : '#64748b', fontSize: '12px' }}>
+                          {s.totalPending > 0 ? money(s.totalPending) : '—'}
+                        </td>
+                        <td>
+                          <div className="scooh-rowactions" style={{ justifyContent: 'center', gap: '6px' }}>
+                            {canAdd && (
+                              <button
+                                type="button"
+                                className="scooh-btn purple-btn"
+                                style={{ fontSize: '11px', padding: '3px 9px', borderRadius: '6px' }}
+                                onClick={() => openNewCampaign(s.code)}
+                                title={`Book new campaign for ${s.code}`}
+                              >
+                                + Book
+                              </button>
+                            )}
+                            {s.activeCampaign && canEdit && (
+                              <button
+                                type="button"
+                                className="scooh-iconbtn scooh-text-action"
+                                style={{ fontSize: '11px', padding: '3px 8px' }}
+                                onClick={() => openEditCampaign(s.activeCampaign)}
+                                title="Edit active campaign"
+                              >
+                                Edit
+                              </button>
+                            )}
+                            {s.rows.length > 0 && (
+                              <button
+                                type="button"
+                                className="scooh-btn ghost"
+                                style={{ fontSize: '11px', padding: '3px 8px', color: '#38bdf8' }}
+                                onClick={() => {
+                                  setTimeView('all');
+                                  setSearch(s.code);
+                                }}
+                                title={`View all ${s.campaignCount} campaigns for ${s.code}`}
+                              >
+                                View ({s.campaignCount})
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
                     );
                   })
                 )}
