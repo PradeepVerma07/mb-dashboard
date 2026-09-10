@@ -4120,7 +4120,7 @@ function OccupancyView() {
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState('history'); // 'history' | '6months' | 'overview'
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
-  const [siteTypeFilter, setSiteTypeFilter] = useState('ALL'); // 'ALL' | 'Combined' | 'Split Face'
+  const [siteTypeFilter, setSiteTypeFilter] = useState(new Set(['ALL', 'Combined', 'Split Face'])); // multi-select
   const [search, setSearch] = useState('');
   const [modalData, setModalData] = useState(null); // For inspecting month/site booking history details
 
@@ -4379,8 +4379,9 @@ function OccupancyView() {
   // ── Filtered sites with simple Status Filter (All / Occupied / Vacant) and Site Type Filter ──
   const filteredSites = useMemo(() => {
     return siteHistory.filter(s => {
-      if (siteTypeFilter === 'Combined' && s.siteType !== 'Combined') return false;
-      if (siteTypeFilter === 'Split Face' && s.siteType !== 'Split Face') return false;
+      if (!siteTypeFilter.has('Combined') && s.siteType === 'Combined') return false;
+      if (!siteTypeFilter.has('Split Face') && s.siteType === 'Split Face') return false;
+      if (!siteTypeFilter.has('ALL') && s.siteType !== 'Combined' && s.siteType !== 'Split Face') return false;
 
       const isOccupied = s.currentStatus === 'active' || (s.pct365 && s.pct365 > 0);
       if (statusFilter === 'occupied' && !isOccupied) return false;
@@ -4452,8 +4453,9 @@ function OccupancyView() {
 
   const filteredBookings = useMemo(() => {
     return allBookings.filter(b => {
-      if (siteTypeFilter === 'Combined' && b.siteType !== 'Combined') return false;
-      if (siteTypeFilter === 'Split Face' && b.siteType !== 'Split Face') return false;
+      if (!siteTypeFilter.has('Combined') && b.siteType === 'Combined') return false;
+      if (!siteTypeFilter.has('Split Face') && b.siteType === 'Split Face') return false;
+      if (!siteTypeFilter.has('ALL') && b.siteType !== 'Combined' && b.siteType !== 'Split Face') return false;
 
       if (statusFilter === 'occupied' && b.status !== 'active') return false;
       if (statusFilter === 'past' && b.status !== 'past') return false;
@@ -4880,56 +4882,68 @@ function OccupancyView() {
               )}
             </div>
 
-            {/* Site Hierarchy Filter: All, Combined, Split Face */}
+            {/* Site Hierarchy Filter: multi-select — all toggled independently */}
             <div style={{ display: 'inline-flex', gap: '4px', background: 'rgba(15, 23, 42, 0.6)', padding: '3px', borderRadius: '20px', border: '1px solid #1e293b' }}>
               <button
                 type="button"
-                onClick={() => setSiteTypeFilter('ALL')}
+                onClick={() => setSiteTypeFilter(prev => {
+                  const next = new Set(prev);
+                  if (next.has('ALL')) next.delete('ALL'); else next.add('ALL');
+                  return next;
+                })}
                 style={{
                   padding: '4px 10px',
                   borderRadius: '16px',
                   border: 'none',
-                  background: siteTypeFilter === 'ALL' ? 'rgba(148, 163, 184, 0.2)' : 'transparent',
-                  color: siteTypeFilter === 'ALL' ? '#f1f5f9' : '#94a3b8',
-                  fontWeight: siteTypeFilter === 'ALL' ? 800 : 600,
+                  background: siteTypeFilter.has('ALL') ? 'rgba(148, 163, 184, 0.2)' : 'transparent',
+                  color: siteTypeFilter.has('ALL') ? '#f1f5f9' : '#94a3b8',
+                  fontWeight: siteTypeFilter.has('ALL') ? 800 : 600,
                   fontSize: '11px',
                   cursor: 'pointer'
                 }}
-                title="Show all single, combined, and split-face sites"
+                title="Toggle single-panel sites"
               >
                 All Types
               </button>
               <button
                 type="button"
-                onClick={() => setSiteTypeFilter(prev => prev === 'Combined' ? 'ALL' : 'Combined')}
+                onClick={() => setSiteTypeFilter(prev => {
+                  const next = new Set(prev);
+                  if (next.has('Combined')) next.delete('Combined'); else next.add('Combined');
+                  return next;
+                })}
                 style={{
                   padding: '4px 10px',
                   borderRadius: '16px',
                   border: 'none',
-                  background: siteTypeFilter === 'Combined' ? 'rgba(168, 85, 247, 0.25)' : 'transparent',
-                  color: siteTypeFilter === 'Combined' ? '#c084fc' : '#94a3b8',
-                  fontWeight: siteTypeFilter === 'Combined' ? 800 : 600,
+                  background: siteTypeFilter.has('Combined') ? 'rgba(168, 85, 247, 0.25)' : 'transparent',
+                  color: siteTypeFilter.has('Combined') ? '#c084fc' : '#94a3b8',
+                  fontWeight: siteTypeFilter.has('Combined') ? 800 : 600,
                   fontSize: '11px',
                   cursor: 'pointer'
                 }}
-                title="Filter multi-panel combined sites (e.g. MB-04, MB-05, MB-06, MB-10, MB-17)"
+                title="Toggle multi-panel combined sites (e.g. MB-04, MB-05, MB-06, MB-10, MB-17)"
               >
                 🔀 Combined
               </button>
               <button
                 type="button"
-                onClick={() => setSiteTypeFilter(prev => prev === 'Split Face' ? 'ALL' : 'Split Face')}
+                onClick={() => setSiteTypeFilter(prev => {
+                  const next = new Set(prev);
+                  if (next.has('Split Face')) next.delete('Split Face'); else next.add('Split Face');
+                  return next;
+                })}
                 style={{
                   padding: '4px 10px',
                   borderRadius: '16px',
                   border: 'none',
-                  background: siteTypeFilter === 'Split Face' ? 'rgba(56, 189, 248, 0.25)' : 'transparent',
-                  color: siteTypeFilter === 'Split Face' ? '#38bdf8' : '#94a3b8',
-                  fontWeight: siteTypeFilter === 'Split Face' ? 800 : 600,
+                  background: siteTypeFilter.has('Split Face') ? 'rgba(56, 189, 248, 0.25)' : 'transparent',
+                  color: siteTypeFilter.has('Split Face') ? '#38bdf8' : '#94a3b8',
+                  fontWeight: siteTypeFilter.has('Split Face') ? 800 : 600,
                   fontSize: '11px',
                   cursor: 'pointer'
                 }}
-                title="Filter individual split face panels"
+                title="Toggle individual split face panels"
               >
                 ✂️ Split Face
               </button>
