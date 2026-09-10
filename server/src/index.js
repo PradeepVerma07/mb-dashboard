@@ -2523,7 +2523,7 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
               site_code, location, city, area, size, client, brand, display,
               month, start_date, end_date, days, occupancy_pct, total_amount,
               pending, po, bill, status, record_status, created_at, updated_at
-            ) VALUES (?, ?, 'Ahmedabad', ?, ?, '', '', 'Vacant', ?, ?, ?, ?, 0, 0, 0, '', '', 'vacant', 'active', NOW(), NOW())`, [
+            ) VALUES (?, ?, 'Ahmedabad', ?, ?, 'Blank', '', 'Blank', ?, ?, ?, ?, 0, 0, 0, '', '', 'vacant', 'active', NOW(), NOW())`, [
               b.site_code, location, location, site.size || size,
               month, startDate, endDate, days
             ]);
@@ -2722,7 +2722,7 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
             site_code, location, city, area, size, client, brand, display,
             month, start_date, end_date, days, occupancy_pct, total_amount,
             pending, po, bill, status, record_status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, '', '', 'Vacant', ?, ?, ?, ?, 0, 0, 0, '', '', 'vacant', 'active', NOW(), NOW())`, [
+          ) VALUES (?, ?, ?, ?, ?, 'Blank', '', 'Blank', ?, ?, ?, ?, 0, 0, 0, '', '', 'vacant', 'active', NOW(), NOW())`, [
             finalSiteCode, location, city, location, size,
             month, startDate, endDate, days
           ]);
@@ -2794,6 +2794,9 @@ app.get('/api/occupancy', auth, async (req, res) => {
       KEY month(month),
       KEY record_status(record_status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
+    try {
+      await q('UPDATE occupancy_records SET client="Blank", display="Blank" WHERE status="vacant" AND (client="" OR client IS NULL OR client="Vacant");');
+    } catch {}
     const rows = await q(`SELECT * FROM occupancy_records WHERE record_status="active" ORDER BY site_code ASC, start_date ASC, id ASC`);
     res.json(rows);
   } catch (err) {

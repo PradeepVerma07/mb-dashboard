@@ -4737,14 +4737,29 @@ function OccupancyView() {
       const overlappingCodes = new Set(getOverlappingSiteCodes(siteCode).map(canonicalSiteCode));
       overlappingCodes.add(siteCode);
 
-      const siteCamps = activeOccupancies.filter(c => {
-        if (c.status === 'vacant' || c.is_vacant || isVacantClient(c.client || c.client_name)) return false;
+      // All records for this site (including booked clients and blank intervals)
+      const allRecordsForSite = activeOccupancies.filter(c => {
         if (c.site_id && site.id && String(c.site_id) === String(site.id)) return true;
         const cCode = canonicalSiteCode(c.site_code);
         return cCode && overlappingCodes.has(cCode);
       });
 
-      // Sort site bookings strictly in ascending chronological order (earliest date first)
+      // Filter non-vacant for actual occupancy percentage & occupied day counting
+      const siteCamps = allRecordsForSite.filter(c => {
+        if (c.status === 'vacant' || c.is_vacant || isVacantClient(c.client || c.client_name)) return false;
+        return true;
+      });
+
+      // Sort both in ascending chronological order (earliest date first)
+      allRecordsForSite.sort((a, b) => {
+        const da = parseFlexibleDate(a.start_date || a.booking_date) || new Date(0);
+        const db = parseFlexibleDate(b.start_date || b.booking_date) || new Date(0);
+        if (da.getTime() !== db.getTime()) return da - db;
+        const dea = parseFlexibleDate(a.end_date) || new Date(0);
+        const deb = parseFlexibleDate(b.end_date) || new Date(0);
+        return dea - deb;
+      });
+
       siteCamps.sort((a, b) => {
         const da = parseFlexibleDate(a.start_date || a.booking_date) || new Date(0);
         const db = parseFlexibleDate(b.start_date || b.booking_date) || new Date(0);
@@ -4763,7 +4778,8 @@ function OccupancyView() {
         const startTs = wStart.getTime();
         const endTs = wEnd.getTime();
 
-        siteCamps.forEach(c => {
+        allRecordsForSite.forEach(c => {
+          const isVac = c.status === 'vacant' || c.is_vacant || isVacantClient(c.client || c.client_name);
           let cStart = parseFlexibleDate(c.start_date || c.booking_date);
           let cEnd = parseFlexibleDate(c.end_date);
           
@@ -4781,13 +4797,17 @@ function OccupancyView() {
           const e = Math.min(endTs, cEnd.getTime());
 
           if (e >= s) {
-            for (let t = s; t <= e; t += 86400000) {
-              const dt = new Date(t);
-              daySet.add(`${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`);
+            // ONLY non-vacant dates are counted into occupied days ("not vacant date should be added")
+            if (!isVac) {
+              for (let t = s; t <= e; t += 86400000) {
+                const dt = new Date(t);
+                daySet.add(`${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`);
+              }
+              const clientName = c.client || c.client_name;
+              if (clientName) clientSet.add(clientName);
+              if (c.brand) brandSet.add(c.brand);
             }
-            const clientName = c.client || c.client_name;
-            if (clientName) clientSet.add(clientName);
-            if (c.brand) brandSet.add(c.brand);
+            // Blank dates are also added to relevantCampaigns so user can inspect them in booking details
             relevantCampaigns.push(c);
           }
         });
@@ -4894,7 +4914,8 @@ function OccupancyView() {
         currentClient,
         currentBrand,
         currentStatus,
-        allCampaigns: siteCamps,
+        allCampaigns: allRecordsForSite,
+        occupiedCampaigns: siteCamps,
         by6M,
         by12M,
         byYearly,
@@ -4906,8 +4927,8 @@ function OccupancyView() {
       };
     }).sort((a, b) => {
       // Occupied sites come in front
-      const aOcc = a.currentStatus === 'active' || (a.pct365 > 0) || (a.allCampaigns && a.allCampaigns.length > 0);
-      const bOcc = b.currentStatus === 'active' || (b.pct365 > 0) || (b.allCampaigns && b.allCampaigns.length > 0);
+      const aOcc = a.currentStatus === 'active' || (a.pct365 > 0) || (a.occupiedCampaigns && a.occupiedCampaigns.length > 0);
+      const bOcc = b.currentStatus === 'active' || (b.pct365 > 0) || (b.occupiedCampaigns && b.occupiedCampaigns.length > 0);
       if (aOcc && !bOcc) return -1;
       if (!aOcc && bOcc) return 1;
 
@@ -4928,7 +4949,7 @@ function OccupancyView() {
       if (!siteTypeFilter.has('Split Face') && s.siteType === 'Split Face') return false;
       if (!siteTypeFilter.has('ALL') && s.siteType !== 'Combined' && s.siteType !== 'Split Face') return false;
 
-      const isOccupied = s.currentStatus === 'active' || (s.pct365 && s.pct365 > 0) || (s.allCampaigns && s.allCampaigns.length > 0);
+      const isOccupied = s.currentStatus === 'active' || (s.pct365 && s.pct365 > 0) || (s.occupiedCampaigns && s.occupiedCampaigns.length > 0);
       if (statusFilter === 'occupied' && !isOccupied) return false;
       if (statusFilter === 'vacant' && isOccupied) return false;
 
@@ -4946,8 +4967,8 @@ function OccupancyView() {
 
     // Occupied sites come in front for the currently selected viewTab
     return list.sort((a, b) => {
-      const aOcc = a.currentStatus === 'active' || (a.pct365 > 0) || (a.allCampaigns && a.allCampaigns.length > 0);
-      const bOcc = b.currentStatus === 'active' || (b.pct365 > 0) || (b.allCampaigns && b.allCampaigns.length > 0);
+      const aOcc = a.currentStatus === 'active' || (a.pct365 > 0) || (a.occupiedCampaigns && a.occupiedCampaigns.length > 0);
+      const bOcc = b.currentStatus === 'active' || (b.pct365 > 0) || (b.occupiedCampaigns && b.occupiedCampaigns.length > 0);
       if (aOcc && !bOcc) return -1;
       if (!aOcc && bOcc) return 1;
 
@@ -5980,47 +6001,70 @@ function OccupancyView() {
                   const dea = parseFlexibleDate(a.end_date) || new Date(0);
                   const deb = parseFlexibleDate(b.end_date) || new Date(0);
                   return dea - deb;
-                }).map((c, i) => (
-                  <div key={c.id || i} style={{ padding: '14px', background: '#0b1320', borderRadius: '8px', border: '1px solid #1e3a5f' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px', gap: '10px' }}>
-                      <div>
-                        <div style={{ fontSize: '15px', fontWeight: 800, color: '#38bdf8' }}>
-                          👤 {c.client || c.client_name || 'Client Not Specified'}
-                        </div>
-                        {c.brand && c.brand !== (c.client || c.client_name) && (
-                          <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '2px' }}>
-                            🏷️ Brand: <b>{c.brand}</b>
+                }).map((c, i) => {
+                  const isVac = c.status === 'vacant' || c.is_vacant || isVacantClient(c.client || c.client_name);
+                  return (
+                    <div
+                      key={c.id || i}
+                      style={{
+                        padding: '14px',
+                        background: isVac ? 'rgba(15, 23, 42, 0.4)' : '#0b1320',
+                        borderRadius: '8px',
+                        border: isVac ? '1px dashed rgba(148, 163, 184, 0.3)' : '1px solid #1e3a5f'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px', gap: '10px' }}>
+                        <div>
+                          <div style={{ fontSize: '15px', fontWeight: 800, color: isVac ? '#94a3b8' : '#38bdf8' }}>
+                            {isVac ? '⚪ Blank / Vacant' : `👤 ${c.client || c.client_name || 'Client Not Specified'}`}
                           </div>
+                          {c.brand && c.brand !== (c.client || c.client_name) && !isVac && (
+                            <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '2px' }}>
+                              🏷️ Brand: <b>{c.brand}</b>
+                            </div>
+                          )}
+                        </div>
+                        <span
+                          className="scooh-badgechip"
+                          style={{
+                            background: isVac ? 'rgba(148, 163, 184, 0.12)' : 'rgba(16, 185, 129, 0.15)',
+                            color: isVac ? '#94a3b8' : '#10b981',
+                            border: isVac ? '1px solid rgba(148, 163, 184, 0.25)' : '1px solid rgba(16, 185, 129, 0.3)',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {isVac ? 'Vacant (Not Occupied)' : (c.month || 'Active Booking')}
+                        </span>
+                      </div>
+
+                      <div style={{ fontSize: '12.5px', color: isVac ? '#94a3b8' : '#e2e8f0', margin: '8px 0 6px' }}>
+                        {isVac ? (
+                          <span>ℹ️ <i>Site is vacant during this interval (0 days counted in occupancy)</i></span>
+                        ) : (
+                          <span>📢 <b>Campaign:</b> {c.campaign_name || c.display || 'Standard Display'}</span>
                         )}
                       </div>
-                      <span className="scooh-badgechip" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', whiteSpace: 'nowrap' }}>
-                        {c.month || 'Active Booking'}
-                      </span>
-                    </div>
 
-                    <div style={{ fontSize: '12.5px', color: '#e2e8f0', margin: '8px 0 6px' }}>
-                      📢 <b>Campaign:</b> {c.campaign_name || c.display || 'Standard Display'}
+                      <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: '#94a3b8', flexWrap: 'wrap', borderTop: '1px solid #1e293b', paddingTop: '8px', marginTop: '8px' }}>
+                        {(c.start_date || c.booking_date) && (
+                          <span>🗓️ <b>Dates:</b> {(() => {
+                            const sd = parseFlexibleDate(c.start_date || c.booking_date);
+                            const ed = parseFlexibleDate(c.end_date);
+                            const sStr = sd ? sd.toLocaleDateString('en-IN') : String(c.start_date || c.booking_date);
+                            const eStr = ed ? ed.toLocaleDateString('en-IN') : (c.end_date ? String(c.end_date) : 'Ongoing');
+                            return `${sStr} to ${eStr}`;
+                          })()}</span>
+                        )}
+                        {c.booking_code && (
+                          <span>🔖 <b>Code:</b> {c.booking_code}</span>
+                        )}
+                        {(c.total_amount || c.revenue) && !isVac ? (
+                          <span style={{ color: '#10b981', fontWeight: 700 }}>💰 <b>Amount:</b> ₹{Number(c.total_amount || c.revenue).toLocaleString('en-IN')}</span>
+                        ) : null}
+                      </div>
                     </div>
-
-                    <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: '#94a3b8', flexWrap: 'wrap', borderTop: '1px solid #1e293b', paddingTop: '8px', marginTop: '8px' }}>
-                      {(c.start_date || c.booking_date) && (
-                        <span>🗓️ <b>Dates:</b> {(() => {
-                          const sd = parseFlexibleDate(c.start_date || c.booking_date);
-                          const ed = parseFlexibleDate(c.end_date);
-                          const sStr = sd ? sd.toLocaleDateString('en-IN') : String(c.start_date || c.booking_date);
-                          const eStr = ed ? ed.toLocaleDateString('en-IN') : (c.end_date ? String(c.end_date) : 'Ongoing');
-                          return `${sStr} to ${eStr}`;
-                        })()}</span>
-                      )}
-                      {c.booking_code && (
-                        <span>🔖 <b>Code:</b> {c.booking_code}</span>
-                      )}
-                      {(c.total_amount || c.revenue) && (
-                        <span style={{ color: '#10b981', fontWeight: 700 }}>💰 <b>Amount:</b> ₹{Number(c.total_amount || c.revenue).toLocaleString('en-IN')}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: '36px 20px', color: '#64748b' }}>
