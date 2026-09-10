@@ -4118,11 +4118,15 @@ function OccupancyView() {
   const [dbSites, setDbSites] = useState([]);
   const [dbOccupancy, setDbOccupancy] = useState([]); // fed from /campaigns (same as Campaign Tracker)
   const [loading, setLoading] = useState(true);
+  const [importingExcel, setImportingExcel] = useState(false);
   const [viewTab, setViewTab] = useState('history'); // 'history' | '6months' | 'overview'
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
   const [siteTypeFilter, setSiteTypeFilter] = useState(new Set(['ALL', 'Combined', 'Split Face'])); // multi-select
   const [search, setSearch] = useState('');
   const [modalData, setModalData] = useState(null); // For inspecting month/site booking history details
+
+  const currentRole = getCurrentRole();
+  const canImport = currentRole === 'admin' || currentRole === 'manager';
 
   // Auto-sync search from URL (e.g. /occupancy?site=MB-01)
   useEffect(() => {
@@ -4154,6 +4158,39 @@ function OccupancyView() {
   useEffect(() => {
     loadSystemData();
   }, [loadSystemData]);
+
+  async function handleOccupancyExcelImport(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingExcel(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      // Post to /import/campaigns-xlsx (which synchronizes both campaigns and occupancy)
+      const r = await api.post('/import/campaigns-xlsx', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      alert(`✓ Excel Import Successful!\n\n${r.data?.message || 'Occupancy and campaign records updated successfully.'}`);
+      await loadSystemData();
+    } catch (err) {
+      console.warn('Campaign import attempt note, trying occupancy import:', err);
+      try {
+        const fd2 = new FormData();
+        fd2.append('file', file);
+        const r2 = await api.post('/import/occupancy-xlsx', fd2, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        alert(`✓ Excel Import Successful!\n\n${r2.data?.message || 'Occupancy records imported successfully.'}`);
+        await loadSystemData();
+      } catch (err2) {
+        console.error('Occupancy Excel import error:', err2);
+        alert('Occupancy Excel Import failed: ' + (err2.response?.data?.message || err2.message || err.response?.data?.message || err.message));
+      }
+    } finally {
+      setImportingExcel(false);
+      e.target.value = '';
+    }
+  }
 
   // ── Compute periods (6 Months & Yearly) ──────────────────────────────
   const { periods6M, periodsYearly, period365 } = useMemo(() => {
@@ -5014,7 +5051,32 @@ function OccupancyView() {
               📥 Export Excel
             </button>
 
-            {/* Data is shared from Campaign Tracker — import/manage via Campaign Tracker tab */}
+            {canImport && (
+              <label
+                className="scooh-btn ghost"
+                style={{
+                  cursor: importingExcel ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '11.5px',
+                  padding: '6px 12px',
+                  color: '#c084fc',
+                  borderColor: 'rgba(168, 85, 247, 0.4)',
+                  background: 'rgba(168, 85, 247, 0.08)'
+                }}
+                title="Import booking & occupancy records from Excel (.xlsx, .xls)"
+              >
+                <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.xlsm,.ods"
+                  hidden
+                  disabled={importingExcel}
+                  onChange={handleOccupancyExcelImport}
+                />
+              </label>
+            )}
 
             <button
               type="button"
@@ -5174,7 +5236,34 @@ function OccupancyView() {
           <div style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
             <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔍</div>
             <h4 style={{ margin: '0 0 6px', color: '#f1f5f9' }}>No matching sites found</h4>
-            <p style={{ margin: 0, fontSize: '12px' }}>Try adjusting your search filter or import an Excel file.</p>
+            <p style={{ margin: '0 0 16px', fontSize: '12px' }}>Try adjusting your search filter or import an Excel file.</p>
+            {canImport && (
+              <label
+                className="scooh-btn ghost"
+                style={{
+                  cursor: importingExcel ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  padding: '7px 16px',
+                  color: '#c084fc',
+                  borderColor: 'rgba(168, 85, 247, 0.4)',
+                  background: 'rgba(168, 85, 247, 0.08)',
+                  margin: '0 auto'
+                }}
+                title="Import booking & occupancy records from Excel (.xlsx, .xls)"
+              >
+                <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.xlsm,.ods"
+                  hidden
+                  disabled={importingExcel}
+                  onChange={handleOccupancyExcelImport}
+                />
+              </label>
+            )}
           </div>
         ) : (
           <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>

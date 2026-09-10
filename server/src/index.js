@@ -2274,9 +2274,30 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
           month, startDate, endDate, days, occPct, totalAmount,
           pending, po, bill, status
         ]);
+
+        // Mirror into campaigns table so Campaign Tracker and Occupancy remain 100% linked
+        try {
+          await q(`INSERT INTO campaigns (
+            site_code, client, display, location, city, size,
+            month, start_date, end_date, days, total_amount,
+            pending, po, bill, status, record_status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
+            finalSiteCode, client || 'Standard Client', display, location, city, size,
+            month, startDate, endDate, days, totalAmount,
+            pending, po, bill, status
+          ]);
+        } catch (cErr) {
+          console.warn('Could not mirror occupancy record into campaigns:', cErr.message);
+        }
+
         importedCount++;
       }
     }
+
+    try {
+      await syncAllLinkedCampaigns(q);
+      await syncSiteAvailability();
+    } catch (_) {}
 
     res.json({
       success: true,
