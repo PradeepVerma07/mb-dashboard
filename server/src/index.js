@@ -1614,6 +1614,11 @@ function parseSiteBlockFormat(rawRows) {
     const c0Norm = col0.toLowerCase().replace(/[^a-z]/g, '');
     const c1Norm = col1.toLowerCase().replace(/[^a-z]/g, '');
 
+    // Skip top header row (e.g. "Site Code")
+    if (c0Norm === 'sitecode' || c0Norm === 'site' || c0Norm === 'code' || c0Norm === 'sitename') {
+      continue;
+    }
+
     // Skip subheader row (Up Date / Down Date / Clienr Name / Display)
     if ((c0Norm.includes('update') || c0Norm.includes('start') || c0Norm.includes('from')) &&
         (c1Norm.includes('downdate') || c1Norm.includes('end') || c1Norm.includes('to'))) {
