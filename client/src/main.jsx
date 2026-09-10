@@ -318,14 +318,36 @@ function unpackSite(s) {
 }
 
 async function imageData(url) {
-  const r = await fetch(url);
-  const b = await r.blob();
-  return await new Promise((ok, ko) => {
-    const fr = new FileReader();
-    fr.onload = () => ok(fr.result);
-    fr.onerror = ko;
-    fr.readAsDataURL(b);
-  });
+  if (!url) throw new Error('Empty image URL');
+  if (url.startsWith('data:')) return url;
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const b = await r.blob();
+    return await new Promise((ok, ko) => {
+      const fr = new FileReader();
+      fr.onload = () => ok(fr.result);
+      fr.onerror = ko;
+      fr.readAsDataURL(b);
+    });
+  } catch (err) {
+    if (url.startsWith('/')) {
+      try {
+        const altUrl = `http://localhost:3000${url}`;
+        const r2 = await fetch(altUrl);
+        if (r2.ok) {
+          const b2 = await r2.blob();
+          return await new Promise((ok, ko) => {
+            const fr = new FileReader();
+            fr.onload = () => ok(fr.result);
+            fr.onerror = ko;
+            fr.readAsDataURL(b2);
+          });
+        }
+      } catch {}
+    }
+    throw err;
+  }
 }
 
 const OVERLAY_SVG_STRING = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
@@ -847,9 +869,23 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
     });
   }
 
+  // Helper to get effective page url with localStorage fallback
+  function getEffectivePageUrl(key) {
+    if (pages && pages[key]) return pages[key];
+    try {
+      return localStorage.getItem(`mb_ppt_raw_${key}`) || '';
+    } catch {
+      return '';
+    }
+  }
+
   // Include optional cover pages if uploaded
-  if (pages?.first) await fixed(pages.first);
-  if (pages?.second_last) await fixed(pages.second_last);
+  const firstCover = getEffectivePageUrl('first');
+  const secondCover = getEffectivePageUrl('second_last');
+  const lastCover = getEffectivePageUrl('last');
+
+  if (firstCover) await fixed(firstCover);
+  if (secondCover) await fixed(secondCover);
 
   // Generate slides for all chosen sites
   for (const st of sites) {
@@ -861,7 +897,7 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
   }
 
   // Include optional closing page if uploaded
-  if (pages?.last) await fixed(pages.last);
+  if (lastCover) await fixed(lastCover);
 
   let finalFileName = String(fileName || 'MediaBuzz_Automated-PPT.pptx').trim();
   if (!finalFileName.toLowerCase().endsWith('.pptx')) finalFileName += '.pptx';
@@ -2184,7 +2220,15 @@ function SitesView() {
 function PptView() {
   const navigate = useNavigate();
   const [sites, setSites] = useState(defaultSites.map(unpackSite));
-  const [pages, setPages] = useState({});
+  const [pages, setPages] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mb_ppt_pages_cache');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [uploadingPage, setUploadingPage] = useState({});
   const [sel, setSel] = useState({});
   const [query, setQuery] = useState('');
   const [areaFilter, setAreaFilter] = useState('');
@@ -2215,13 +2259,24 @@ function PptView() {
     try {
       const [sRes, pRes, cRes] = await Promise.all([
         api.get('/sites'),
-        api.get('/ppt-pages'),
+        api.get('/ppt-pages').catch(() => api.get('/ppt-pages/public').catch(() => ({ data: null }))),
         api.get('/campaigns').catch(() => ({ data: [] }))
       ]);
       if (Array.isArray(sRes.data) && sRes.data.length > 0) {
         setSites(sRes.data.map(unpackSite));
       }
-      if (pRes.data) setPages(pRes.data);
+      if (pRes && pRes.data) {
+        setPages(prev => {
+          const merged = { ...prev };
+          if (pRes.data.first) merged.first = pRes.data.first;
+          if (pRes.data.second_last) merged.second_last = pRes.data.second_last;
+          if (pRes.data.last) merged.last = pRes.data.last;
+          try {
+            localStorage.setItem('mb_ppt_pages_cache', JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
+      }
       // Build site_code → active campaign map from Campaign Tracker
       // Primary campaigns take precedence, then latest end_date / start_date / id desc
       if (Array.isArray(cRes.data)) {
@@ -2321,14 +2376,64 @@ function PptView() {
   }, [sites, query, areaFilter, dateFilter, sortState, sel]);
 
   async function uploadPage(k, file) {
+    if (!file) return;
+    setUploadingPage(prev => ({ ...prev, [k]: true }));
     try {
+      // 1. Immediate local base64 preview & offline fallback so image loads instantly
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      if (dataUrl) {
+        setPages(prev => {
+          const next = { ...prev, [k]: dataUrl };
+          try {
+            localStorage.setItem('mb_ppt_pages_cache', JSON.stringify(next));
+            localStorage.setItem(`mb_ppt_raw_${k}`, dataUrl);
+          } catch {}
+          return next;
+        });
+      }
+
+      // 2. Persist to server backend & MySQL
       const fd = new FormData();
       fd.append('file', file);
       const res = await api.post('/ppt-pages/' + k, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setPages(prev => ({ ...prev, [k]: res.data.url }));
+      const serverUrl = res.data?.url || dataUrl;
+      setPages(prev => {
+        const next = { ...prev, [k]: serverUrl };
+        try {
+          localStorage.setItem('mb_ppt_pages_cache', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
     } catch (e) {
-      alert('Failed to upload page: ' + (e.response?.data?.message || e.message));
+      console.error('Page upload notice:', e);
+      alert('Upload notice: ' + (e.response?.data?.message || e.message));
+    } finally {
+      setUploadingPage(prev => ({ ...prev, [k]: false }));
     }
+  }
+
+  async function removePage(k) {
+    const label = k === 'first' ? 'First page' : (k === 'last' ? 'Last page' : 'Second page');
+    if (!confirm(`Are you sure you want to remove the uploaded ${label}?`)) return;
+    try {
+      await api.delete('/ppt-pages/' + k);
+    } catch (e) {
+      console.warn('Delete page server warning:', e);
+    }
+    setPages(prev => {
+      const next = { ...prev, [k]: '' };
+      try {
+        localStorage.setItem('mb_ppt_pages_cache', JSON.stringify(next));
+        localStorage.removeItem(`mb_ppt_raw_${k}`);
+      } catch {}
+      return next;
+    });
   }
 
   async function addImages(site, files) {
@@ -2590,19 +2695,171 @@ function PptView() {
             ['first', 'First page', 'Full-screen cover image for slide 1.'],
             ['second_last', 'Second page', 'Full-screen image used as slide 2, before the selected site slides.'],
             ['last', 'Last page', 'Full-screen image used after all selected site slides.']
-          ].map(([k, title, desc]) => (
-            <div className="scooh-panel" key={k} style={{ margin: 0, padding: '16px' }}>
-              <strong>{title}</strong>
-              <small style={{ display: 'block', margin: '6px 0 12px', color: '#91a5c2' }}>{desc}</small>
-              <label className="scooh-btn" style={{ cursor: 'pointer' }}>
-                {pages[k] ? 'Replace uploaded image' : 'Upload image'}
-                <input type="file" accept="image/*" hidden onChange={e => e.target.files[0] && uploadPage(k, e.target.files[0])} />
-              </label>
-              {pages[k] && (
-                <img src={pages[k]} alt={title} style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '10px', marginTop: '12px' }} />
-              )}
-            </div>
-          ))}
+          ].map(([k, title, desc]) => {
+            const pageUrl = pages[k] || '';
+            const isUploading = !!uploadingPage[k];
+            const rawFallback = (() => {
+              try { return localStorage.getItem(`mb_ppt_raw_${k}`) || ''; } catch { return ''; }
+            })();
+            const activeUrl = pageUrl || rawFallback;
+
+            return (
+              <div
+                className="scooh-panel"
+                key={k}
+                style={{
+                  margin: 0,
+                  padding: '18px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  border: activeUrl ? '1px solid rgba(0, 200, 117, 0.35)' : '1px solid #1c2838',
+                  background: activeUrl ? 'linear-gradient(180deg, #0d1624 0%, #08101a 100%)' : '#0b1320',
+                  borderRadius: '12px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                  <strong style={{ fontSize: '14px', color: '#eef2f6' }}>{title}</strong>
+                  {activeUrl ? (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: '#00e575',
+                      background: 'rgba(0, 229, 117, 0.12)',
+                      border: '1px solid rgba(0, 229, 117, 0.3)',
+                      padding: '2px 8px',
+                      borderRadius: '12px'
+                    }}>
+                      ✓ Saved & Loaded
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '11px', color: '#7a8ba3' }}>Optional</span>
+                  )}
+                </div>
+
+                <small style={{ color: '#91a5c2', fontSize: '11.5px', lineHeight: '1.4' }}>{desc}</small>
+
+                {activeUrl ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' }}>
+                    <div
+                      style={{
+                        position: 'relative',
+                        width: '100%',
+                        height: '135px',
+                        background: '#040912',
+                        borderRadius: '8px',
+                        overflow: 'hidden',
+                        border: '1px solid #1c2c42',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <img
+                        src={activeUrl}
+                        alt={title}
+                        onError={e => {
+                          if (rawFallback && e.target.src !== rawFallback) {
+                            e.target.src = rawFallback;
+                          } else if (activeUrl.startsWith('/') && !e.target.src.includes('3000')) {
+                            e.target.src = `http://localhost:3000${activeUrl}`;
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          display: 'block'
+                        }}
+                      />
+                      {isUploading && (
+                        <div style={{
+                          position: 'absolute',
+                          inset: 0,
+                          background: 'rgba(2, 10, 20, 0.75)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#FFC200',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          gap: '6px'
+                        }}>
+                          <span>Saving…</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <label
+                        className="scooh-btn"
+                        style={{
+                          flex: 1,
+                          cursor: isUploading ? 'not-allowed' : 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '11.5px',
+                          padding: '6px 12px',
+                          minHeight: '34px'
+                        }}
+                      >
+                        {isUploading ? 'Uploading…' : 'Replace image'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          hidden
+                          disabled={isUploading}
+                          onChange={e => e.target.files[0] && uploadPage(k, e.target.files[0])}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="scooh-btn danger"
+                        onClick={() => removePage(k)}
+                        disabled={isUploading}
+                        title="Remove uploaded image"
+                        style={{
+                          minHeight: '34px',
+                          padding: '6px 10px',
+                          fontSize: '11.5px'
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: '6px' }}>
+                    <label
+                      className="scooh-btn primary"
+                      style={{
+                        width: '100%',
+                        cursor: isUploading ? 'not-allowed' : 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        minHeight: '38px'
+                      }}
+                    >
+                      {isUploading ? 'Uploading…' : '+ Upload image'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        disabled={isUploading}
+                        onChange={e => e.target.files[0] && uploadPage(k, e.target.files[0])}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
 

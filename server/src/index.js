@@ -4,7 +4,26 @@ const XLSX = xlsxModule.default || xlsxModule;
 import {pool,q} from './db.js';import {auth,admin,sign,managerOrAdmin,notViewer,requireRole} from './auth.js';
 import {computeAllOccupied, canonicalSiteCode, getConflictSummary, syncLinkedCampaigns, deleteLinkedCampaigns, batchDeleteLinkedCampaigns, syncAllLinkedCampaigns} from './siteHierarchy.js';
 const __dirname=path.dirname(fileURLToPath(import.meta.url));const app=express();const PORT=Number(process.env.PORT||3000);const uploadDir=path.resolve(__dirname,'..',process.env.UPLOAD_DIR||'uploads');fs.mkdirSync(uploadDir,{recursive:true});
-app.use(helmet({crossOriginResourcePolicy:false}));app.use(cors({origin:true,credentials:true}));app.use(express.json({limit:'10mb'}));app.use('/uploads',express.static(uploadDir));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: false
+}));
+app.use(cors({origin:true,credentials:true}));
+app.use(express.json({limit:'10mb'}));
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(uploadDir, {
+  setHeaders: (res, filePath) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    const ext = path.extname(filePath).toLowerCase();
+    if (!ext || ext === '') {
+      res.setHeader('Content-Type', 'image/jpeg');
+    }
+  }
+}));
 const upload=multer({dest:uploadDir,limits:{fileSize:Number(process.env.MAX_UPLOAD_MB||20)*1024*1024}});
 const entities={
  sites:{table:'sites',order:'id DESC'},clients:{table:'clients',order:'id DESC'},campaigns:{table:'campaigns',order:'id DESC'},validations:{table:'validations',order:'id DESC'},electricity:{table:'electricity',order:'id DESC'},vendors:{table:'vendors',order:'id DESC'},'vendor-jobs':{table:'vendor_jobs',order:'id DESC'},proposals:{table:'proposals',order:'id DESC'},invoices:{table:'invoices',order:'id DESC'}
@@ -404,17 +423,40 @@ app.get('/api/ppt-pages', auth, async (req, res) => {
   }
 });
 
+// Optional public endpoint for PPT pages in case token expires during generation
+app.get('/api/ppt-pages/public', async (req, res) => {
+  try {
+    const rows = await q("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('ppt_first_page','ppt_second_last_page','ppt_last_page')");
+    const m = Object.fromEntries(rows.map(r => [r.setting_key, r.setting_value]));
+    res.json({
+      first: m.ppt_first_page || '',
+      second_last: m.ppt_second_last_page || '',
+      last: m.ppt_last_page || ''
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 app.post('/api/ppt-pages/:key', auth, upload.single('file'), async (req, res) => {
   try {
     const map = { first: 'ppt_first_page', second_last: 'ppt_second_last_page', last: 'ppt_last_page' };
     const sk = map[req.params.key];
     if (!sk || !req.file) return res.status(400).json({ message: 'Invalid page upload' });
-    const ext = path.extname(req.file.originalname || '');
-    const final = req.file.path + ext;
-    fs.renameSync(req.file.path, final);
+    let ext = path.extname(req.file.originalname || '');
+    if (!ext) {
+      const mime = (req.file.mimetype || '').toLowerCase();
+      if (mime.includes('png')) ext = '.png';
+      else if (mime.includes('webp')) ext = '.webp';
+      else ext = '.jpeg';
+    }
+    const final = req.file.path.endsWith(ext) ? req.file.path : (req.file.path + ext);
+    if (!fs.existsSync(final)) {
+      fs.renameSync(req.file.path, final);
+    }
     const url = `/uploads/${path.basename(final)}`;
     await q('INSERT INTO settings(setting_key,setting_value,updated_at) VALUES(?,?,NOW()) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),updated_at=NOW()', [sk, url]);
-    res.json({ key: req.params.key, url });
+    res.json({ key: req.params.key, url, filename: path.basename(final) });
   } catch (err) {
     res.status(500).json({ message: 'Page upload error: ' + err.message });
   }
@@ -427,7 +469,7 @@ app.delete('/api/ppt-pages/:key', auth, async (req, res) => {
     if (sk) {
       await q('UPDATE settings SET setting_value="", updated_at=NOW() WHERE setting_key=?', [sk]);
     }
-    res.json({ success: true });
+    res.json({ success: true, key: req.params.key });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
