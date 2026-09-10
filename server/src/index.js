@@ -408,6 +408,37 @@ app.delete('/api/sites/:id/images/:index', auth, async (req, res) => {
   }
 });
 
+// Auto-match Site Code by Location and Size
+app.post('/api/sites/match', auth, async (req, res) => {
+  try {
+    const { location, size, width, height } = req.body || {};
+    const existingSites = await q('SELECT id, site_code, address, area, city, width, height, size, media_type FROM sites WHERE record_status="active"');
+    const matched = matchSiteByLocationAndSize(location, size, width, height, existingSites);
+    if (matched) {
+      res.json({ matched: true, site: matched });
+    } else {
+      res.json({ matched: false, site: null });
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+app.get('/api/sites/match', auth, async (req, res) => {
+  try {
+    const { location, size, width, height } = req.query || {};
+    const existingSites = await q('SELECT id, site_code, address, area, city, width, height, size, media_type FROM sites WHERE record_status="active"');
+    const matched = matchSiteByLocationAndSize(location, size, width, height, existingSites);
+    if (matched) {
+      res.json({ matched: true, site: matched });
+    } else {
+      res.json({ matched: false, site: null });
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Fixed PPT Pages
 app.get('/api/ppt-pages', auth, async (req, res) => {
   try {
@@ -711,6 +742,104 @@ function parseAvailability(val) {
   return str;
 }
 
+export function parseSiteDimensions(sizeStr, w, h) {
+  let width = parseFloat(w) || 0;
+  let height = parseFloat(h) || 0;
+  if ((!width || !height) && sizeStr) {
+    const match = String(sizeStr).match(/(\d+(?:\.\d+)?)\s*(?:ft|')?\s*[xX*×/–-]\s*(\d+(?:\.\d+)?)/);
+    if (match) {
+      if (!width) width = parseFloat(match[1]);
+      if (!height) height = parseFloat(match[2]);
+    }
+  }
+  return { width, height };
+}
+
+export function normalizeTokens(str) {
+  if (!str) return [];
+  const stopWords = new Set([
+    'the', 'a', 'an', 'and', 'or', 'at', 'in', 'on', 'to', 'from', 'of', 'for',
+    'nr', 'near', 'opp', 'opposite', 'behind', 'beside', 'facing', 'fcg', 'towards',
+    'road', 'rd', 'cross', 'crossroad', 'junction', 'jnc', 'circle', 'bridge', 'flyover',
+    'traffic', 'highway', 'hw', 'hwy', 'street', 'st', 'lane', 'sector', 'sec'
+  ]);
+  return String(str)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length >= 2 && !stopWords.has(t));
+}
+
+export function matchSiteByLocationAndSize(location, size, width, height, siteList) {
+  if (!Array.isArray(siteList) || siteList.length === 0) return null;
+  const targetDim = parseSiteDimensions(size, width, height);
+  const locTokens = normalizeTokens(location);
+  const cleanLoc = String(location || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  let bestSite = null;
+  let bestScore = -1;
+
+  for (const site of siteList) {
+    let score = 0;
+    const siteDim = parseSiteDimensions(site.size, site.width, site.height);
+    let sizeMatched = false;
+
+    // 1. Size matching (highest weight: 45 points)
+    if (targetDim.width > 0 && targetDim.height > 0 && siteDim.width > 0 && siteDim.height > 0) {
+      const exactMatch = (Math.abs(targetDim.width - siteDim.width) < 0.5 && Math.abs(targetDim.height - siteDim.height) < 0.5);
+      const flippedMatch = (Math.abs(targetDim.width - siteDim.height) < 0.5 && Math.abs(targetDim.height - siteDim.width) < 0.5);
+      if (exactMatch || flippedMatch) {
+        score += 45;
+        sizeMatched = true;
+      } else {
+        const targetArea = targetDim.width * targetDim.height;
+        const siteArea = siteDim.width * siteDim.height;
+        if (targetArea > 0 && Math.abs(targetArea - siteArea) / targetArea < 0.05) {
+          score += 25;
+          sizeMatched = true;
+        }
+      }
+    }
+
+    // 2. Location token overlap
+    const siteText = `${site.address || ''} ${site.area || ''} ${site.city || ''} ${site.location || ''} ${site.site_code || ''}`;
+    const siteTokens = new Set(normalizeTokens(siteText));
+    const siteRaw = siteText.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    let tokenMatches = 0;
+    for (const t of locTokens) {
+      if (siteTokens.has(t)) {
+        tokenMatches += 1;
+        score += 15;
+      } else if (siteRaw.includes(t)) {
+        tokenMatches += 0.5;
+        score += 8;
+      }
+    }
+
+    // Substring match
+    if (cleanLoc.length >= 4 && siteRaw.includes(cleanLoc)) {
+      score += 30;
+    }
+
+    // Directional / position indicator match (Left / Right / Middle / 1 / 2 / 3)
+    const locLower = String(location || '').toLowerCase();
+    const siteLower = siteText.toLowerCase();
+    ['left', 'right', 'middle', 'center', '(1)', '(2)', '(3)', '1-3', '2-1', '2-3'].forEach(pos => {
+      if (locLower.includes(pos) && siteLower.includes(pos)) {
+        score += 12;
+      }
+    });
+
+    if (score > bestScore && (tokenMatches > 0 || (sizeMatched && (cleanLoc.length < 3 || siteRaw.includes(cleanLoc.slice(0, 3)))))) {
+      bestScore = score;
+      bestSite = site;
+    }
+  }
+
+  return bestScore >= 20 ? bestSite : null;
+}
+
 function cleanStr(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -893,9 +1022,21 @@ app.post('/api/import/xlsx', auth, managerOrAdmin, upload.single('file'), async 
 
       // Match existing site
       let matched = null;
+      const isExplicitMbCode = /^mb[-\s]?\d+/i.test(codeInRow);
 
-      // 1. Check direct site code match
-      if (codeInRow) {
+      // 1. Check explicit MB-XX site code match
+      if (codeInRow && isExplicitMbCode) {
+        const cleanCode = cleanStr(codeInRow);
+        matched = existingSites.find(s => cleanStr(s.site_code) === cleanCode);
+      }
+
+      // 2. Automatic site code detection by location & size
+      if (!matched && (location || area || dim.size || dim.w || dim.h)) {
+        matched = matchSiteByLocationAndSize(location || area, dim.size, dim.w, dim.h, existingSites);
+      }
+
+      // 3. Fallback direct site code / numeric match
+      if (!matched && codeInRow) {
         const cleanCode = cleanStr(codeInRow);
         matched = existingSites.find(s => cleanStr(s.site_code) === cleanCode);
         if (!matched && /^\d+$/.test(codeInRow)) {
@@ -905,13 +1046,13 @@ app.post('/api/import/xlsx', auth, managerOrAdmin, upload.single('file'), async 
         }
       }
 
-      // 2. Check exact or clean address match
+      // 4. Fallback exact or clean address match
       if (!matched && location) {
         const cleanLoc = cleanStr(location);
         matched = existingSites.find(s => cleanStr(s.address) === cleanLoc);
       }
 
-      // 3. Check partial address containment
+      // 5. Fallback partial address containment
       if (!matched && location && cleanStr(location).length >= 10) {
         const cleanLoc = cleanStr(location);
         matched = existingSites.find(s => {
@@ -921,7 +1062,7 @@ app.post('/api/import/xlsx', auth, managerOrAdmin, upload.single('file'), async 
         });
       }
 
-      // 4. Check area + location landmark overlap
+      // 6. Fallback area + location landmark overlap
       if (!matched && area && location) {
         const cleanA = cleanStr(area);
         const cleanL = cleanStr(location);
@@ -1202,7 +1343,21 @@ app.post('/api/import/electricity-xlsx', auth, managerOrAdmin, upload.single('fi
 
         // Link to sites table
         let matchedSite = null;
-        if (siteCode) {
+        const isExplicitMbCode = /^mb[-\s]?\d+/i.test(siteCode);
+
+        // 1. Check explicit MB-XX site code
+        if (siteCode && isExplicitMbCode) {
+          const cleanC = cleanStr(siteCode);
+          matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
+        }
+
+        // 2. Auto-detect site code from location and size
+        if (!matchedSite && (location || size)) {
+          matchedSite = matchSiteByLocationAndSize(location, size, '', '', existingSites);
+        }
+
+        // 3. Fallback direct code or numeric match
+        if (!matchedSite && siteCode) {
           const cleanC = cleanStr(siteCode);
           matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
           if (!matchedSite && /^\d+$/.test(siteCode)) {
@@ -1713,9 +1868,23 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
           continue;
         }
 
-        // Link to sites table
+        // Link to sites table - first check explicit site code, then auto-detect by Location & Size
         let matchedSite = null;
-        if (siteCode) {
+        const isExplicitMbCode = /^mb[-\s]?\d+/i.test(siteCode);
+
+        // 1. Explicit MB-XX site code
+        if (siteCode && isExplicitMbCode) {
+          const cleanC = cleanStr(siteCode);
+          matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
+        }
+
+        // 2. Automatic site detection: match site code according to location and size!
+        if (!matchedSite && (location || size || width || height)) {
+          matchedSite = matchSiteByLocationAndSize(location, size, width, height, existingSites);
+        }
+
+        // 3. Fallback direct or plain numeric row code match
+        if (!matchedSite && siteCode) {
           const cleanC = cleanStr(siteCode);
           matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
           if (!matchedSite && /\d+/.test(siteCode)) {
@@ -1726,20 +1895,28 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
             }
           }
         }
-        if (!matchedSite && location) {
-          const cleanLoc = cleanStr(location);
-          if (cleanLoc.length >= 4) {
-            matchedSite = existingSites.find(s => {
-              const sa = cleanStr(s.address);
-              const sar = cleanStr(s.area);
-              return (sa && (sa === cleanLoc || sa.includes(cleanLoc) || cleanLoc.includes(sa))) ||
-                     (sar && (sar === cleanLoc || sar.includes(cleanLoc) || cleanLoc.includes(sar)));
-            });
-          }
-        }
 
         const finalSiteId = matchedSite?.id || 0;
-        const finalSiteCode = siteCode || matchedSite?.site_code || (location ? `MB-${cleanStr(location).slice(0, 10).toUpperCase()}` : `MB-${i + 1}`);
+        const finalSiteCode = matchedSite?.site_code || siteCode || (location ? `MB-${cleanStr(location).slice(0, 10).toUpperCase()}` : `MB-${i + 1}`);
+
+        // Auto-fill missing specs from matched site
+        if (matchedSite) {
+          if (!location && (matchedSite.address || matchedSite.area)) {
+            location = matchedSite.address || matchedSite.area;
+          }
+          if (!size && matchedSite.size) {
+            size = matchedSite.size;
+          }
+          if (!width && matchedSite.width) {
+            width = matchedSite.width;
+          }
+          if (!height && matchedSite.height) {
+            height = matchedSite.height;
+          }
+          if ((!type || type === 'Hoarding') && matchedSite.media_type) {
+            type = matchedSite.media_type;
+          }
+        }
 
         // Match existing campaign - match by PO, or site+month/date, or client+display+location
         const matched = existingCampaigns.find(c => {

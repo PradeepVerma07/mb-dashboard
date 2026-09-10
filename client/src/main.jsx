@@ -303,6 +303,104 @@ function SortHeader({ label, sortKey, currentSort, onSort, align = 'left', style
   );
 }
 
+function parseDimensions(sizeStr, w, h) {
+  let width = parseFloat(w) || 0;
+  let height = parseFloat(h) || 0;
+  if ((!width || !height) && sizeStr) {
+    const match = String(sizeStr).match(/(\d+(?:\.\d+)?)\s*(?:ft|')?\s*[xX*×/–-]\s*(\d+(?:\.\d+)?)/);
+    if (match) {
+      if (!width) width = parseFloat(match[1]);
+      if (!height) height = parseFloat(match[2]);
+    }
+  }
+  return { width, height };
+}
+
+function normalizeTokens(str) {
+  if (!str) return [];
+  const stopWords = new Set([
+    'the', 'a', 'an', 'and', 'or', 'at', 'in', 'on', 'to', 'from', 'of', 'for',
+    'nr', 'near', 'opp', 'opposite', 'behind', 'beside', 'facing', 'fcg', 'towards',
+    'road', 'rd', 'cross', 'crossroad', 'junction', 'jnc', 'circle', 'bridge', 'flyover',
+    'traffic', 'highway', 'hw', 'hwy', 'street', 'st', 'lane', 'sector', 'sec'
+  ]);
+  return String(str)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length >= 2 && !stopWords.has(t));
+}
+
+function matchSiteByLocationAndSize(location, size, width, height, siteList) {
+  if (!Array.isArray(siteList) || siteList.length === 0) return null;
+  const targetDim = parseDimensions(size, width, height);
+  const locTokens = normalizeTokens(location);
+  const cleanLoc = String(location || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  let bestSite = null;
+  let bestScore = -1;
+
+  for (const site of siteList) {
+    let score = 0;
+    const siteDim = parseDimensions(site.size, site.width, site.height);
+    let sizeMatched = false;
+
+    // 1. Size matching (highest weight: 45 points)
+    if (targetDim.width > 0 && targetDim.height > 0 && siteDim.width > 0 && siteDim.height > 0) {
+      const exactMatch = (Math.abs(targetDim.width - siteDim.width) < 0.5 && Math.abs(targetDim.height - siteDim.height) < 0.5);
+      const flippedMatch = (Math.abs(targetDim.width - siteDim.height) < 0.5 && Math.abs(targetDim.height - siteDim.width) < 0.5);
+      if (exactMatch || flippedMatch) {
+        score += 45;
+        sizeMatched = true;
+      } else {
+        const targetArea = targetDim.width * targetDim.height;
+        const siteArea = siteDim.width * siteDim.height;
+        if (targetArea > 0 && Math.abs(targetArea - siteArea) / targetArea < 0.05) {
+          score += 25;
+          sizeMatched = true;
+        }
+      }
+    }
+
+    // 2. Location token overlap
+    const siteText = `${site.address || ''} ${site.area || ''} ${site.city || ''} ${site.location || ''} ${site.site_code || ''}`;
+    const siteTokens = new Set(normalizeTokens(siteText));
+    const siteRaw = siteText.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    let tokenMatches = 0;
+    for (const t of locTokens) {
+      if (siteTokens.has(t)) {
+        tokenMatches += 1;
+        score += 15;
+      } else if (siteRaw.includes(t)) {
+        tokenMatches += 0.5;
+        score += 8;
+      }
+    }
+
+    // Substring match
+    if (cleanLoc.length >= 4 && siteRaw.includes(cleanLoc)) {
+      score += 30;
+    }
+
+    // Directional / position indicator match (Left / Right / Middle / 1 / 2 / 3)
+    const locLower = String(location || '').toLowerCase();
+    const siteLower = siteText.toLowerCase();
+    ['left', 'right', 'middle', 'center', '(1)', '(2)', '(3)', '1-3', '2-1', '2-3'].forEach(pos => {
+      if (locLower.includes(pos) && siteLower.includes(pos)) {
+        score += 12;
+      }
+    });
+
+    if (score > bestScore && (tokenMatches > 0 || (sizeMatched && (cleanLoc.length < 3 || siteRaw.includes(cleanLoc.slice(0, 3)))))) {
+      bestScore = score;
+      bestSite = site;
+    }
+  }
+
+  return bestScore >= 20 ? bestSite : null;
+}
+
 function unpackSite(s) {
   let f = s.flags;
   try {
@@ -4115,22 +4213,58 @@ function OccupancyView() {
   const siteHistory = useMemo(() => {
     if (dataSource === 'excel' && rawRows.length > 0) {
       // Build site history from imported Excel rows
-      const cols = Object.keys(rawRows[0]);
-      const scCol = cols.find(c => /site|code|hoarding|board|id/i.test(c)) || cols[0];
+      const cols = Object.keys(rawRows[0] || {});
+      const scCol = cols.find(c => /site\s*code|sitecode|site_code|site\s*id|siteid|hoarding\s*no|board\s*no|^code$|^site$/i.test(c));
+      const locCol = cols.find(c => /location|address|landmark|area|sitename|site\s*name/i.test(c));
+      const sizeCol = cols.find(c => /size|dimension|measurement|w\s*x\s*h/i.test(c));
+      const wCol = cols.find(c => /^w$|^width/i.test(c));
+      const hCol = cols.find(c => /^h$|^height/i.test(c));
       const dateCol = cols.find(c => /date|month|period|time/i.test(c)) || cols[1] || cols[0];
       const valCol = cols.find(c => /occ|pct|percent|rate|value|days/i.test(c)) || cols[cols.length - 1];
       const clientCol = cols.find(c => /client|customer|brand|advertiser|agency/i.test(c));
       const brandCol = cols.find(c => /brand|product|display/i.test(c));
 
       const siteMap = new Map();
-      rawRows.forEach(r => {
-        const sCode = String(r[scCol] || '').trim();
+      rawRows.forEach((r, rIdx) => {
+        let rawCode = scCol ? String(r[scCol] || '').trim() : '';
+        const rowLoc = locCol ? String(r[locCol] || '').trim() : (r.location || r.Location || r.address || r.Address || r.area || r.Area || '');
+        const rowSize = sizeCol ? String(r[sizeCol] || '').trim() : (r.size || r.Size || '');
+        const rowW = wCol ? r[wCol] : (r.width || r.Width || '');
+        const rowH = hCol ? r[hCol] : (r.height || r.Height || '');
+
+        let matchedDbSite = null;
+        const isExplicitMb = /^mb[-\s]?\d+/i.test(rawCode);
+
+        // 1. Explicit MB-XX code
+        if (rawCode && isExplicitMb) {
+          const cleanCode = rawCode.toLowerCase().replace(/[^a-z0-9]/g, '');
+          matchedDbSite = dbSites.find(s => String(s.site_code || '').toLowerCase().replace(/[^a-z0-9]/g, '') === cleanCode);
+        }
+
+        // 2. Auto-detect site code from location and size
+        if (!matchedDbSite && (rowLoc || rowSize || rowW || rowH)) {
+          matchedDbSite = matchSiteByLocationAndSize(rowLoc, rowSize, rowW, rowH, dbSites);
+        }
+
+        // 3. Fallback to direct code match or numeric row match
+        if (!matchedDbSite && rawCode) {
+          const cleanCode = rawCode.toLowerCase().replace(/[^a-z0-9]/g, '');
+          matchedDbSite = dbSites.find(s => String(s.site_code || '').toLowerCase().replace(/[^a-z0-9]/g, '') === cleanCode);
+          if (!matchedDbSite && /^\d+$/.test(rawCode)) {
+            const num = parseInt(rawCode, 10);
+            matchedDbSite = dbSites.find(s => String(s.site_code || '').toLowerCase().replace(/[^a-z0-9]/g, '') === `mb${String(num).padStart(2, '0')}` || String(s.site_code || '').toLowerCase().replace(/[^a-z0-9]/g, '') === `mb${num}`);
+          }
+        }
+
+        const sCode = matchedDbSite?.site_code || rawCode || (rowLoc ? `MB-${rowLoc.slice(0, 8).toUpperCase().replace(/[^A-Z0-9]/g, '')}` : `MB-${rIdx + 1}`);
         if (!sCode) return;
+
         if (!siteMap.has(sCode)) {
           siteMap.set(sCode, {
             site_code: sCode,
-            city: r.city || r.City || '—',
-            area: r.area || r.Area || r.location || r.Location || '—',
+            city: matchedDbSite?.city || r.city || r.City || 'Ahmedabad',
+            area: matchedDbSite?.address || matchedDbSite?.area || rowLoc || '—',
+            size: matchedDbSite?.size || rowSize || (matchedDbSite?.width && matchedDbSite?.height ? `${matchedDbSite.width}x${matchedDbSite.height} ft` : '—'),
             currentClient: clientCol ? String(r[clientCol] || '').trim() : null,
             currentBrand: brandCol ? String(r[brandCol] || '').trim() : null,
             currentStatus: 'active',
@@ -5083,9 +5217,16 @@ function CampaignTrackerView() {
   const location = useLocation();
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
+  const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editModal, setEditModal] = useState(null);
   const [modalSiteCode, setModalSiteCode] = useState('');
+  const [modalLocation, setModalLocation] = useState('');
+  const [modalWidth, setModalWidth] = useState('');
+  const [modalHeight, setModalHeight] = useState('');
+  const [modalSize, setModalSize] = useState('');
+  const [modalType, setModalType] = useState('Hoarding');
+  const [autoMatchedSite, setAutoMatchedSite] = useState(null);
   const [search, setSearch] = useState('');
   const [siteQueryParam, setSiteQueryParam] = useState('');
   const [monthFilter, setMonthFilter] = useState('ALL');
@@ -5110,12 +5251,18 @@ function CampaignTrackerView() {
   async function loadData() {
     setLoading(true);
     try {
-      const { data } = await api.get('/campaigns');
-      if (Array.isArray(data)) {
-        setRows(data);
+      const [campRes, sitesRes] = await Promise.all([
+        api.get('/campaigns'),
+        api.get('/sites')
+      ]);
+      if (Array.isArray(campRes.data)) {
+        setRows(campRes.data);
+      }
+      if (Array.isArray(sitesRes.data)) {
+        setSites(sitesRes.data);
       }
     } catch (err) {
-      console.warn('Error loading campaigns:', err);
+      console.warn('Error loading campaigns/sites:', err);
     } finally {
       setLoading(false);
     }
@@ -5126,6 +5273,54 @@ function CampaignTrackerView() {
     const interval = setInterval(loadData, 35000);
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-detect site code from location and size as user types or edits
+  useEffect(() => {
+    if (!editModal) {
+      setAutoMatchedSite(null);
+      return;
+    }
+    const derivedSize = modalSize || (modalWidth && modalHeight ? `${modalWidth}x${modalHeight}` : '');
+    if (!modalLocation && !derivedSize && !modalWidth && !modalHeight) {
+      setAutoMatchedSite(null);
+      return;
+    }
+    const matched = matchSiteByLocationAndSize(
+      modalLocation,
+      derivedSize,
+      modalWidth,
+      modalHeight,
+      sites
+    );
+    setAutoMatchedSite(matched);
+    // If site code is empty and a high-confidence match is detected, auto-populate it
+    if (matched && !modalSiteCode.trim()) {
+      setModalSiteCode(matched.site_code);
+    }
+  }, [modalLocation, modalSize, modalWidth, modalHeight, editModal, sites]);
+
+  function applyMatchedSite(s) {
+    if (!s) return;
+    setModalSiteCode(s.site_code || '');
+    if (s.address || s.area) setModalLocation(s.address || s.area || '');
+    if (s.width) setModalWidth(s.width);
+    if (s.height) setModalHeight(s.height);
+    if (s.size) setModalSize(s.size);
+    if (s.type) setModalType(s.type);
+  }
+
+  function handleSiteCodeChange(code) {
+    setModalSiteCode(code);
+    const upper = String(code).trim().toUpperCase();
+    const found = sites.find(s => String(s.site_code || '').toUpperCase() === upper);
+    if (found) {
+      if (!modalLocation) setModalLocation(found.address || found.area || '');
+      if (!modalWidth && found.width) setModalWidth(found.width);
+      if (!modalHeight && found.height) setModalHeight(found.height);
+      if (!modalSize && found.size) setModalSize(found.size);
+      if (found.type) setModalType(found.type);
+    }
+  }
 
   // Sync search/filter when navigating with ?site=MB-XX or ?search=...
   useEffect(() => {
@@ -5384,6 +5579,18 @@ function CampaignTrackerView() {
     if (!canAdd) return;
     const initialSiteCode = typeof code === 'string' && code ? code : (siteQueryParam || (search.trim().startsWith('MB-') ? search.trim() : ''));
     setModalSiteCode(initialSiteCode);
+    const foundSite = sites.find(s => String(s.site_code || '').toUpperCase() === initialSiteCode.toUpperCase());
+    const initLoc = foundSite ? (foundSite.address || foundSite.area || '') : '';
+    const initW = foundSite?.width ?? '';
+    const initH = foundSite?.height ?? '';
+    const initSize = foundSite?.size ?? (initW && initH ? `${initW}x${initH} ft` : '');
+    const initType = foundSite?.type || 'Hoarding';
+    setModalLocation(initLoc);
+    setModalWidth(initW);
+    setModalHeight(initH);
+    setModalSize(initSize);
+    setModalType(initType);
+    setAutoMatchedSite(foundSite || null);
     setEditModal({
       site_code: initialSiteCode,
       month: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
@@ -5391,11 +5598,11 @@ function CampaignTrackerView() {
       client: '',
       display: '',
       vendor_name: '',
-      location: '',
-      width: '',
-      height: '',
-      size: '',
-      type: 'Hoarding',
+      location: initLoc,
+      width: initW,
+      height: initH,
+      size: initSize,
+      type: initType,
       start_date: new Date().toISOString().slice(0, 10),
       end_date: '',
       days: 30,
@@ -5407,6 +5614,18 @@ function CampaignTrackerView() {
       pending: '',
       notes: ''
     });
+  }
+
+  function openEditCampaign(r) {
+    if (!r) return;
+    setModalSiteCode(r.site_code || '');
+    setModalLocation(r.location || '');
+    setModalWidth(r.width ?? '');
+    setModalHeight(r.height ?? '');
+    setModalSize(r.size || '');
+    setModalType(r.type || 'Hoarding');
+    setAutoMatchedSite(null);
+    setEditModal(r);
   }
 
   async function saveCampaign(e) {
@@ -6041,13 +6260,7 @@ function CampaignTrackerView() {
                               onClick={() => {
                                 const parentId = Number(r.parent_campaign.replace('LINKED:', ''));
                                 const parentRow = rows.find(x => x.id === parentId);
-                                if (parentRow) {
-                                  setModalSiteCode(parentRow.site_code || '');
-                                  setEditModal(parentRow);
-                                } else {
-                                  setModalSiteCode(r.site_code || '');
-                                  setEditModal(r);
-                                }
+                                openEditCampaign(parentRow || r);
                               }}
                               title="Jump to Primary Booking"
                             >
@@ -6057,7 +6270,7 @@ function CampaignTrackerView() {
                             <button
                               type="button"
                               className="scooh-iconbtn scooh-text-action"
-                              onClick={() => { setModalSiteCode(r.site_code || ''); setEditModal(r); }}
+                              onClick={() => openEditCampaign(r)}
                               title={isReadOnly ? 'View Campaign Details' : 'Edit Campaign'}
                             >
                               {isReadOnly ? 'View' : 'Edit'}
@@ -6101,15 +6314,82 @@ function CampaignTrackerView() {
               <div className="scooh-modalbody" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
                   <div className="scooh-field">
-                    <label>Site Code</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label>Site Code</label>
+                      {autoMatchedSite && (
+                        <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>
+                          ✓ Match: {autoMatchedSite.site_code}
+                        </span>
+                      )}
+                    </div>
                     <input
                       name="site_code"
+                      list="campaign-site-codes-list"
                       value={modalSiteCode}
-                      onChange={e => setModalSiteCode(e.target.value)}
+                      onChange={e => handleSiteCodeChange(e.target.value)}
                       placeholder="e.g. MB-06 or MB-02"
                       disabled={isReadOnly}
                     />
+                    <datalist id="campaign-site-codes-list">
+                      {sites.map(s => (
+                        <option key={s.id || s.site_code} value={s.site_code}>
+                          {s.site_code} — {s.address || s.area || ''} ({s.size || `${s.width}x${s.height}`})
+                        </option>
+                      ))}
+                    </datalist>
                   </div>
+                  {autoMatchedSite && (
+                    <div style={{
+                      gridColumn: '1 / -1',
+                      padding: '9px 13px',
+                      borderRadius: '8px',
+                      background: 'rgba(16, 185, 129, 0.12)',
+                      border: '1px solid rgba(16, 185, 129, 0.35)',
+                      fontSize: '12px',
+                      color: '#ecfdf5',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '10px',
+                      flexWrap: 'wrap'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '16px' }}>🎯</span>
+                        <div>
+                          <span style={{ color: '#a7f3d0' }}>Auto-detected Site Code from Location & Size:</span>{' '}
+                          <strong style={{ color: '#ffffff', fontSize: '13px', background: 'rgba(16, 185, 129, 0.3)', padding: '2px 7px', borderRadius: '4px' }}>
+                            {autoMatchedSite.site_code}
+                          </strong>
+                          <span style={{ color: '#cbd5e1', marginLeft: '6px' }}>
+                            {autoMatchedSite.size ? `[${autoMatchedSite.size}]` : ''} {autoMatchedSite.address || autoMatchedSite.area ? `• ${autoMatchedSite.address || autoMatchedSite.area}` : ''}
+                          </span>
+                        </div>
+                      </div>
+                      {String(modalSiteCode).trim().toUpperCase() !== String(autoMatchedSite.site_code).toUpperCase() ? (
+                        <button
+                          type="button"
+                          onClick={() => applyMatchedSite(autoMatchedSite)}
+                          style={{
+                            padding: '4px 12px',
+                            borderRadius: '6px',
+                            background: 'linear-gradient(135deg, #10b981, #059669)',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontWeight: 700,
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 6px rgba(16, 185, 129, 0.4)'
+                          }}
+                        >
+                          ✓ Apply Site Code
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: '11px', color: '#6ee7b7', fontWeight: 600 }}>
+                          ✓ Site Code Applied
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {(() => {
                     const conflict = getConflictSummary(modalSiteCode);
                     if (!conflict) return null;
@@ -6126,7 +6406,7 @@ function CampaignTrackerView() {
                         alignItems: 'center',
                         gap: '10px'
                       }}>
-                        <span style={{ fontSize: '16px' }}>{conflict.isCombined ? '🧩' : '🔗'}</span>
+                        <span style={{ fontSize: '16px' }}>🧩</span>
                         <div>
                           <strong style={{ color: conflict.isCombined ? '#c084fc' : '#38bdf8' }}>
                             {conflict.type}:
@@ -6158,23 +6438,76 @@ function CampaignTrackerView() {
                   </div>
                   <div className="scooh-field">
                     <label>Location</label>
-                    <input name="location" defaultValue={editModal.location ?? ''} placeholder="e.g. SG Highway, Bodakdev" disabled={isReadOnly} />
+                    <input
+                      name="location"
+                      list="campaign-location-suggestions"
+                      value={modalLocation}
+                      onChange={e => setModalLocation(e.target.value)}
+                      placeholder="e.g. SG Highway, Bodakdev"
+                      disabled={isReadOnly}
+                    />
+                    <datalist id="campaign-location-suggestions">
+                      {Array.from(new Set(sites.map(s => s.address || s.area).filter(Boolean))).map((loc, idx) => (
+                        <option key={idx} value={loc} />
+                      ))}
+                    </datalist>
                   </div>
                   <div className="scooh-field">
                     <label>Width (ft)</label>
-                    <input type="number" step="any" name="width" defaultValue={editModal.width ?? ''} placeholder="40" disabled={isReadOnly} />
+                    <input
+                      type="number"
+                      step="any"
+                      name="width"
+                      value={modalWidth}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setModalWidth(val);
+                        if (val && modalHeight) setModalSize(`${val}x${modalHeight} ft`);
+                      }}
+                      placeholder="40"
+                      disabled={isReadOnly}
+                    />
                   </div>
                   <div className="scooh-field">
                     <label>Height (ft)</label>
-                    <input type="number" step="any" name="height" defaultValue={editModal.height ?? ''} placeholder="20" disabled={isReadOnly} />
+                    <input
+                      type="number"
+                      step="any"
+                      name="height"
+                      value={modalHeight}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setModalHeight(val);
+                        if (modalWidth && val) setModalSize(`${modalWidth}x${val} ft`);
+                      }}
+                      placeholder="20"
+                      disabled={isReadOnly}
+                    />
                   </div>
                   <div className="scooh-field">
                     <label>Size</label>
-                    <input name="size" defaultValue={editModal.size ?? ''} placeholder="e.g. 40x20 ft" disabled={isReadOnly} />
+                    <input
+                      name="size"
+                      value={modalSize}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setModalSize(val);
+                        const parsed = parseDimensions(val);
+                        if (parsed.width) setModalWidth(parsed.width);
+                        if (parsed.height) setModalHeight(parsed.height);
+                      }}
+                      placeholder="e.g. 40x20 ft"
+                      disabled={isReadOnly}
+                    />
                   </div>
                   <div className="scooh-field">
                     <label>Media Type</label>
-                    <select name="type" defaultValue={editModal.type ?? 'Hoarding'} disabled={isReadOnly}>
+                    <select
+                      name="type"
+                      value={modalType}
+                      onChange={e => setModalType(e.target.value)}
+                      disabled={isReadOnly}
+                    >
                       <option value="Hoarding">Hoarding</option>
                       <option value="Gantry">Gantry</option>
                       <option value="Unipole">Unipole</option>
