@@ -21,7 +21,10 @@ export const pool = mysql.createPool({
   socketPath: process.env.DB_SOCKET || undefined,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
+  queueLimit: 100,
+  connectTimeout: 10000,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
   decimalNumbers: true,
   charset: 'utf8mb4',
   ssl: String(process.env.DB_SSL).toLowerCase() === 'true' ? {} : undefined

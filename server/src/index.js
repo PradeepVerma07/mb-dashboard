@@ -3,13 +3,35 @@ import express from 'express';import cors from 'cors';import helmet from 'helmet
 const XLSX = xlsxModule.default || xlsxModule;
 import {pool,q} from './db.js';import {auth,admin,sign,managerOrAdmin,notViewer,requireRole} from './auth.js';
 import {computeAllOccupied, canonicalSiteCode, getConflictSummary, syncLinkedCampaigns, deleteLinkedCampaigns, batchDeleteLinkedCampaigns, syncAllLinkedCampaigns} from './siteHierarchy.js';
-const __dirname=path.dirname(fileURLToPath(import.meta.url));const app=express();const PORT=Number(process.env.PORT||3000);const uploadDir=path.resolve(__dirname,'..',process.env.UPLOAD_DIR||'uploads');fs.mkdirSync(uploadDir,{recursive:true});
+process.on('uncaughtException', err => {
+  console.error('[Fatal] Uncaught Exception:', err.message);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Fatal] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+const __dirname=path.dirname(fileURLToPath(import.meta.url));
+const app=express();
+const rawPort = process.env.PORT || 3000;
+const isNumericPort = /^\d+$/.test(String(rawPort).trim());
+const PORT = isNumericPort ? parseInt(rawPort, 10) : rawPort;
+const uploadDir=path.resolve(__dirname,'..',process.env.UPLOAD_DIR||'uploads');
+fs.mkdirSync(uploadDir,{recursive:true});
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   contentSecurityPolicy: false
 }));
 app.use(cors({origin:true,credentials:true}));
 app.use(express.json({limit:'10mb'}));
+app.use((req, res, next) => {
+  res.setTimeout(25000, () => {
+    if (!res.headersSent) {
+      console.warn(`[Timeout] Request timed out: ${req.method} ${req.originalUrl || req.url}`);
+      res.status(504).json({ message: 'Request timeout' });
+    }
+  });
+  next();
+});
 app.use('/uploads', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -3463,9 +3485,15 @@ if (clientDist) {
   app.get('/', (req, res) => res.json({ status: 'API is running', endpoints: '/api/health' }));
 }
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Site Control API & Web App listening on port ${PORT}`);
-});
+if (typeof PORT === 'number') {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Site Control API & Web App listening on port ${PORT}`);
+  });
+} else {
+  app.listen(PORT, () => {
+    console.log(`Site Control API & Web App listening on socket ${PORT}`);
+  });
+}
 
 async function initDb() {
   try {
@@ -3662,8 +3690,7 @@ async function initDb() {
         await q(`DELETE FROM campaigns WHERE LOWER(TRIM(COALESCE(client, ''))) IN ('blank', 'vacant', 'unassigned', '', '-') OR LOWER(TRIM(COALESCE(client, ''))) LIKE 'blank%' OR LOWER(TRIM(COALESCE(client, ''))) LIKE 'vacant%'`);
       } catch (_) {}
 
-      // Synchronize linked campaigns and site availability on startup
-      await syncAllLinkedCampaigns(q);
+      // Synchronize site availability on startup
       await syncSiteAvailability();
     } catch (seedErr) {
       console.warn('Site seed notice:', seedErr.message);
