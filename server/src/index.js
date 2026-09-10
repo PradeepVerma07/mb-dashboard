@@ -3572,6 +3572,26 @@ async function initDb() {
     } catch (occTblErr) {
       console.warn('Occupancy table init notice:', occTblErr.message);
     }
+    try {
+      await q(`CREATE TABLE IF NOT EXISTS storage_archives (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        category VARCHAR(60) NOT NULL DEFAULT 'other',
+        title VARCHAR(255) NOT NULL DEFAULT '',
+        filename VARCHAR(255) NOT NULL DEFAULT '',
+        file_url TEXT NULL,
+        file_size VARCHAR(50) NOT NULL DEFAULT '—',
+        format VARCHAR(40) NOT NULL DEFAULT 'other',
+        meta_json LONGTEXT NULL,
+        record_status VARCHAR(20) NOT NULL DEFAULT 'active',
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        KEY category(category),
+        KEY format(format),
+        KEY record_status(record_status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
+    } catch (storageTblErr) {
+      console.warn('Storage archives table init notice:', storageTblErr.message);
+    }
 
     // Auto-seed initial Media Buzz sites & settings if empty
     try {
@@ -3667,20 +3687,24 @@ async function initDb() {
       }
 
       // Seed Storage Archives if empty
-      const storageCount = await q('SELECT COUNT(*) c FROM storage_archives');
-      if (!storageCount[0]?.c) {
-        await q(`INSERT INTO storage_archives (category, title, filename, file_url, file_size, format, meta_json, record_status, created_at, updated_at) VALUES
-          ('ppt', 'Diwali 2026 Prime Sites Pitch Deck', 'MediaBuzz_Automated-PPT_Diwali2026.pptx', '', '4.8 MB', 'pptx', '{"slides":8,"client":"All Prime Sites","sites":["AMD-GT-001","AMD-UP-002","AMD-HD-005"],"orientation":"16:9 Widescreen"}', 'active', DATE_SUB(NOW(), INTERVAL 2 DAY), NOW()),
-          ('ppt', 'Rajyash Group - Ahmedabad Outdoor Showcase', 'Rajyash_Group_Outdoor_Showcase.pptx', '', '3.2 MB', 'pptx', '{"slides":5,"client":"Rajyash Group","sites":["AMD-GT-001","AMD-HD-005"]}', 'active', DATE_SUB(NOW(), INTERVAL 5 DAY), NOW()),
-          ('ppt', 'Tata Motors EV Launch Presentation', 'Tata_Motors_EV_Launch_Deck.pptx', '', '2.9 MB', 'pptx', '{"slides":6,"client":"Tata Motors EV","sites":["AMD-UP-002"]}', 'active', DATE_SUB(NOW(), INTERVAL 9 DAY), NOW()),
-          ('excel', 'Campaign Tracker Master Sheet (20 Columns)', 'MediaBuzz_Campaign_Tracker_Sep2026.xlsx', '', '380 KB', 'xlsx', '{"rows":24,"columns":20,"type":"Campaigns","month":"Sep 2026"}', 'active', DATE_SUB(NOW(), INTERVAL 1 DAY), NOW()),
-          ('excel', 'Consolidated Electricity Bills (UGVCL & Torrent)', 'MediaBuzz_Electricity_Bills_Aug2026.xlsx', '', '210 KB', 'xlsx', '{"rows":18,"totalAmount":184500,"type":"Electricity"}', 'active', DATE_SUB(NOW(), INTERVAL 4 DAY), NOW()),
-          ('excel', 'Master Sites Portfolio & Geo-Coordinates', 'MediaBuzz_Sites_Catalog_2026.xlsx', '', '512 KB', 'xlsx', '{"rows":22,"type":"Sites Catalog","cities":["Ahmedabad"]}', 'active', DATE_SUB(NOW(), INTERVAL 12 DAY), NOW()),
-          ('occupancy', 'September 2026 Site Occupancy Snapshot', 'Occupancy_September_2026.json', '', '14 KB', 'json', '{"month":"September 2026","totalSites":22,"occupiedSites":19,"vacantSites":3,"occupancyPct":86,"revenue":1480000,"activeCampaignsCount":6}', 'active', DATE_SUB(NOW(), INTERVAL 8 DAY), NOW()),
-          ('occupancy', 'August 2026 Site Occupancy Snapshot', 'Occupancy_August_2026.json', '', '14 KB', 'json', '{"month":"August 2026","totalSites":22,"occupiedSites":17,"vacantSites":5,"occupancyPct":77,"revenue":1290000,"activeCampaignsCount":5}', 'active', DATE_SUB(NOW(), INTERVAL 38 DAY), NOW()),
-          ('occupancy', 'July 2026 Site Occupancy Snapshot', 'Occupancy_July_2026.json', '', '14 KB', 'json', '{"month":"July 2026","totalSites":22,"occupiedSites":16,"vacantSites":6,"occupancyPct":73,"revenue":1150000,"activeCampaignsCount":5}', 'active', DATE_SUB(NOW(), INTERVAL 69 DAY), NOW()),
-          ('occupancy', 'June 2026 Site Occupancy Snapshot', 'Occupancy_June_2026.json', '', '14 KB', 'json', '{"month":"June 2026","totalSites":22,"occupiedSites":15,"vacantSites":7,"occupancyPct":68,"revenue":1020000,"activeCampaignsCount":4}', 'active', DATE_SUB(NOW(), INTERVAL 99 DAY), NOW())`);
-        console.log('Seeded initial storage archives with generated PPTs, Excels, and historical occupancy snapshots.');
+      try {
+        const storageCount = await q('SELECT COUNT(*) c FROM storage_archives');
+        if (!storageCount[0]?.c) {
+          await q(`INSERT INTO storage_archives (category, title, filename, file_url, file_size, format, meta_json, record_status, created_at, updated_at) VALUES
+            ('ppt', 'Diwali 2026 Prime Sites Pitch Deck', 'MediaBuzz_Automated-PPT_Diwali2026.pptx', '', '4.8 MB', 'pptx', '{"slides":8,"client":"All Prime Sites","sites":["AMD-GT-001","AMD-UP-002","AMD-HD-005"],"orientation":"16:9 Widescreen"}', 'active', DATE_SUB(NOW(), INTERVAL 2 DAY), NOW()),
+            ('ppt', 'Rajyash Group - Ahmedabad Outdoor Showcase', 'Rajyash_Group_Outdoor_Showcase.pptx', '', '3.2 MB', 'pptx', '{"slides":5,"client":"Rajyash Group","sites":["AMD-GT-001","AMD-HD-005"]}', 'active', DATE_SUB(NOW(), INTERVAL 5 DAY), NOW()),
+            ('ppt', 'Tata Motors EV Launch Presentation', 'Tata_Motors_EV_Launch_Deck.pptx', '', '2.9 MB', 'pptx', '{"slides":6,"client":"Tata Motors EV","sites":["AMD-UP-002"]}', 'active', DATE_SUB(NOW(), INTERVAL 9 DAY), NOW()),
+            ('excel', 'Campaign Tracker Master Sheet (20 Columns)', 'MediaBuzz_Campaign_Tracker_Sep2026.xlsx', '', '380 KB', 'xlsx', '{"rows":24,"columns":20,"type":"Campaigns","month":"Sep 2026"}', 'active', DATE_SUB(NOW(), INTERVAL 1 DAY), NOW()),
+            ('excel', 'Consolidated Electricity Bills (UGVCL & Torrent)', 'MediaBuzz_Electricity_Bills_Aug2026.xlsx', '', '210 KB', 'xlsx', '{"rows":18,"totalAmount":184500,"type":"Electricity"}', 'active', DATE_SUB(NOW(), INTERVAL 4 DAY), NOW()),
+            ('excel', 'Master Sites Portfolio & Geo-Coordinates', 'MediaBuzz_Sites_Catalog_2026.xlsx', '', '512 KB', 'xlsx', '{"rows":22,"type":"Sites Catalog","cities":["Ahmedabad"]}', 'active', DATE_SUB(NOW(), INTERVAL 12 DAY), NOW()),
+            ('occupancy', 'September 2026 Site Occupancy Snapshot', 'Occupancy_September_2026.json', '', '14 KB', 'json', '{"month":"September 2026","totalSites":22,"occupiedSites":19,"vacantSites":3,"occupancyPct":86,"revenue":1480000,"activeCampaignsCount":6}', 'active', DATE_SUB(NOW(), INTERVAL 8 DAY), NOW()),
+            ('occupancy', 'August 2026 Site Occupancy Snapshot', 'Occupancy_August_2026.json', '', '14 KB', 'json', '{"month":"August 2026","totalSites":22,"occupiedSites":17,"vacantSites":5,"occupancyPct":77,"revenue":1290000,"activeCampaignsCount":5}', 'active', DATE_SUB(NOW(), INTERVAL 38 DAY), NOW()),
+            ('occupancy', 'July 2026 Site Occupancy Snapshot', 'Occupancy_July_2026.json', '', '14 KB', 'json', '{"month":"July 2026","totalSites":22,"occupiedSites":16,"vacantSites":6,"occupancyPct":73,"revenue":1150000,"activeCampaignsCount":5}', 'active', DATE_SUB(NOW(), INTERVAL 69 DAY), NOW()),
+            ('occupancy', 'June 2026 Site Occupancy Snapshot', 'Occupancy_June_2026.json', '', '14 KB', 'json', '{"month":"June 2026","totalSites":22,"occupiedSites":15,"vacantSites":7,"occupancyPct":68,"revenue":1020000,"activeCampaignsCount":4}', 'active', DATE_SUB(NOW(), INTERVAL 99 DAY), NOW())`);
+          console.log('Seeded initial storage archives with generated PPTs, Excels, and historical occupancy snapshots.');
+        }
+      } catch (storageSeedErr) {
+        console.warn('Storage archives seed notice:', storageSeedErr.message);
       }
       // Remove any accidental vacant / blank rows from campaigns table (blank shows in Occupancy only!)
       try {
