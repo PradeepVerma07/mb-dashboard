@@ -26,7 +26,7 @@ app.use('/uploads', (req, res, next) => {
 }));
 const upload=multer({dest:uploadDir,limits:{fileSize:Number(process.env.MAX_UPLOAD_MB||20)*1024*1024}});
 const entities={
- sites:{table:'sites',order:'id DESC'},clients:{table:'clients',order:'id DESC'},campaigns:{table:'campaigns',order:'id DESC'},validations:{table:'validations',order:'id DESC'},electricity:{table:'electricity',order:'id DESC'},vendors:{table:'vendors',order:'id DESC'},'vendor-jobs':{table:'vendor_jobs',order:'id DESC'},proposals:{table:'proposals',order:'id DESC'},invoices:{table:'invoices',order:'id DESC'}
+ sites:{table:'sites',order:'id DESC'},clients:{table:'clients',order:'id DESC'},campaigns:{table:'campaigns',order:'id DESC'},validations:{table:'validations',order:'id DESC'},electricity:{table:'electricity',order:'id DESC'},vendors:{table:'vendors',order:'id DESC'},'vendor-jobs':{table:'vendor_jobs',order:'id DESC'},proposals:{table:'proposals',order:'id DESC'},invoices:{table:'invoices',order:'id DESC'},occupancy:{table:'occupancy_records',order:'id DESC'}
 };
 const blocked=new Set(['id','created_at','updated_at']);
 function safeEntity(req,res){const e=entities[req.params.entity];if(!e){res.status(404).json({message:'Unknown module'});return null}return e}
@@ -2050,6 +2050,245 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
   }
 });
 
+app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'No workbook provided' });
+  try {
+    await q(`CREATE TABLE IF NOT EXISTS occupancy_records (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      site_code VARCHAR(60) NOT NULL DEFAULT '',
+      location VARCHAR(255) NOT NULL DEFAULT '',
+      city VARCHAR(120) NOT NULL DEFAULT '',
+      area VARCHAR(190) NOT NULL DEFAULT '',
+      size VARCHAR(60) NOT NULL DEFAULT '',
+      client VARCHAR(190) NOT NULL DEFAULT '',
+      brand VARCHAR(190) NOT NULL DEFAULT '',
+      display VARCHAR(190) NOT NULL DEFAULT '',
+      month VARCHAR(60) NOT NULL DEFAULT '',
+      start_date DATE NULL,
+      end_date DATE NULL,
+      days INT NOT NULL DEFAULT 30,
+      occupancy_pct DECIMAL(5,2) NULL,
+      total_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+      pending DECIMAL(15,2) NOT NULL DEFAULT 0,
+      po VARCHAR(100) NOT NULL DEFAULT '',
+      bill VARCHAR(100) NOT NULL DEFAULT '',
+      status VARCHAR(40) NOT NULL DEFAULT 'active',
+      notes TEXT NULL,
+      record_status VARCHAR(20) NOT NULL DEFAULT 'active',
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY site_code(site_code),
+      KEY month(month),
+      KEY record_status(record_status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
+
+    if (req.query.clear === 'true' || req.body?.clear === 'true' || req.body?.clear === true) {
+      await q(`DELETE FROM occupancy_records`);
+    }
+
+    const wb = XLSX.readFile(req.file.path, { cellDates: true, cellNF: false, cellText: false });
+    if (!wb.SheetNames || wb.SheetNames.length === 0) {
+      return res.status(400).json({ message: 'Excel workbook contains no sheets' });
+    }
+
+    const headerKeywords = [
+      'site', 'code', 'hoarding', 'board', 'media',
+      'month', 'period', 'date', 'day', 'duration',
+      'client', 'agency', 'advertiser', 'customer',
+      'display', 'brand', 'campaign', 'creative',
+      'location', 'address', 'area', 'city', 'landmark',
+      'size', 'dimension', 'w', 'width', 'h', 'height',
+      'start', 'end', 'from', 'to',
+      'amount', 'total', 'rent', 'fees', 'revenue',
+      'po', 'bill', 'inv', 'invoice',
+      'pending', 'balance', 'occupancy', 'occ', 'status'
+    ];
+
+    const candidateSheets = [];
+    for (const name of wb.SheetNames) {
+      const sheet = wb.Sheets[name];
+      if (!sheet || !sheet['!ref']) continue;
+      const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+      let bestScore = 0, bestIdx = 0;
+      for (let i = 0; i < Math.min(30, rawRows.length); i++) {
+        const row = rawRows[i] || [];
+        let score = 0;
+        for (const cell of row) {
+          const txt = String(cell || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (!txt) continue;
+          for (const kw of headerKeywords) {
+            if (txt.includes(kw)) { score++; break; }
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = i;
+        }
+      }
+      if (bestScore >= 1) {
+        candidateSheets.push({ name, sheet, headerIdx: bestIdx, score: bestScore });
+      }
+    }
+
+    if (candidateSheets.length === 0) {
+      candidateSheets.push({ name: wb.SheetNames[0], sheet: wb.Sheets[wb.SheetNames[0]], headerIdx: 0, score: 0 });
+    }
+
+    const existingSites = await q('SELECT id, site_code, address, area, city, size, width, height FROM sites WHERE record_status="active"');
+
+    const parseNum = (val) => {
+      if (typeof val === 'number') return isNaN(val) ? 0 : val;
+      if (!val) return 0;
+      const cleaned = String(val).replace(/₹|\$|€|£|Rs\.?|INR|\/|-|\s/gi, '').replace(/,/g, '').trim();
+      const n = parseFloat(cleaned);
+      return isNaN(n) ? 0 : n;
+    };
+
+    const parseDate = (val) => {
+      if (!val) return null;
+      if (val instanceof Date) {
+        if (isNaN(val.getTime())) return null;
+        const y = val.getFullYear();
+        const m = String(val.getMonth() + 1).padStart(2, '0');
+        const d = String(val.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+      if (typeof val === 'number') {
+        const parsed = XLSX.SSF.parse_date_code(val);
+        if (parsed) {
+          return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+        }
+      }
+      const str = String(val).trim();
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dt = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${dt}`;
+      }
+      return null;
+    };
+
+    let importedCount = 0;
+
+    for (const cs of candidateSheets) {
+      const rows = XLSX.utils.sheet_to_json(cs.sheet, { range: cs.headerIdx, defval: '', raw: true });
+
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const rowMap = {};
+        for (const k of Object.keys(r || {})) {
+          rowMap[String(k).toLowerCase().replace(/[^a-z0-9]/g, '')] = r[k];
+        }
+
+        const getVal = (aliases) => {
+          for (const a of aliases) {
+            const na = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (rowMap[na] !== undefined && String(rowMap[na]).trim() !== '') {
+              return rowMap[na];
+            }
+          }
+          return '';
+        };
+
+        const rawCode = String(getVal(['site code', 'sitecode', 'site_code', 'site id', 'code', 'site', 'hoarding no', 'hoarding', 'board no'])).trim();
+        let location = String(getVal(['location', 'address', 'area', 'landmark', 'site location', 'site name'])).trim();
+        let city = String(getVal(['city', 'town'])).trim() || 'Ahmedabad';
+        let size = String(getVal(['size', 'dimension', 'dimensions', 'measurement', 'wxh', 'w x h'])).trim();
+        const client = String(getVal(['client', 'agency', 'client name', 'advertiser', 'party', 'customer'])).trim();
+        const brand = String(getVal(['brand', 'product'])).trim();
+        const display = String(getVal(['display', 'campaign', 'creative', 'ad matter', 'subject'])).trim() || brand || client || 'Standard Display';
+        const month = String(getVal(['month', 'period', 'billing month'])).trim();
+        let startDate = parseDate(getVal(['start date', 'start_date', 'from date', 'from_date', 'booking start', 'start', 'from', 'date']));
+        let endDate = parseDate(getVal(['end date', 'end_date', 'to date', 'to_date', 'booking end', 'end', 'to']));
+        let days = parseInt(getVal(['days', 'duration', 'total days', 'no of days']), 10);
+        if (isNaN(days) || days <= 0) {
+          if (startDate && endDate) {
+            const diffMs = new Date(endDate).getTime() - new Date(startDate).getTime();
+            days = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1);
+          } else {
+            days = 30;
+          }
+        }
+        if (!startDate && month) {
+          const mMatch = month.match(/([a-zA-Z]+)[ -_]?(\d{2,4})?/);
+          if (mMatch) {
+            const mKey = mMatch[1].toLowerCase().substring(0, 3);
+            const mNum = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' }[mKey] || '01';
+            let yNum = mMatch[2] || new Date().getFullYear();
+            if (String(yNum).length === 2) yNum = '20' + yNum;
+            startDate = `${yNum}-${mNum}-01`;
+            if (!endDate) {
+              const dEnd = new Date(Number(yNum), Number(mNum), 0);
+              endDate = `${yNum}-${mNum}-${String(dEnd.getDate()).padStart(2, '0')}`;
+            }
+          }
+        }
+
+        const rawOcc = getVal(['occupancy', 'occ', 'occupancy rate', 'pct', 'percent', 'utilization']);
+        let occPct = null;
+        if (rawOcc !== '') {
+          const numOcc = parseFloat(String(rawOcc).replace('%', ''));
+          if (!isNaN(numOcc)) occPct = Math.min(100, Math.max(0, numOcc));
+        }
+
+        const totalAmount = parseNum(getVal(['total amount', 'total', 'amount', 'rent', 'rental', 'revenue', 'value']));
+        const pending = parseNum(getVal(['pending', 'balance', 'due', 'unpaid']));
+        const po = String(getVal(['po', 'po number', 'ro', 'order no'])).trim();
+        const bill = String(getVal(['bill', 'bill number', 'invoice', 'inv no'])).trim();
+        const rawStatus = String(getVal(['status', 'booking status'])).trim().toLowerCase();
+        let status = 'active';
+        if (/past|complete|finished|done/i.test(rawStatus)) status = 'past';
+        else if (/upcoming|future|booked/i.test(rawStatus)) status = 'upcoming';
+
+        if (!rawCode && !location && !client && totalAmount === 0 && !startDate) continue;
+        if (/total|grand total|subtotal/i.test(client) || /total|grand total/i.test(rawCode) || /total|grand total/i.test(location)) continue;
+
+        // Auto-match site code if missing or implicit
+        let finalSiteCode = rawCode;
+        let matchedSite = null;
+        if (rawCode) {
+          const cleanC = cleanStr(rawCode);
+          matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
+        }
+        if (!matchedSite && (location || size)) {
+          matchedSite = matchSiteByLocationAndSize(location, size, '', '', existingSites);
+        }
+        if (matchedSite) {
+          finalSiteCode = matchedSite.site_code;
+          if (!location) location = matchedSite.address || matchedSite.area;
+          if (!city) city = matchedSite.city || 'Ahmedabad';
+          if (!size) size = matchedSite.size;
+        }
+        if (!finalSiteCode) {
+          finalSiteCode = location ? `MB-${cleanStr(location).slice(0, 8).toUpperCase()}` : `MB-OCC-${i + 1}`;
+        }
+
+        await q(`INSERT INTO occupancy_records (
+          site_code, location, city, area, size, client, brand, display,
+          month, start_date, end_date, days, occupancy_pct, total_amount,
+          pending, po, bill, status, record_status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
+          finalSiteCode, location, city, location, size, client, brand, display,
+          month, startDate, endDate, days, occPct, totalAmount,
+          pending, po, bill, status
+        ]);
+        importedCount++;
+      }
+    }
+
+    res.json({
+      success: true,
+      count: importedCount,
+      message: `Successfully imported ${importedCount} occupancy records into Occupancy tracker.`
+    });
+  } catch (err) {
+    console.error('Import Occupancy XLSX error:', err);
+    res.status(500).json({ message: 'Occupancy import error: ' + err.message });
+  }
+});
+
 app.post('/api/import/json', auth, managerOrAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No JSON file provided' });
   try {
@@ -2614,6 +2853,39 @@ async function initDb() {
     } catch (_) {}
 
     await ensureCampaignColumns();
+
+    try {
+      await q(`CREATE TABLE IF NOT EXISTS occupancy_records (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        site_code VARCHAR(60) NOT NULL DEFAULT '',
+        location VARCHAR(255) NOT NULL DEFAULT '',
+        city VARCHAR(120) NOT NULL DEFAULT '',
+        area VARCHAR(190) NOT NULL DEFAULT '',
+        size VARCHAR(60) NOT NULL DEFAULT '',
+        client VARCHAR(190) NOT NULL DEFAULT '',
+        brand VARCHAR(190) NOT NULL DEFAULT '',
+        display VARCHAR(190) NOT NULL DEFAULT '',
+        month VARCHAR(60) NOT NULL DEFAULT '',
+        start_date DATE NULL,
+        end_date DATE NULL,
+        days INT NOT NULL DEFAULT 30,
+        occupancy_pct DECIMAL(5,2) NULL,
+        total_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+        pending DECIMAL(15,2) NOT NULL DEFAULT 0,
+        po VARCHAR(100) NOT NULL DEFAULT '',
+        bill VARCHAR(100) NOT NULL DEFAULT '',
+        status VARCHAR(40) NOT NULL DEFAULT 'active',
+        notes TEXT NULL,
+        record_status VARCHAR(20) NOT NULL DEFAULT 'active',
+        created_at DATETIME NOT NULL,
+        updated_at DATETIME NOT NULL,
+        KEY site_code(site_code),
+        KEY month(month),
+        KEY record_status(record_status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
+    } catch (occTblErr) {
+      console.warn('Occupancy table init notice:', occTblErr.message);
+    }
 
     // Auto-seed initial Media Buzz sites & settings if empty
     try {

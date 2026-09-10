@@ -4116,7 +4116,7 @@ function OccPercentBar({ pct, days, totalDays, showText = true, height = 7, clie
 function OccupancyView() {
   const location = useLocation();
   const [dbSites, setDbSites] = useState([]);
-  const [dbCampaigns, setDbCampaigns] = useState([]);
+  const [dbOccupancy, setDbOccupancy] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState('history'); // 'history' | '6months' | 'overview'
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
@@ -4135,20 +4135,17 @@ function OccupancyView() {
   }, [location.search]);
   
   // Excel import state
-  const [rawRows, setRawRows] = useState([]);
-  const [fileName, setFileName] = useState('');
-  const [dataSource, setDataSource] = useState('system'); // 'system' | 'excel'
   const fileRef = useRef();
 
   const loadSystemData = useCallback(async () => {
     setLoading(true);
     try {
-      const [sRes, cRes] = await Promise.all([
+      const [sRes, oRes] = await Promise.all([
         api.get('/sites'),
-        api.get('/campaigns')
+        api.get('/occupancy')
       ]);
       setDbSites(Array.isArray(sRes.data) ? sRes.data : []);
-      setDbCampaigns(Array.isArray(cRes.data) ? cRes.data : []);
+      setDbOccupancy(Array.isArray(oRes.data) ? oRes.data : []);
     } catch (err) {
       console.error('Failed to load occupancy data:', err);
     } finally {
@@ -4160,27 +4157,40 @@ function OccupancyView() {
     loadSystemData();
   }, [loadSystemData]);
 
-  // Handle Excel file import
-  function handleFile(file) {
+  // Handle dedicated Occupancy Excel import (persisted into occupancy_records table)
+  async function handleOccupancyExcelImport(file) {
     if (!file) return;
-    setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        if (!raw.length) {
-          alert('Excel file contains no data.');
-          return;
-        }
-        setRawRows(raw);
-        setDataSource('excel');
-      } catch (err) {
-        alert('Could not parse file. Please upload a valid Excel or CSV file.');
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.post('/import/occupancy-xlsx', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      alert(res.data?.message || 'Occupancy Excel imported successfully!');
+      await loadSystemData();
+    } catch (err) {
+      alert('Failed to import Occupancy Excel: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  async function handleClearOccupancy() {
+    if (!confirm('Are you sure you want to clear all Occupancy records? This only resets Occupancy, NOT Campaign Tracker.')) return;
+    setLoading(true);
+    try {
+      if (dbOccupancy.length > 0) {
+        await api.post('/occupancy/batch-delete', { ids: dbOccupancy.map(o => o.id), hard: true });
       }
-    };
-    reader.readAsArrayBuffer(file);
+      await loadSystemData();
+      alert('Occupancy records cleared successfully.');
+    } catch (err) {
+      alert('Failed to clear occupancy: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
+    }
   }
 
   // ── Compute periods (6 Months & Yearly) ──────────────────────────────
@@ -4342,9 +4352,9 @@ function OccupancyView() {
       return Array.from(siteMap.values()).sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
     }
 
-    // Default: calculate from Live DB Sites, synthesized Combined/Split-face hierarchy, and Campaigns
+    // Calculate from Live DB Sites, synthesized Combined/Split-face hierarchy, and Occupancy records
     const activeDbSites = dbSites.filter(s => s.record_status !== 'archived');
-    const activeCampaigns = dbCampaigns.filter(c => c.record_status !== 'archived');
+    const activeOccupancies = dbOccupancy.filter(c => c.record_status !== 'archived');
 
     // Build complete site directory guaranteeing all combined & split-face sites exist
     const siteMap = new Map();
@@ -4380,7 +4390,7 @@ function OccupancyView() {
       const overlappingCodes = new Set(getOverlappingSiteCodes(siteCode).map(canonicalSiteCode));
       overlappingCodes.add(siteCode);
 
-      const siteCamps = activeCampaigns.filter(c => {
+      const siteCamps = activeOccupancies.filter(c => {
         if (c.site_id && site.id && String(c.site_id) === String(site.id)) return true;
         const cCode = canonicalSiteCode(c.site_code);
         return cCode && overlappingCodes.has(cCode);
@@ -4511,7 +4521,7 @@ function OccupancyView() {
         clients365: res365.clients
       };
     }).sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
-  }, [dataSource, rawRows, dbSites, dbCampaigns, periods6M, periodsYearly, period365]);
+  }, [dbSites, dbOccupancy, periods6M, periodsYearly, period365]);
 
   // ── Filtered sites with simple Status Filter (All / Occupied / Vacant) and Site Type Filter ──
   const filteredSites = useMemo(() => {
@@ -4541,76 +4551,42 @@ function OccupancyView() {
     const list = [];
     const now = new Date();
 
-    if (dataSource === 'excel' && rawRows.length > 0) {
-      siteHistory.forEach(s => {
-        (s.allCampaigns || []).forEach((c, cIdx) => {
-          const sDate = parseFlexibleDate(c.start_date || c.booking_date || c.month);
-          const eDate = parseFlexibleDate(c.end_date) || (sDate ? new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0, 23, 59, 59) : null);
-          const isAct = sDate && eDate && sDate <= now && eDate >= now;
-          const isUpc = sDate && sDate > now;
-          const sCode = canonicalSiteCode(s.site_code);
-          list.push({
-            id: c.id || `${sCode}-${cIdx}`,
-            site_code: sCode,
-            siteType: getSiteTypeTag(sCode),
-            location: s.area,
-            city: s.city,
-            client: c.client || c.client_name || '—',
-            brand: c.brand || '—',
-            display: cleanDisplayTitle(c.campaign_name || c.display || '—'),
-            vendor_name: c.vendor_name || '—',
-            month: c.month || (sDate ? fmtMonthYear(sDate) : '—'),
-            start_date: c.start_date || c.booking_date,
-            end_date: c.end_date,
-            days: c.days ?? (sDate && eDate ? Math.round((eDate - sDate) / 86400000) + 1 : '—'),
-            total_amount: Number(c.total_amount || c.revenue || 0),
-            pending: Number(c.pending || 0),
-            po: c.po || '',
-            bill: c.bill || '',
-            sDate,
-            eDate,
-            status: isAct ? 'active' : isUpc ? 'upcoming' : 'past'
-          });
+    const activeSitesMap = new Map();
+    dbSites.forEach(s => activeSitesMap.set(canonicalSiteCode(s.site_code), s));
+
+    dbOccupancy
+      .filter(c => c.record_status !== 'archived')
+      .forEach(c => {
+        const sCode = canonicalSiteCode(c.site_code);
+        const site = activeSitesMap.get(sCode);
+        const sDate = parseFlexibleDate(c.start_date || c.booking_date || c.month);
+        const eDate = parseFlexibleDate(c.end_date) || (sDate ? new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0, 23, 59, 59) : null);
+        const isAct = c.status === 'active' || (sDate && eDate && sDate <= now && eDate >= now);
+        const isUpc = c.status === 'upcoming' || (sDate && sDate > now);
+
+        list.push({
+          id: c.id,
+          site_code: sCode || '—',
+          siteType: getSiteTypeTag(sCode),
+          location: c.location || site?.address || site?.area || '—',
+          city: c.city || site?.city || 'Ahmedabad',
+          client: c.client || c.client_name || '—',
+          brand: c.brand || '—',
+          display: cleanDisplayTitle(c.display || c.campaign_name || '—'),
+          vendor_name: c.vendor_name || '—',
+          month: c.month || (sDate ? fmtMonthYear(sDate) : '—'),
+          start_date: c.start_date || c.booking_date,
+          end_date: c.end_date,
+          days: c.days ?? (sDate && eDate ? Math.round((eDate - sDate) / 86400000) + 1 : '—'),
+          total_amount: Number(c.total_amount || c.revenue || 0),
+          pending: Number(c.pending || 0),
+          po: c.po || '',
+          bill: c.bill || '',
+          sDate,
+          eDate,
+          status: isAct ? 'active' : isUpc ? 'upcoming' : 'past'
         });
       });
-    } else {
-      const activeSitesMap = new Map();
-      dbSites.forEach(s => activeSitesMap.set(canonicalSiteCode(s.site_code), s));
-
-      dbCampaigns
-        .filter(c => c.record_status !== 'archived')
-        .forEach(c => {
-          const sCode = canonicalSiteCode(c.site_code);
-          const site = activeSitesMap.get(sCode);
-          const sDate = parseFlexibleDate(c.start_date || c.booking_date);
-          const eDate = parseFlexibleDate(c.end_date) || (sDate ? new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0, 23, 59, 59) : null);
-          const isAct = sDate && eDate && sDate <= now && eDate >= now;
-          const isUpc = sDate && sDate > now;
-
-          list.push({
-            id: c.id,
-            site_code: sCode || '—',
-            siteType: getSiteTypeTag(sCode),
-            location: c.location || site?.address || site?.area || '—',
-            city: c.city || site?.city || 'Ahmedabad',
-            client: c.client || c.client_name || '—',
-            brand: c.brand || '—',
-            display: cleanDisplayTitle(c.display || c.campaign_name || '—'),
-            vendor_name: c.vendor_name || '—',
-            month: c.month || (sDate ? fmtMonthYear(sDate) : '—'),
-            start_date: c.start_date || c.booking_date,
-            end_date: c.end_date,
-            days: c.days ?? (sDate && eDate ? Math.round((eDate - sDate) / 86400000) + 1 : '—'),
-            total_amount: Number(c.total_amount || c.revenue || 0),
-            pending: Number(c.pending || 0),
-            po: c.po || '',
-            bill: c.bill || '',
-            sDate,
-            eDate,
-            status: isAct ? 'active' : isUpc ? 'upcoming' : 'past'
-          });
-        });
-    }
 
     return list.sort((a, b) => {
       const siteComp = String(a.site_code || '').localeCompare(String(b.site_code || ''), undefined, { numeric: true });
@@ -4619,7 +4595,7 @@ function OccupancyView() {
       const tB = b.sDate ? b.sDate.getTime() : 0;
       return tB - tA;
     });
-  }, [dataSource, rawRows, dbSites, dbCampaigns, siteHistory]);
+  }, [dbSites, dbOccupancy, siteHistory]);
 
   const filteredBookings = useMemo(() => {
     return allBookings.filter(b => {
@@ -5161,20 +5137,6 @@ function OccupancyView() {
               </button>
             </div>
 
-            {dataSource === 'excel' ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', background: '#0f2035', border: '1px solid #1e3a5f', borderRadius: '8px', fontSize: '11.5px', color: '#7dd3fc' }}>
-                <span>📄 {fileName}</span>
-                <button
-                  type="button"
-                  onClick={() => { setDataSource('system'); setFileName(''); setRawRows([]); }}
-                  style={{ background: 'none', border: 'none', color: '#f06a6a', cursor: 'pointer', fontSize: '12px', fontWeight: 800, padding: 0 }}
-                  title="Switch back to Live Database"
-                >
-                  ✕
-                </button>
-              </div>
-            ) : null}
-
             <button
               type="button"
               className="scooh-btn ghost"
@@ -5190,7 +5152,7 @@ function OccupancyView() {
               type="file"
               accept=".xlsx,.xls,.csv"
               style={{ display: 'none' }}
-              onChange={e => handleFile(e.target.files?.[0])}
+              onChange={e => handleOccupancyExcelImport(e.target.files?.[0])}
             />
 
             <button
@@ -5198,9 +5160,22 @@ function OccupancyView() {
               className="scooh-btn primary"
               style={{ padding: '6px 14px', fontSize: '11.5px', fontWeight: 800 }}
               onClick={() => { fileRef.current.value = ''; fileRef.current.click(); }}
+              title="Upload your separate Occupancy Excel sheet (does NOT affect Campaign Tracker)"
             >
-              Import Excel
+              Import Occupancy Excel
             </button>
+
+            {dbOccupancy.length > 0 && (
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                style={{ fontSize: '11.5px', padding: '6px 12px', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.35)' }}
+                onClick={handleClearOccupancy}
+                title="Clear all Occupancy records (Campaign Tracker remains untouched)"
+              >
+                🗑 Clear Occupancy ({dbOccupancy.length})
+              </button>
+            )}
 
             <button
               type="button"
@@ -6680,15 +6655,6 @@ function CampaignTrackerView() {
                 + Book
               </button>
             )}
-            <button
-              type="button"
-              className="scooh-btn ghost"
-              style={{ fontSize: '11px', padding: '3px 8px', color: '#cbd5e1', borderColor: 'rgba(255, 255, 255, 0.15)' }}
-              onClick={() => navigate(`/occupancy?site=${encodeURIComponent(item.site_code)}`)}
-              title={`View all ${item.campaignCount} historical bookings for ${item.site_code} in Occupancy`}
-            >
-              History ↗{item.campaignCount > 0 ? ` (${item.campaignCount})` : ''}
-            </button>
             {canDelete && item.campaign_id && (
               <button
                 type="button"
