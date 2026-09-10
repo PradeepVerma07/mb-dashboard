@@ -408,6 +408,28 @@ function matchSiteByLocationAndSize(location, size, width, height, siteList) {
   return bestScore >= 20 ? bestSite : null;
 }
 
+/**
+ * Returns true if the site is still booked/occupied ON OR AFTER dateStr.
+ * Used to filter: hide sites whose campaign hasn't ended by the selected date.
+ * A site is "available from dateStr" only if ALL its campaigns end before dateStr.
+ * campaignsBySiteCode: { [UPPERCASE_SITE_CODE]: campaign[] }
+ */
+function isSiteOccupiedOnDate(campaignsBySiteCode, siteCode, dateStr) {
+  if (!dateStr || !siteCode) return false;
+  const fromDate = new Date(dateStr + 'T00:00:00');
+  if (isNaN(fromDate.getTime())) return false;
+  const key = String(siteCode).toUpperCase().trim();
+  const camps = campaignsBySiteCode[key] || [];
+  return camps.some(c => {
+    if (c.record_status && c.record_status !== 'active') return false;
+    const end = c.end_date ? new Date(c.end_date + 'T00:00:00') : null;
+    // No end date = campaign runs indefinitely = still occupied
+    if (!end) return true;
+    // Campaign end >= selected date → site is still occupied on/after that date
+    return end >= fromDate;
+  });
+}
+
 function unpackSite(s) {
   let f = s.flags;
   try {
@@ -1725,6 +1747,8 @@ function SitesView() {
   const [mediaFilter, setMediaFilter] = useState('');
   const [availFilter, setAvailFilter] = useState('');
   const [lightingFilter, setLightingFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState(''); // availability date check
+  const [campaignsBySiteCode, setCampaignsBySiteCode] = useState({}); // { SITE_CODE: campaigns[] }
   const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
   const [edit, setEdit] = useState(null);
   const [imageModalSite, setImageModalSite] = useState(null);
@@ -1732,9 +1756,23 @@ function SitesView() {
 
   async function load() {
     try {
-      const { data } = await api.get('/sites');
-      if (Array.isArray(data) && data.length > 0) {
-        setSites(data.map(unpackSite));
+      const [sRes, cRes] = await Promise.all([
+        api.get('/sites'),
+        api.get('/campaigns').catch(() => ({ data: [] }))
+      ]);
+      if (Array.isArray(sRes.data) && sRes.data.length > 0) {
+        setSites(sRes.data.map(unpackSite));
+      }
+      // Build campaign map: SITE_CODE -> campaigns[]
+      if (Array.isArray(cRes.data)) {
+        const map = {};
+        cRes.data.forEach(c => {
+          const key = String(c.site_code || '').toUpperCase().trim();
+          if (!key) return;
+          if (!map[key]) map[key] = [];
+          map[key].push(c);
+        });
+        setCampaignsBySiteCode(map);
       }
     } catch (e) {
       console.warn('Using default sites cache', e);
@@ -1770,6 +1808,8 @@ function SitesView() {
       const matchesMedia = !mediaFilter || s.media_type === mediaFilter;
       const matchesAvail = !availFilter || (s.ppt_availability || s.availability) === availFilter;
       const matchesLighting = !lightingFilter || s.lighting === lightingFilter;
+      // Date filter: hide sites occupied on the selected date
+      if (dateFilter && isSiteOccupiedOnDate(campaignsBySiteCode, s.site_code, dateFilter)) return false;
       return matchesQuery && matchesCity && matchesMedia && matchesAvail && matchesLighting;
     });
 
@@ -1789,7 +1829,7 @@ function SitesView() {
       });
     }
     return list;
-  }, [sites, search, cityFilter, mediaFilter, availFilter, lightingFilter, sortState]);
+  }, [sites, search, cityFilter, mediaFilter, availFilter, lightingFilter, dateFilter, campaignsBySiteCode, sortState]);
 
   const [selectedIds, setSelectedIds] = useState(new Set());
 
@@ -1955,6 +1995,20 @@ function SitesView() {
               {lightings.map(l => <option key={l} value={l}>{l}</option>)}
             </select>
           )}
+          {/* Date availability filter */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: dateFilter ? 'rgba(56,189,248,0.1)' : 'rgba(15,23,42,0.6)', border: `1px solid ${dateFilter ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '8px', padding: '4px 10px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: dateFilter ? '#38bdf8' : '#64748b', whiteSpace: 'nowrap' }}>📅 Available from:</span>
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={e => setDateFilter(e.target.value)}
+              style={{ background: 'transparent', border: 'none', color: dateFilter ? '#e2e8f0' : '#94a3b8', fontSize: '12px', fontWeight: 600, outline: 'none', cursor: 'pointer', padding: '2px 0' }}
+              title="Show only sites whose current campaign ends before this date (will be free from this date)"
+            />
+            {dateFilter && (
+              <button type="button" onClick={() => setDateFilter('')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 2px' }} title="Clear date filter">×</button>
+            )}
+          </div>
           <select
             value={`${sortState.key}:${sortState.dir}`}
             onChange={e => {
@@ -1972,7 +2026,7 @@ function SitesView() {
             <option value="availability:asc">Sort: Availability (A-Z)</option>
             <option value="size:asc">Sort: Size</option>
           </select>
-          {(search || cityFilter || mediaFilter || availFilter || lightingFilter || sortState.key !== 'site_code' || sortState.dir !== 'asc') && (
+          {(search || cityFilter || mediaFilter || availFilter || lightingFilter || dateFilter || sortState.key !== 'site_code' || sortState.dir !== 'asc') && (
             <button
               type="button"
               className="scooh-btn ghost"
@@ -1983,6 +2037,7 @@ function SitesView() {
                 setMediaFilter('');
                 setAvailFilter('');
                 setLightingFilter('');
+                setDateFilter('');
                 setSortState({ key: 'site_code', dir: 'asc' });
               }}
             >
@@ -2344,6 +2399,7 @@ function PptView() {
   const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
   // Campaign tracker map: site_code (uppercase) → latest active campaign row
   const [campaignMap, setCampaignMap] = useState({});
+  const [campaignsBySiteCode, setCampaignsBySiteCode] = useState({}); // ALL campaigns per site for date overlap
 
   function getCleanPptName() {
     let clean = (pptName || '').trim();
@@ -2385,13 +2441,14 @@ function PptView() {
       // Build site_code → active campaign map from Campaign Tracker
       // Primary campaigns take precedence, then latest end_date / start_date / id desc
       if (Array.isArray(cRes.data)) {
+        // 1. single latest campaign per site (used for slide display)
         const map = {};
         const sorted = cRes.data
           .filter(c => c.record_status === 'active')
           .sort((a, b) => {
             const isLinkedA = String(a.parent_campaign || '').startsWith('LINKED:');
             const isLinkedB = String(b.parent_campaign || '').startsWith('LINKED:');
-            if (isLinkedA !== isLinkedB) return isLinkedA ? 1 : -1; // primary first
+            if (isLinkedA !== isLinkedB) return isLinkedA ? 1 : -1;
             const endA = new Date(a.end_date || 0).getTime();
             const endB = new Date(b.end_date || 0).getTime();
             if (endA !== endB && endA > 0 && endB > 0) return endB - endA;
@@ -2405,6 +2462,16 @@ function PptView() {
           if (code && !map[code]) map[code] = c;
         }
         setCampaignMap(map);
+
+        // 2. ALL active campaigns per site (used for date overlap check)
+        const byCode = {};
+        cRes.data.filter(c => c.record_status === 'active').forEach(c => {
+          const key = String(c.site_code || '').toUpperCase().trim();
+          if (!key) return;
+          if (!byCode[key]) byCode[key] = [];
+          byCode[key].push(c);
+        });
+        setCampaignsBySiteCode(byCode);
       }
     } catch (e) {
       console.warn('PPT load notice:', e);
@@ -2451,12 +2518,8 @@ function PptView() {
     const list = sites.filter(s => {
       if (!matchSiteSearch(s, query)) return false;
       if (areaFilter && s.area !== areaFilter) return false;
-      if (dateFilter) {
-        const av = String(s.ppt_availability || s.availability || '').toLowerCase().trim();
-        if (av !== 'available' && av !== 'immediate' && av !== 'long term') {
-          if (av > dateFilter) return false;
-        }
-      }
+      // Date filter: hide sites that are occupied on the selected date
+      if (dateFilter && isSiteOccupiedOnDate(campaignsBySiteCode, s.site_code, dateFilter)) return false;
       return true;
     });
 
@@ -2478,7 +2541,7 @@ function PptView() {
       return 0;
     });
     return list;
-  }, [sites, query, areaFilter, dateFilter, sortState, sel]);
+  }, [sites, query, areaFilter, dateFilter, campaignsBySiteCode, sortState, sel]);
 
   async function uploadPage(k, file) {
     if (!file) return;
@@ -3132,11 +3195,23 @@ function PptView() {
             </select>
           </div>
           <div className="scooh-field">
-            <label>Available on / after</label>
-            <input id="scooh-ppt-date-filter" type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
+            <label>📅 Available from date</label>
+            <input
+              id="scooh-ppt-date-filter"
+              type="date"
+              value={dateFilter}
+              onChange={e => setDateFilter(e.target.value)}
+              title="Shows only sites whose current campaign ends before this date — they will be free from this date onward"
+            />
+            {dateFilter && (
+              <span style={{ fontSize: '11px', color: '#4ade80', fontWeight: 600, marginTop: '4px', display: 'block' }}>
+                ✓ Showing sites available from {new Date(dateFilter + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+              </span>
+            )}
           </div>
           <div className="scooh-note">
-            Excel-imported PPT availability and rate appear on each card. You can edit them manually before generating the PPT.
+            Sites whose active campaign ends before the selected date are shown as available. Occupied sites are automatically hidden.
+
           </div>
         </div>
 
@@ -6814,8 +6889,33 @@ function CampaignTrackerView() {
   const upcomingSitesCount = useMemo(() => latestSiteCampaigns.filter(x => x.siteStatus === 'upcoming').length, [latestSiteCampaigns]);
   const vacantSitesCount = useMemo(() => latestSiteCampaigns.filter(x => x.siteStatus === 'vacant').length, [latestSiteCampaigns]);
   const occupancyRate = totalSites > 0 ? Math.round((occupiedSitesCount / totalSites) * 100) : 0;
-  const latestRevenueSum = useMemo(() => latestSiteCampaigns.reduce((sum, x) => sum + x.total_amount, 0), [latestSiteCampaigns]);
-  const latestPendingSum = useMemo(() => latestSiteCampaigns.reduce((sum, x) => sum + x.pending, 0), [latestSiteCampaigns]);
+  // Revenue & pending — deduplicated by campaign so multi-site campaigns are counted once
+  const latestRevenueSum = useMemo(() => {
+    const seen = new Set();
+    return latestSiteCampaigns.reduce((sum, x) => {
+      if (!x.total_amount) return sum;
+      // Build a unique key per campaign: prefer parent_campaign, else fall back to campaign_id
+      const key = x.parent_campaign && !String(x.parent_campaign).startsWith('LINKED:')
+        ? String(x.parent_campaign).trim().toLowerCase()
+        : x.campaign_id ? `__id__${x.campaign_id}` : `__site__${x.site_code}`;
+      if (seen.has(key)) return sum;
+      seen.add(key);
+      return sum + x.total_amount;
+    }, 0);
+  }, [latestSiteCampaigns]);
+
+  const latestPendingSum = useMemo(() => {
+    const seen = new Set();
+    return latestSiteCampaigns.reduce((sum, x) => {
+      if (!x.pending) return sum;
+      const key = x.parent_campaign && !String(x.parent_campaign).startsWith('LINKED:')
+        ? String(x.parent_campaign).trim().toLowerCase()
+        : x.campaign_id ? `__id__${x.campaign_id}` : `__site__${x.site_code}`;
+      if (seen.has(key)) return sum;
+      seen.add(key);
+      return sum + x.pending;
+    }, 0);
+  }, [latestSiteCampaigns]);
 
   const vacantSiteCodeSet = useMemo(() => {
     const set = new Set();
