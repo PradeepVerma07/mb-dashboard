@@ -3485,15 +3485,12 @@ if (clientDist) {
   app.get('/', (req, res) => res.json({ status: 'API is running', endpoints: '/api/health' }));
 }
 
-if (typeof PORT === 'number') {
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Site Control API & Web App listening on port ${PORT}`);
-  });
-} else {
-  app.listen(PORT, () => {
-    console.log(`Site Control API & Web App listening on socket ${PORT}`);
-  });
-}
+const server = (typeof PORT === 'number')
+  ? app.listen(PORT, () => console.log(`Site Control API & Web App listening on port ${PORT}`))
+  : app.listen(PORT, () => console.log(`Site Control API & Web App listening on socket ${PORT}`));
+
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
 
 async function initDb() {
   try {

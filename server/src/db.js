@@ -9,8 +9,8 @@ dotenv.config({path: path.resolve(__dirname, '../../.env')});
 dotenv.config({path: path.resolve(__dirname, '../.env')});
 dotenv.config({path: path.resolve(process.cwd(), '.env')});
 
-const rawHost = process.env.DB_HOST || '127.0.0.1';
-const host = (rawHost === 'localhost' || rawHost === '::1') ? '127.0.0.1' : rawHost;
+const rawHost = process.env.DB_HOST || 'localhost';
+const host = (process.platform === 'win32' && (rawHost === 'localhost' || rawHost === '::1')) ? '127.0.0.1' : rawHost;
 
 export const pool = mysql.createPool({
   host,
