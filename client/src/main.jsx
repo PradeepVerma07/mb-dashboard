@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import PptxGenJS from 'pptxgenjs';
 import api from './api';
