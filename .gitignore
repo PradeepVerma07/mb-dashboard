@@ -9,8 +9,7 @@ server/node_modules/
 .env.*.local
 
 # Build output
-client/dist/
-dist/
+/dist/
 
 # Uploads and temporary data
 server/uploads/
