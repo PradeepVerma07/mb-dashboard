@@ -3589,19 +3589,74 @@ function ProposalsView() {
   );
 }
 
-// ── Helpers for Occupancy Excel import ──────────────────────────────────
+// ── Helpers for Occupancy Excel import & Date Parsing ───────────────────
 
 // Parse Excel serial / JS Date / string → JS Date
-function parseOccDate(val) {
+function parseFlexibleDate(val) {
   if (!val) return null;
-  if (val instanceof Date) return isNaN(val) ? null : val;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
   if (typeof val === 'number') {
-    const d = XLSX.SSF.parse_date_code(val);
-    if (!d) return null;
-    return new Date(d.y, d.m - 1, d.d);
+    try {
+      const d = XLSX.SSF.parse_date_code(val);
+      if (d) return new Date(d.y, d.m - 1, d.d);
+    } catch {}
+    return null;
   }
-  const d = new Date(val);
-  return isNaN(d) ? null : d;
+  const str = String(val).trim();
+  if (!str) return null;
+
+  // Match DD-MM-YYYY or DD/MM/YYYY
+  const dmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmy) {
+    const day = parseInt(dmy[1], 10);
+    const month = parseInt(dmy[2], 10) - 1;
+    const year = parseInt(dmy[3], 10);
+    const d = new Date(year, month, day);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function parseOccDate(val) {
+  return parseFlexibleDate(val);
+}
+
+// Parse string like "Aug 2026", "August 2026", "2026-08"
+function parseMonthString(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  const mNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const sLower = s.toLowerCase();
+  
+  let monthIdx = -1;
+  for (let i = 0; i < mNames.length; i++) {
+    if (sLower.includes(mNames[i])) {
+      monthIdx = i;
+      break;
+    }
+  }
+  
+  const yrMatch = s.match(/\b(20\d\d)\b/);
+  const year = yrMatch ? parseInt(yrMatch[1], 10) : new Date().getFullYear();
+  
+  if (monthIdx >= 0) {
+    const start = new Date(year, monthIdx, 1, 0, 0, 0);
+    const end = new Date(year, monthIdx + 1, 0, 23, 59, 59);
+    return { start, end, monthIdx, year };
+  }
+
+  const ym = s.match(/^(\d{4})[-/](\d{1,2})/);
+  if (ym) {
+    const y = parseInt(ym[1], 10);
+    const m = parseInt(ym[2], 10) - 1;
+    const start = new Date(y, m, 1, 0, 0, 0);
+    const end = new Date(y, m + 1, 0, 23, 59, 59);
+    return { start, end, monthIdx: m, year: y };
+  }
+
+  return null;
 }
 
 // Format a JS date as "MMM YYYY"  e.g. "Jan 2024"
@@ -3621,31 +3676,75 @@ function formatPct(val) {
    OccupancyView  — Excel import → Site × Month history matrix
    ─────────────────────────────────────────────────────────────────────────
    Expected Excel columns (flexible, auto-detected):
-     Site Code | Month (date) | Value (occupancy % or days)
+     Site Code | Month (date) | Value (occupancy % or days) | Client (optional)
    
    The pivot table shows:
      Rows    = Sites (each unique site code)
      Columns = Months (sorted chronologically)
-     Cell    = occupancy value, colour-coded as heat-map
+     Cell    = occupancy value & client who booked that site
    
-   View tabs: 6 Months | Yearly
+   View tabs: 6 Months | Yearly | 365-Day Overview
    ───────────────────────────────────────────────────────────────────────── */
-function OccPercentBar({ pct, days, totalDays, showText = true, height = 7 }) {
+function OccPercentBar({ pct, days, totalDays, showText = true, height = 7, clientNames = [], brands = [], onClick }) {
   const p = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
   const barColor = p >= 75 ? '#10b981' : p >= 40 ? '#38bdf8' : p > 0 ? '#f59e0b' : '#222c37';
+  
+  const cList = Array.isArray(clientNames) ? clientNames.filter(Boolean) : (clientNames ? [clientNames] : []);
+  const clientStr = cList.join(', ');
+  const bList = Array.isArray(brands) ? brands.filter(Boolean) : (brands ? [brands] : []);
+  const brandStr = bList.join(', ');
+
   const tooltip = days !== undefined && totalDays !== undefined 
-    ? `${p}% occupied (${days} of ${totalDays} days)`
-    : `${p}% occupied`;
+    ? `${p}% occupied (${days} of ${totalDays} days)${clientStr ? ` • Booked by: ${clientStr}${brandStr && brandStr !== clientStr ? ` (${brandStr})` : ''}` : (p === 0 ? ' • Vacant' : '')} — Click to view details`
+    : `${p}% occupied${clientStr ? ` • Booked by: ${clientStr}` : ''} — Click to view details`;
 
   return (
-    <div className="scooh-occ-cell" title={tooltip} style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '96px' }}>
-      <div className="scooh-occbar" style={{ flex: 1, height: `${height}px`, background: '#0b1016', borderRadius: '999px', overflow: 'hidden', border: '1px solid #222c37' }}>
-        <span style={{ display: 'block', height: '100%', width: `${p}%`, background: barColor, borderRadius: '999px', transition: 'width 0.3s ease' }} />
+    <div 
+      className="scooh-occ-cell" 
+      title={tooltip} 
+      onClick={onClick}
+      style={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        gap: '3px', 
+        minWidth: '105px',
+        cursor: onClick ? 'pointer' : 'default',
+        padding: '3px 4px',
+        borderRadius: '6px',
+        transition: 'background 0.15s ease'
+      }}
+      onMouseEnter={e => { if (onClick) e.currentTarget.style.background = 'rgba(56, 189, 248, 0.08)'; }}
+      onMouseLeave={e => { if (onClick) e.currentTarget.style.background = 'transparent'; }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div className="scooh-occbar" style={{ flex: 1, height: `${height}px`, background: '#0b1016', borderRadius: '999px', overflow: 'hidden', border: '1px solid #222c37' }}>
+          <span style={{ display: 'block', height: '100%', width: `${p}%`, background: barColor, borderRadius: '999px', transition: 'width 0.3s ease' }} />
+        </div>
+        {showText && (
+          <span style={{ fontSize: '11px', fontWeight: 800, color: p > 0 ? '#f1f5f9' : '#64748b', minWidth: '32px', textAlign: 'right' }}>
+            {p > 0 ? `${p}%` : '0%'}
+          </span>
+        )}
       </div>
-      {showText && (
-        <span style={{ fontSize: '11px', fontWeight: 800, color: p > 0 ? '#f1f5f9' : '#64748b', minWidth: '32px', textAlign: 'right' }}>
-          {p > 0 ? `${p}%` : '0%'}
-        </span>
+      {clientStr ? (
+        <div style={{ textAlign: 'left', marginTop: '1px' }}>
+          <div style={{ fontSize: '11px', color: '#38bdf8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '115px', fontWeight: 800 }} title={clientStr}>
+            👤 {clientStr}
+          </div>
+          {brandStr && brandStr !== clientStr && (
+            <div style={{ fontSize: '9.5px', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '115px' }} title={brandStr}>
+              {brandStr}
+            </div>
+          )}
+        </div>
+      ) : p > 0 ? (
+        <div style={{ fontSize: '10px', color: '#94a3b8', textAlign: 'left' }}>
+          Occupied
+        </div>
+      ) : (
+        <div style={{ fontSize: '10px', color: '#475569', textAlign: 'left' }}>
+          Vacant
+        </div>
       )}
     </div>
   );
@@ -3657,6 +3756,7 @@ function OccupancyView() {
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState('6months'); // '6months' | 'yearly' | 'overview'
   const [search, setSearch] = useState('');
+  const [modalData, setModalData] = useState(null); // For inspecting month/site booking history details
   
   // Excel import state
   const [rawRows, setRawRows] = useState([]);
@@ -3754,7 +3854,7 @@ function OccupancyView() {
     return { periods6M: p6, periodsYearly: pY, period365: p365 };
   }, []);
 
-  // ── Calculate Site History from System Data ──────────────────────────
+  // ── Calculate Site History with Client Tracking ───────────────────────
   const siteHistory = useMemo(() => {
     if (dataSource === 'excel' && rawRows.length > 0) {
       // Build site history from imported Excel rows
@@ -3762,6 +3862,8 @@ function OccupancyView() {
       const scCol = cols.find(c => /site|code|hoarding|board|id/i.test(c)) || cols[0];
       const dateCol = cols.find(c => /date|month|period|time/i.test(c)) || cols[1] || cols[0];
       const valCol = cols.find(c => /occ|pct|percent|rate|value|days/i.test(c)) || cols[cols.length - 1];
+      const clientCol = cols.find(c => /client|customer|brand|advertiser|agency/i.test(c));
+      const brandCol = cols.find(c => /brand|product|display/i.test(c));
 
       const siteMap = new Map();
       rawRows.forEach(r => {
@@ -3772,27 +3874,60 @@ function OccupancyView() {
             site_code: sCode,
             city: r.city || r.City || '—',
             area: r.area || r.Area || r.location || r.Location || '—',
+            currentClient: clientCol ? String(r[clientCol] || '').trim() : null,
+            currentBrand: brandCol ? String(r[brandCol] || '').trim() : null,
+            currentStatus: 'active',
+            allCampaigns: [],
             by6M: {},
             byYearly: {},
-            totalDays365: 0
+            days365: 0,
+            pct365: 0,
+            clients365: []
           });
         }
         const siteObj = siteMap.get(sCode);
         const rawDate = r[dateCol];
-        const d = parseOccDate(rawDate);
+        const d = parseFlexibleDate(rawDate);
         const rawVal = r[valCol];
         const numVal = parseFloat(String(rawVal).replace('%', ''));
         const val = isNaN(numVal) ? 0 : Math.min(100, Math.max(0, numVal));
+        const clientVal = clientCol ? String(r[clientCol] || '').trim() : '';
+        const brandVal = brandCol ? String(r[brandCol] || '').trim() : '';
+
+        if (clientVal) {
+          siteObj.currentClient = clientVal;
+          if (!siteObj.clients365.includes(clientVal)) siteObj.clients365.push(clientVal);
+        }
+        if (brandVal) siteObj.currentBrand = brandVal;
+
+        const bookingItem = {
+          client: clientVal,
+          brand: brandVal,
+          month: rawDate,
+          occupancy: `${val}%`,
+          campaign_name: r.campaign || r.display || 'Excel Import Booking'
+        };
+        siteObj.allCampaigns.push(bookingItem);
 
         if (d) {
           const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          siteObj.by6M[mKey] = val;
+          siteObj.by6M[mKey] = {
+            pct: val,
+            clients: clientVal ? [clientVal] : [],
+            brands: brandVal ? [brandVal] : [],
+            campaigns: [bookingItem]
+          };
           const yKey = String(d.getFullYear());
-          siteObj.byYearly[yKey] = val;
+          siteObj.byYearly[yKey] = {
+            pct: val,
+            clients: clientVal ? [clientVal] : [],
+            brands: brandVal ? [brandVal] : [],
+            campaigns: [bookingItem]
+          };
         }
       });
 
-      return Array.from(siteMap.values()).sort((a, b) => a.site_code.localeCompare(b.site_code));
+      return Array.from(siteMap.values()).sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
     }
 
     // Default: calculate from Live DB Sites and Campaigns
@@ -3807,16 +3942,29 @@ function OccupancyView() {
         return cCode && cleanSite && (cCode === cleanSite || cCode.includes(cleanSite) || cleanSite.includes(cCode));
       });
 
-      // Helper to calculate exact non-overlapping occupied days in window
-      function getDaysInWindow(wStart, wEnd) {
+      // Helper to calculate exact non-overlapping occupied days and track clients in window
+      function getDaysAndClientsInWindow(wStart, wEnd) {
         const daySet = new Set();
+        const clientSet = new Set();
+        const brandSet = new Set();
+        const relevantCampaigns = [];
         const startTs = wStart.getTime();
         const endTs = wEnd.getTime();
 
         siteCamps.forEach(c => {
-          if (!c.start_date) return;
-          const cStart = new Date(c.start_date);
-          const cEnd = c.end_date ? new Date(c.end_date) : new Date(cStart);
+          let cStart = parseFlexibleDate(c.start_date || c.booking_date);
+          let cEnd = parseFlexibleDate(c.end_date);
+          
+          if (!cStart && c.month) {
+            const parsedM = parseMonthString(c.month);
+            if (parsedM) {
+              cStart = parsedM.start;
+              cEnd = parsedM.end;
+            }
+          }
+          if (!cStart) return;
+          if (!cEnd) cEnd = new Date(cStart.getFullYear(), cStart.getMonth() + 1, 0, 23, 59, 59);
+
           const s = Math.max(startTs, cStart.getTime());
           const e = Math.min(endTs, cEnd.getTime());
 
@@ -3825,52 +3973,112 @@ function OccupancyView() {
               const dt = new Date(t);
               daySet.add(`${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`);
             }
+            const clientName = c.client || c.client_name;
+            if (clientName) clientSet.add(clientName);
+            if (c.brand) brandSet.add(c.brand);
+            relevantCampaigns.push(c);
           }
         });
-        return daySet.size;
+
+        return {
+          days: daySet.size,
+          clients: Array.from(clientSet),
+          brands: Array.from(brandSet),
+          campaigns: relevantCampaigns
+        };
+      }
+
+      // Determine current / most recent client
+      const now = new Date();
+      let currentClient = null;
+      let currentBrand = null;
+      let currentStatus = 'vacant'; // 'active' | 'upcoming' | 'past' | 'vacant'
+
+      const sortedCamps = [...siteCamps].sort((a, b) => {
+        const da = parseFlexibleDate(a.start_date || a.booking_date) || new Date(0);
+        const db = parseFlexibleDate(b.start_date || b.booking_date) || new Date(0);
+        return db - da;
+      });
+
+      for (const c of sortedCamps) {
+        const cStart = parseFlexibleDate(c.start_date || c.booking_date);
+        const cEnd = parseFlexibleDate(c.end_date) || (cStart ? new Date(cStart.getFullYear(), cStart.getMonth() + 1, 0, 23, 59, 59) : null);
+        const cName = c.client || c.client_name;
+        if (!cName) continue;
+
+        if (cStart && cEnd) {
+          if (cStart <= now && cEnd >= now) {
+            currentClient = cName;
+            currentBrand = c.brand;
+            currentStatus = 'active';
+            break;
+          } else if (cStart > now) {
+            if (currentStatus !== 'active') {
+              currentClient = cName;
+              currentBrand = c.brand;
+              currentStatus = 'upcoming';
+            }
+          } else if (cEnd < now && !currentClient) {
+            currentClient = cName;
+            currentBrand = c.brand;
+            currentStatus = 'past';
+          }
+        } else if (!currentClient) {
+          currentClient = cName;
+          currentBrand = c.brand;
+          currentStatus = 'past';
+        }
       }
 
       // 6 Months breakdown
       const by6M = {};
       periods6M.forEach(p => {
-        const days = getDaysInWindow(p.start, p.end);
-        const pct = Math.min(100, Math.round((days / p.totalDays) * 100));
-        by6M[p.key] = { days, totalDays: p.totalDays, pct };
+        const res = getDaysAndClientsInWindow(p.start, p.end);
+        const pct = Math.min(100, Math.round((res.days / p.totalDays) * 100));
+        by6M[p.key] = { days: res.days, totalDays: p.totalDays, pct, clients: res.clients, brands: res.brands, campaigns: res.campaigns };
       });
 
       // Yearly breakdown
       const byYearly = {};
       periodsYearly.forEach(p => {
-        const days = getDaysInWindow(p.start, p.end);
-        const pct = Math.min(100, Math.round((days / p.totalDays) * 100));
-        byYearly[p.key] = { days, totalDays: p.totalDays, pct };
+        const res = getDaysAndClientsInWindow(p.start, p.end);
+        const pct = Math.min(100, Math.round((res.days / p.totalDays) * 100));
+        byYearly[p.key] = { days: res.days, totalDays: p.totalDays, pct, clients: res.clients, brands: res.brands, campaigns: res.campaigns };
       });
 
       // 365 Days Rolling
-      const days365 = getDaysInWindow(period365.start, period365.end);
-      const pct365 = Math.min(100, Math.round((days365 / 365) * 100));
+      const res365 = getDaysAndClientsInWindow(period365.start, period365.end);
+      const pct365 = Math.min(100, Math.round((res365.days / 365) * 100));
 
       return {
         id: site.id,
         site_code: site.site_code || `MB-${site.id}`,
         city: site.city || '—',
         area: site.area || site.address || '—',
+        currentClient,
+        currentBrand,
+        currentStatus,
+        allCampaigns: siteCamps,
         by6M,
         byYearly,
-        days365,
-        pct365
+        days365: res365.days,
+        pct365,
+        clients365: res365.clients
       };
     }).sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
   }, [dataSource, rawRows, dbSites, dbCampaigns, periods6M, periodsYearly, period365]);
 
-  // ── Filtered sites ────────────────────────────────────────────────────
+  // ── Filtered sites (Search by Site, City, Area, Client, or Brand) ──────
   const filteredSites = useMemo(() => {
     if (!search.trim()) return siteHistory;
     const q = search.trim().toLowerCase();
     return siteHistory.filter(s => 
       s.site_code.toLowerCase().includes(q) ||
       (s.city && s.city.toLowerCase().includes(q)) ||
-      (s.area && s.area.toLowerCase().includes(q))
+      (s.area && s.area.toLowerCase().includes(q)) ||
+      (s.currentClient && s.currentClient.toLowerCase().includes(q)) ||
+      (s.currentBrand && s.currentBrand.toLowerCase().includes(q)) ||
+      (s.clients365 && s.clients365.some(c => c.toLowerCase().includes(q)))
     );
   }, [siteHistory, search]);
 
@@ -3905,11 +4113,91 @@ function OccupancyView() {
     };
   }, [siteHistory, viewTab, periods6M, periodsYearly]);
 
+  // ── Export Occupancy Matrix to Excel ──────────────────────────────────
+  async function exportOccupancyExcel() {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const ws = workbook.addWorksheet('Occupancy History');
+      
+      const periods = viewTab === '6months' ? periods6M : viewTab === 'yearly' ? periodsYearly : [];
+      
+      const columns = [
+        { header: 'Site Code', key: 'site_code', width: 14 },
+        { header: 'Location / Area', key: 'area', width: 28 },
+        { header: 'City', key: 'city', width: 16 },
+        { header: 'Client / Brand', key: 'client', width: 26 },
+        { header: 'Status', key: 'status', width: 14 }
+      ];
+
+      if (viewTab === 'overview') {
+        columns.push({ header: 'Occupied Days (365d)', key: 'days', width: 20 });
+        columns.push({ header: 'Occupancy Rate %', key: 'pct', width: 18 });
+      } else {
+        periods.forEach(p => {
+          columns.push({ header: `${p.label} (Occ %)`, key: `pct_${p.key}`, width: 16 });
+          columns.push({ header: `${p.label} (Booked Client)`, key: `client_${p.key}`, width: 24 });
+        });
+        columns.push({ header: 'Average %', key: 'avg', width: 14 });
+      }
+
+      ws.columns = columns;
+
+      filteredSites.forEach(s => {
+        const rowData = {
+          site_code: s.site_code,
+          area: s.area,
+          city: s.city,
+          client: s.currentClient ? `${s.currentClient}${s.currentBrand ? ` (${s.currentBrand})` : ''}` : 'Vacant',
+          status: s.currentStatus ? s.currentStatus.toUpperCase() : 'VACANT'
+        };
+
+        if (viewTab === 'overview') {
+          rowData.days = s.days365;
+          rowData.pct = `${s.pct365}%`;
+        } else {
+          const dataMap = viewTab === '6months' ? s.by6M : s.byYearly;
+          let sum = 0;
+          periods.forEach(p => {
+            const entry = dataMap?.[p.key];
+            const pct = typeof entry === 'object' ? (entry?.pct ?? 0) : (Number(entry) || 0);
+            const clients = typeof entry === 'object' && entry?.clients ? entry.clients.join(', ') : '';
+            rowData[`pct_${p.key}`] = `${pct}%`;
+            rowData[`client_${p.key}`] = clients || (pct > 0 ? 'Occupied' : 'Vacant');
+            sum += pct;
+          });
+          rowData.avg = `${Math.round(sum / (periods.length || 1))}%`;
+        }
+
+        ws.addRow(rowData);
+      });
+
+      // Style header
+      const headerRow = ws.getRow(1);
+      headerRow.height = 26;
+      headerRow.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      });
+
+      const buf = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Site_Occupancy_History_${viewTab}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to export occupancy Excel:', err);
+      alert('Could not generate Excel export.');
+    }
+  }
+
   return (
     <>
       <PageHead 
         title="Site Occupancy History" 
-        desc="Complete site-wise occupancy history tracking with live percentage bars across 6 months, yearly, and overall utilization." 
+        desc="Complete site-wise occupancy history tracking with live percentage bars, monthly booked clients, and portfolio utilization." 
       />
 
       {/* ── Top Summary & KPI Cards ────────────────────────────────────── */}
@@ -4033,6 +4321,16 @@ function OccupancyView() {
               🔄 Refresh
             </button>
 
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={exportOccupancyExcel}
+              title="Export complete occupancy history table to Excel"
+              style={{ fontSize: '12px', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              📥 Export Excel
+            </button>
+
             <input
               ref={fileRef}
               type="file"
@@ -4053,8 +4351,8 @@ function OccupancyView() {
 
             <input
               className="scooh-search"
-              style={{ maxWidth: '200px', fontSize: '12px' }}
-              placeholder="Filter sites…"
+              style={{ maxWidth: '220px', fontSize: '12px' }}
+              placeholder="Search site, client, area…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -4082,18 +4380,21 @@ function OccupancyView() {
                 <tr>
                   <th style={{ position: 'sticky', left: 0, zIndex: 3, background: '#10161e', minWidth: '110px' }}>Site ID</th>
                   <th style={{ minWidth: '140px' }}>Location / Area</th>
+                  <th style={{ minWidth: '160px' }}>Client / Brand</th>
 
                   {/* 6 Months View Columns */}
                   {viewTab === '6months' && periods6M.map(p => (
-                    <th key={p.key} style={{ minWidth: '115px', textAlign: 'center' }}>
-                      {p.label}
+                    <th key={p.key} style={{ minWidth: '130px', textAlign: 'center' }}>
+                      <div>{p.label}</div>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 500 }}>Client & Occ %</div>
                     </th>
                   ))}
 
                   {/* Yearly View Columns */}
                   {viewTab === 'yearly' && periodsYearly.map(p => (
-                    <th key={p.key} style={{ minWidth: '120px', textAlign: 'center' }}>
-                      {p.label}
+                    <th key={p.key} style={{ minWidth: '130px', textAlign: 'center' }}>
+                      <div>{p.label}</div>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 500 }}>Client & Occ %</div>
                     </th>
                   ))}
 
@@ -4117,6 +4418,40 @@ function OccupancyView() {
               </thead>
               <tbody>
                 {filteredSites.map((s, idx) => {
+                  const clientCell = (
+                    <td>
+                      {s.currentClient ? (
+                        <div>
+                          <div style={{ fontWeight: 800, color: '#f1f5f9', fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{ color: '#38bdf8' }}>👤</span>
+                            <span>{s.currentClient}</span>
+                          </div>
+                          {s.currentBrand && s.currentBrand !== s.currentClient && (
+                            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                              🏷️ {s.currentBrand}
+                            </div>
+                          )}
+                          <div style={{ marginTop: '4px' }}>
+                            <span 
+                              className="scooh-badgechip" 
+                              style={{ 
+                                fontSize: '9.5px', 
+                                padding: '1px 6px',
+                                background: s.currentStatus === 'active' ? 'rgba(16, 185, 129, 0.15)' : s.currentStatus === 'upcoming' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(100, 116, 139, 0.15)',
+                                color: s.currentStatus === 'active' ? '#10b981' : s.currentStatus === 'upcoming' ? '#f59e0b' : '#94a3b8',
+                                border: s.currentStatus === 'active' ? '1px solid rgba(16, 185, 129, 0.3)' : s.currentStatus === 'upcoming' ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(100, 116, 139, 0.3)'
+                              }}
+                            >
+                              {s.currentStatus === 'active' ? '● Active' : s.currentStatus === 'upcoming' ? '⏳ Upcoming' : '⏱ Past Client'}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span style={{ color: '#475569', fontSize: '12px' }}>— Available —</span>
+                      )}
+                    </td>
+                  );
+
                   if (viewTab === 'overview') {
                     const statusText = s.pct365 >= 75 ? 'Full' : s.pct365 >= 40 ? 'High' : s.pct365 > 0 ? 'Partial' : 'Vacant';
                     const badgeBg = s.pct365 >= 75 ? 'rgba(16, 185, 129, 0.15)' : s.pct365 >= 40 ? 'rgba(56, 189, 248, 0.15)' : s.pct365 > 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(100, 116, 139, 0.15)';
@@ -4125,9 +4460,17 @@ function OccupancyView() {
                     return (
                       <tr key={s.site_code || idx}>
                         <td style={{ position: 'sticky', left: 0, zIndex: 2, background: idx % 2 === 0 ? '#0b1016' : '#10161e' }}>
-                          <span className="scooh-plate">{s.site_code}</span>
+                          <span 
+                            className="scooh-plate" 
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => setModalData({ siteCode: s.site_code, area: s.area, periodLabel: 'All Bookings History', campaigns: s.allCampaigns || [] })}
+                            title="Click to view all booking history"
+                          >
+                            {s.site_code}
+                          </span>
                         </td>
                         <td><b>{s.area}</b></td>
+                        {clientCell}
                         <td>{s.city}</td>
                         <td>
                           <span style={{ fontWeight: 700, color: s.days365 > 0 ? '#f1f5f9' : '#64748b' }}>
@@ -4136,7 +4479,18 @@ function OccupancyView() {
                           <span style={{ fontSize: '11px', color: '#64748b', marginLeft: '4px' }}>/ 365</span>
                         </td>
                         <td>
-                          <OccPercentBar pct={s.pct365} days={s.days365} totalDays={365} />
+                          <OccPercentBar 
+                            pct={s.pct365} 
+                            days={s.days365} 
+                            totalDays={365} 
+                            clientNames={s.clients365} 
+                            onClick={() => setModalData({ 
+                              siteCode: s.site_code, 
+                              area: s.area, 
+                              periodLabel: '365-Day Rolling Period', 
+                              campaigns: s.allCampaigns || [] 
+                            })}
+                          />
                         </td>
                         <td style={{ textAlign: 'center' }}>
                           <span className="scooh-badgechip" style={{ background: badgeBg, color: badgeColor, border: `1px solid ${badgeColor}40` }}>
@@ -4159,19 +4513,42 @@ function OccupancyView() {
                   return (
                     <tr key={s.site_code || idx}>
                       <td style={{ position: 'sticky', left: 0, zIndex: 2, background: idx % 2 === 0 ? '#0b1016' : '#10161e' }}>
-                        <span className="scooh-plate">{s.site_code}</span>
+                        <span 
+                          className="scooh-plate" 
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => setModalData({ siteCode: s.site_code, area: s.area, periodLabel: 'All Bookings History', campaigns: s.allCampaigns || [] })}
+                          title="Click to view all booking history"
+                        >
+                          {s.site_code}
+                        </span>
                       </td>
                       <td><b>{s.area}</b></td>
+                      {clientCell}
 
                       {periods.map(p => {
                         const entry = dataMap?.[p.key];
                         const pct = typeof entry === 'object' ? (entry?.pct ?? 0) : (Number(entry) || 0);
                         const days = typeof entry === 'object' ? entry?.days : undefined;
                         const totalDays = typeof entry === 'object' ? entry?.totalDays : undefined;
+                        const clientNames = typeof entry === 'object' && entry?.clients ? entry.clients : [];
+                        const brands = typeof entry === 'object' && entry?.brands ? entry.brands : [];
+                        const cellCamps = typeof entry === 'object' && entry?.campaigns ? entry.campaigns : [];
 
                         return (
                           <td key={p.key} style={{ padding: '8px 10px', textAlign: 'center' }}>
-                            <OccPercentBar pct={pct} days={days} totalDays={totalDays} />
+                            <OccPercentBar 
+                              pct={pct} 
+                              days={days} 
+                              totalDays={totalDays} 
+                              clientNames={clientNames} 
+                              brands={brands}
+                              onClick={() => setModalData({ 
+                                siteCode: s.site_code, 
+                                area: s.area, 
+                                periodLabel: `${p.label} (${pct}% Occupied)`, 
+                                campaigns: cellCamps 
+                              })}
+                            />
                           </td>
                         );
                       })}
@@ -4187,6 +4564,87 @@ function OccupancyView() {
           </div>
         )}
       </section>
+
+      {/* ── Modal for Inspecting Detailed Monthly Booking History ──────────── */}
+      {modalData && (
+        <div 
+          className="scooh-modal-backdrop" 
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          onClick={() => setModalData(null)}
+        >
+          <div 
+            className="scooh-panel" 
+            style={{ width: '100%', maxWidth: '580px', maxHeight: '85vh', overflowY: 'auto', border: '1px solid #38bdf8', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #1e293b', paddingBottom: '14px', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#f1f5f9', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '17px' }}>
+                  <span>📅</span>
+                  <span>Site {modalData.siteCode} — Booking Details</span>
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+                  {modalData.area} • <strong style={{ color: '#38bdf8' }}>{modalData.periodLabel}</strong>
+                </p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setModalData(null)} 
+                style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer', padding: '4px' }}
+                title="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {modalData.campaigns && modalData.campaigns.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {modalData.campaigns.map((c, i) => (
+                  <div key={c.id || i} style={{ padding: '14px', background: '#0b1320', borderRadius: '8px', border: '1px solid #1e3a5f' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px', gap: '10px' }}>
+                      <div>
+                        <div style={{ fontSize: '15px', fontWeight: 800, color: '#38bdf8' }}>
+                          👤 {c.client || c.client_name || 'Client Not Specified'}
+                        </div>
+                        {c.brand && c.brand !== (c.client || c.client_name) && (
+                          <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '2px' }}>
+                            🏷️ Brand: <b>{c.brand}</b>
+                          </div>
+                        )}
+                      </div>
+                      <span className="scooh-badgechip" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.3)', whiteSpace: 'nowrap' }}>
+                        {c.month || 'Active Booking'}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '12.5px', color: '#e2e8f0', margin: '8px 0 6px' }}>
+                      📢 <b>Campaign:</b> {c.campaign_name || c.display || 'Standard Display'}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: '#94a3b8', flexWrap: 'wrap', borderTop: '1px solid #1e293b', paddingTop: '8px', marginTop: '8px' }}>
+                      {(c.start_date || c.booking_date) && (
+                        <span>🗓️ <b>Dates:</b> {new Date(c.start_date || c.booking_date).toLocaleDateString('en-IN')} to {c.end_date ? new Date(c.end_date).toLocaleDateString('en-IN') : 'Ongoing'}</span>
+                      )}
+                      {c.booking_code && (
+                        <span>🔖 <b>Code:</b> {c.booking_code}</span>
+                      )}
+                      {(c.total_amount || c.revenue) && (
+                        <span style={{ color: '#10b981', fontWeight: 700 }}>💰 <b>Amount:</b> ₹{Number(c.total_amount || c.revenue).toLocaleString('en-IN')}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '36px 20px', color: '#64748b' }}>
+                <div style={{ fontSize: '36px', marginBottom: '8px' }}>📭</div>
+                <h4 style={{ margin: '0 0 4px', color: '#cbd5e1' }}>No booking for this period</h4>
+                <p style={{ margin: 0, fontSize: '12px' }}>The site was completely vacant and available for booking during this time.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -4428,7 +4886,7 @@ function CampaignTrackerView() {
   const [selectedPeriod, setSelectedPeriod] = useState('ALL');
   const [latestOnly, setLatestOnly] = useState(true);
 
-  // Group by site_code: take latest entry per site and prevent repeating entries
+  // Group by site_code and period: when viewing monthly/weekly/yearly, keep each period's booked site entry so history shows which client booked that site
   const processedRows = useMemo(() => {
     // If viewing all raw records, do not deduplicate
     if (!latestOnly && timeView === 'all') return rows;
@@ -4442,9 +4900,17 @@ function CampaignTrackerView() {
         otherRows.push(r);
         continue;
       }
-      const prev = siteMap.get(code);
+      
+      // When filtering by month / week / year, group per site PER PERIOD
+      // so historical months retain which client booked that site at that time of month
+      const periodKey = (timeView === 'monthly' || timeView === 'weekly' || timeView === 'yearly')
+        ? getCampaignPeriod(r, timeView)
+        : '';
+      const mapKey = periodKey ? `${code}__${periodKey}` : code;
+
+      const prev = siteMap.get(mapKey);
       if (!prev) {
-        siteMap.set(code, r);
+        siteMap.set(mapKey, r);
       } else {
         const isLinkedNew = String(r.parent_campaign || '').startsWith('LINKED:');
         const isLinkedPrev = String(prev.parent_campaign || '').startsWith('LINKED:');
@@ -4467,7 +4933,7 @@ function CampaignTrackerView() {
         }
 
         if (takeNew) {
-          siteMap.set(code, r);
+          siteMap.set(mapKey, r);
         }
       }
     }
@@ -4475,16 +4941,16 @@ function CampaignTrackerView() {
     return [...siteMap.values(), ...otherRows];
   }, [rows, latestOnly, timeView]);
 
-  // Available periods for Monthly, Weekly, Yearly tabs
+  // Available periods for Monthly, Weekly, Yearly tabs (extracted across all rows)
   const availablePeriods = useMemo(() => {
     if (timeView === 'latest' || timeView === 'all') return [];
     const set = new Set();
-    for (const r of processedRows) {
+    for (const r of rows) {
       const p = getCampaignPeriod(r, timeView);
       if (p && p !== 'Other' && p !== 'All') set.add(p);
     }
     return Array.from(set).sort((a, b) => b.localeCompare(a));
-  }, [processedRows, timeView]);
+  }, [rows, timeView]);
 
   // Occupancy metrics
   const occupiedCount = useMemo(() => {
