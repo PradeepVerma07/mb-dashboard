@@ -4109,7 +4109,8 @@ function OccupancyView() {
   const [dbSites, setDbSites] = useState([]);
   const [dbCampaigns, setDbCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [viewTab, setViewTab] = useState('6months'); // '6months' | 'yearly' | 'overview'
+  const [viewTab, setViewTab] = useState('6months'); // '6months' | 'overview'
+  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
   const [search, setSearch] = useState('');
   const [modalData, setModalData] = useState(null); // For inspecting month/site booking history details
   
@@ -4459,19 +4460,25 @@ function OccupancyView() {
     }).sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
   }, [dataSource, rawRows, dbSites, dbCampaigns, periods6M, periodsYearly, period365]);
 
-  // ── Filtered sites (Search by Site, City, Area, Client, or Brand) ──────
+  // ── Filtered sites with simple Status Filter (All / Occupied / Vacant) ──
   const filteredSites = useMemo(() => {
-    if (!search.trim()) return siteHistory;
-    const q = search.trim().toLowerCase();
-    return siteHistory.filter(s => 
-      s.site_code.toLowerCase().includes(q) ||
-      (s.city && s.city.toLowerCase().includes(q)) ||
-      (s.area && s.area.toLowerCase().includes(q)) ||
-      (s.currentClient && s.currentClient.toLowerCase().includes(q)) ||
-      (s.currentBrand && s.currentBrand.toLowerCase().includes(q)) ||
-      (s.clients365 && s.clients365.some(c => c.toLowerCase().includes(q)))
-    );
-  }, [siteHistory, search]);
+    return siteHistory.filter(s => {
+      const isOccupied = s.currentStatus === 'active' || (s.pct365 && s.pct365 > 0);
+      if (statusFilter === 'occupied' && !isOccupied) return false;
+      if (statusFilter === 'vacant' && isOccupied) return false;
+
+      if (!search.trim()) return true;
+      const q = search.trim().toLowerCase();
+      return (
+        s.site_code.toLowerCase().includes(q) ||
+        (s.city && s.city.toLowerCase().includes(q)) ||
+        (s.area && s.area.toLowerCase().includes(q)) ||
+        (s.currentClient && s.currentClient.toLowerCase().includes(q)) ||
+        (s.currentBrand && s.currentBrand.toLowerCase().includes(q)) ||
+        (s.clients365 && s.clients365.some(c => c.toLowerCase().includes(q)))
+      );
+    });
+  }, [siteHistory, search, statusFilter]);
 
   // ── Overall Stats ─────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -4482,18 +4489,10 @@ function OccupancyView() {
     let occupiedCount = 0;
 
     siteHistory.forEach(s => {
-      let p = 0;
-      if (viewTab === '6months') {
-        const vals = periods6M.map(m => s.by6M?.[m.key]?.pct || (typeof s.by6M?.[m.key] === 'number' ? s.by6M[m.key] : 0));
-        p = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
-      } else if (viewTab === 'yearly') {
-        const vals = periodsYearly.map(y => s.byYearly?.[y.key]?.pct || (typeof s.byYearly?.[y.key] === 'number' ? s.byYearly[y.key] : 0));
-        p = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
-      } else {
-        p = s.pct365 || 0;
-      }
+      const isOcc = s.currentStatus === 'active' || (s.pct365 && s.pct365 > 0);
+      if (isOcc) occupiedCount++;
+      const p = s.pct365 || 0;
       totalPct += p;
-      if (p > 0) occupiedCount++;
     });
 
     return {
@@ -4502,7 +4501,7 @@ function OccupancyView() {
       vacant: total - occupiedCount,
       total
     };
-  }, [siteHistory, viewTab, periods6M, periodsYearly]);
+  }, [siteHistory]);
 
   // ── Export Occupancy Matrix to Excel ──────────────────────────────────
   async function exportOccupancyExcel() {
@@ -4510,7 +4509,7 @@ function OccupancyView() {
       const workbook = new ExcelJS.Workbook();
       const ws = workbook.addWorksheet('Occupancy History');
       
-      const periods = viewTab === '6months' ? periods6M : viewTab === 'yearly' ? periodsYearly : [];
+      const periods = viewTab === '6months' ? periods6M : [];
       
       const columns = [
         { header: 'Site Code', key: 'site_code', width: 14 },
@@ -4546,7 +4545,7 @@ function OccupancyView() {
           rowData.days = s.days365;
           rowData.pct = `${s.pct365}%`;
         } else {
-          const dataMap = viewTab === '6months' ? s.by6M : s.byYearly;
+          const dataMap = s.by6M;
           let sum = 0;
           periods.forEach(p => {
             const entry = dataMap?.[p.key];
@@ -4588,12 +4587,17 @@ function OccupancyView() {
     <>
       <PageHead 
         title="Site Occupancy History" 
-        desc="Complete site-wise occupancy history tracking with live percentage bars, monthly booked clients, and portfolio utilization." 
+        desc="Simple & clear site-wise occupancy tracker with live utilization, booked clients, and vacant availability." 
       />
 
-      {/* ── Top Summary & KPI Cards ────────────────────────────────────── */}
+      {/* ── Top Summary & KPI Cards (Click to filter) ────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '16px' }}>
-        <div className="scooh-panel" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div 
+          className="scooh-panel" 
+          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.08)' }}
+          onClick={() => setStatusFilter('ALL')}
+          title="Click to view all sites"
+        >
           <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Average Occupancy
           </div>
@@ -4608,31 +4612,48 @@ function OccupancyView() {
           </div>
         </div>
 
-        <div className="scooh-panel" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Occupied Sites
+        <div 
+          className="scooh-panel" 
+          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'occupied' ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'occupied' ? 'rgba(16, 185, 129, 0.08)' : undefined }}
+          onClick={() => setStatusFilter(prev => prev === 'occupied' ? 'ALL' : 'occupied')}
+          title="Click to filter only occupied sites"
+        >
+          <div style={{ fontSize: '11px', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>🟢 Occupied Sites</span>
+            {statusFilter === 'occupied' && <span style={{ fontSize: '10px', background: '#10b981', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active Filter</span>}
           </div>
           <div style={{ fontSize: '28px', fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>
             {stats.occupied}
           </div>
           <div style={{ fontSize: '12px', color: '#64748b' }}>
-            {stats.total > 0 ? `${Math.round((stats.occupied / stats.total) * 100)}% of total sites active` : 'No sites'}
+            {stats.total > 0 ? `${Math.round((stats.occupied / stats.total) * 100)}% active campaigns` : 'No sites'}
           </div>
         </div>
 
-        <div className="scooh-panel" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Vacant Sites
+        <div 
+          className="scooh-panel" 
+          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'vacant' ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.08)' : undefined }}
+          onClick={() => setStatusFilter(prev => prev === 'vacant' ? 'ALL' : 'vacant')}
+          title="Click to filter only vacant sites"
+        >
+          <div style={{ fontSize: '11px', fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>⚪ Vacant Sites</span>
+            {statusFilter === 'vacant' && <span style={{ fontSize: '10px', background: '#f59e0b', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active Filter</span>}
           </div>
           <div style={{ fontSize: '28px', fontWeight: 900, color: stats.vacant > 0 ? '#f59e0b' : '#10b981', lineHeight: 1.1 }}>
             {stats.vacant}
           </div>
           <div style={{ fontSize: '12px', color: '#64748b' }}>
-            Available for booking
+            Ready for booking
           </div>
         </div>
 
-        <div className="scooh-panel" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div 
+          className="scooh-panel" 
+          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid #38bdf8' : '1px solid rgba(255,255,255,0.08)' }}
+          onClick={() => setStatusFilter('ALL')}
+          title="Click to show all sites"
+        >
           <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Total Sites Tracked
           </div>
@@ -4645,79 +4666,131 @@ function OccupancyView() {
         </div>
       </div>
 
-      {/* ── Controls Toolbar ────────────────────────────────────────────── */}
-      <section className="scooh-panel" style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+      {/* ── Unified Clean Controls Toolbar ───────────────────────────────── */}
+      <section className="scooh-panel" style={{ marginBottom: '16px', padding: '12px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
           
-          {/* View Mode Pills */}
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {[
-              { id: '6months', label: 'Last 6 Months', icon: '🗓️' },
-              { id: 'yearly', label: 'Yearly History', icon: '📊' },
-              { id: 'overview', label: '365-Day Overview', icon: '⚡' }
-            ].map(tab => (
+          {/* Left: Search & Quick Status Pills */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: '1 1 auto' }}>
+            <input
+              className="scooh-search"
+              style={{ minWidth: '220px', maxWidth: '320px', fontSize: '12px' }}
+              placeholder="Search site, client, area…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+
+            {/* Quick Status Filter Pills */}
+            <div style={{ display: 'inline-flex', gap: '6px', background: 'rgba(15, 23, 42, 0.6)', padding: '3px', borderRadius: '20px', border: '1px solid #1e293b' }}>
               <button
-                key={tab.id}
                 type="button"
-                onClick={() => setViewTab(tab.id)}
+                onClick={() => setStatusFilter('ALL')}
                 style={{
-                  padding: '8px 18px',
-                  borderRadius: '30px',
-                  border: viewTab === tab.id ? '2px solid #f2c94c' : '2px solid #1e293b',
-                  background: viewTab === tab.id ? 'rgba(242, 201, 76, 0.12)' : '#0d1520',
-                  color: viewTab === tab.id ? '#f2c94c' : '#94a3b8',
-                  fontWeight: viewTab === tab.id ? 800 : 600,
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s ease'
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: statusFilter === 'ALL' ? 'rgba(56, 189, 248, 0.25)' : 'transparent',
+                  color: statusFilter === 'ALL' ? '#38bdf8' : '#94a3b8',
+                  fontWeight: statusFilter === 'ALL' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
                 }}
               >
-                <span>{tab.icon}</span>
-                <span>{tab.label}</span>
+                All ({siteHistory.length})
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={() => setStatusFilter('occupied')}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: statusFilter === 'occupied' ? 'rgba(16, 185, 129, 0.25)' : 'transparent',
+                  color: statusFilter === 'occupied' ? '#4ade80' : '#94a3b8',
+                  fontWeight: statusFilter === 'occupied' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                🟢 Occupied ({stats.occupied})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('vacant')}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: statusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.25)' : 'transparent',
+                  color: statusFilter === 'vacant' ? '#fbbf24' : '#94a3b8',
+                  fontWeight: statusFilter === 'vacant' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                ⚪ Vacant ({stats.vacant})
+              </button>
+            </div>
           </div>
 
-          {/* Source indicator & Action Buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {/* Right: Clean View Switcher & Action Buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {/* View Mode Toggle: 2 Clear Views */}
+            <div style={{ display: 'inline-flex', gap: '4px', background: 'rgba(15, 23, 42, 0.6)', padding: '3px', borderRadius: '20px', border: '1px solid #1e293b' }}>
+              <button
+                type="button"
+                onClick={() => setViewTab('6months')}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: viewTab === '6months' ? 'rgba(242, 201, 76, 0.18)' : 'transparent',
+                  color: viewTab === '6months' ? '#f2c94c' : '#94a3b8',
+                  fontWeight: viewTab === '6months' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                🗓️ 6 Months Timeline
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewTab('overview')}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: viewTab === 'overview' ? 'rgba(242, 201, 76, 0.18)' : 'transparent',
+                  color: viewTab === 'overview' ? '#f2c94c' : '#94a3b8',
+                  fontWeight: viewTab === 'overview' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                ⚡ 365-Day Overview
+              </button>
+            </div>
+
             {dataSource === 'excel' ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', background: '#0f2035', border: '1px solid #1e3a5f', borderRadius: '8px', fontSize: '12px', color: '#7dd3fc' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', background: '#0f2035', border: '1px solid #1e3a5f', borderRadius: '8px', fontSize: '11.5px', color: '#7dd3fc' }}>
                 <span>📄 {fileName}</span>
                 <button
                   type="button"
                   onClick={() => { setDataSource('system'); setFileName(''); setRawRows([]); }}
-                  style={{ background: 'none', border: 'none', color: '#f06a6a', cursor: 'pointer', fontSize: '13px', fontWeight: 800, padding: 0 }}
+                  style={{ background: 'none', border: 'none', color: '#f06a6a', cursor: 'pointer', fontSize: '12px', fontWeight: 800, padding: 0 }}
                   title="Switch back to Live Database"
                 >
-                  ✕ Clear
+                  ✕
                 </button>
               </div>
-            ) : (
-              <span className="scooh-badgechip" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '5px 10px' }}>
-                ● Live Database Data
-              </span>
-            )}
-
-            <button
-              type="button"
-              className="scooh-btn ghost"
-              onClick={loadSystemData}
-              disabled={loading}
-              title="Refresh database campaigns & sites"
-              style={{ fontSize: '12px', padding: '7px 14px' }}
-            >
-              🔄 Refresh
-            </button>
+            ) : null}
 
             <button
               type="button"
               className="scooh-btn ghost"
               onClick={exportOccupancyExcel}
-              title="Export complete occupancy history table to Excel"
-              style={{ fontSize: '12px', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              title="Export complete occupancy table to Excel"
+              style={{ fontSize: '11.5px', padding: '6px 12px' }}
             >
               📥 Export Excel
             </button>
@@ -4733,20 +4806,22 @@ function OccupancyView() {
             <button
               type="button"
               className="scooh-btn primary"
-              style={{ padding: '7px 16px', fontSize: '12px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ padding: '6px 14px', fontSize: '11.5px', fontWeight: 800 }}
               onClick={() => { fileRef.current.value = ''; fileRef.current.click(); }}
             >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M5 20h14v-2H5v2Zm0-10h4v6h6v-6h4l-7-7-7 7Z"/></svg>
               Import Excel
             </button>
 
-            <input
-              className="scooh-search"
-              style={{ maxWidth: '220px', fontSize: '12px' }}
-              placeholder="Search site, client, area…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={loadSystemData}
+              disabled={loading}
+              title="Refresh database"
+              style={{ fontSize: '11.5px', padding: '6px 10px' }}
+            >
+              🔄
+            </button>
           </div>
         </div>
       </section>
@@ -5399,105 +5474,155 @@ function CampaignTrackerView() {
     }
   }, [location.search]);
 
-  const [timeView, setTimeView] = useState('sitewise'); // 'sitewise' | 'monthly' | 'weekly' | 'yearly' | 'latest' | 'all'
-  const [groupBySite, setGroupBySite] = useState(true);
-  const [showVacantSites, setShowVacantSites] = useState(false);
-  const [collapsedSites, setCollapsedSites] = useState(new Set());
+  const [timeView, setTimeView] = useState('sitewise'); // 'sitewise' | 'all'
+  const [siteStatusFilter, setSiteStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
+  const [expandedSites, setExpandedSites] = useState(new Set());
   const [selectedSiteFilter, setSelectedSiteFilter] = useState('ALL');
-  const [selectedPeriod, setSelectedPeriod] = useState('ALL');
-  const [latestOnly, setLatestOnly] = useState(false);
 
-  // Group by site_code and period: when viewing monthly/weekly/yearly, keep each period's booked site entry so history shows which client booked that site
-  const processedRows = useMemo(() => {
-    // If viewing sitewise or all raw records, do not deduplicate
-    if (timeView === 'sitewise' || timeView === 'all' || !latestOnly) return rows;
-
+  // Master directory of all sites with current campaign, status, and amounts
+  const siteMasterList = useMemo(() => {
     const siteMap = new Map();
-    const otherRows = [];
 
-    for (const r of rows) {
-      const code = String(r.site_code || '').toUpperCase().trim();
-      if (!code) {
-        otherRows.push(r);
-        continue;
+    // 1. Initialize from master sites in database
+    sites.forEach(s => {
+      const code = String(s.site_code || '').trim().toUpperCase();
+      if (!code) return;
+      siteMap.set(code, {
+        code,
+        id: s.id,
+        location: s.address || s.area || '—',
+        city: s.city || 'Ahmedabad',
+        size: s.size || (s.width && s.height ? `${s.width}x${s.height} ft` : '—'),
+        type: s.type || 'Hoarding',
+        rows: []
+      });
+    });
+
+    // 2. Add campaigns to their sites
+    rows.forEach(r => {
+      const code = String(r.site_code || 'UNASSIGNED').trim().toUpperCase();
+      if (!siteMap.has(code)) {
+        siteMap.set(code, {
+          code,
+          id: null,
+          location: r.location || '—',
+          city: 'Ahmedabad',
+          size: r.size || (r.width && r.height ? `${r.width}x${r.height} ft` : '—'),
+          type: r.type || 'Hoarding',
+          rows: []
+        });
       }
-      
-      // When filtering by month / week / year, group per site PER PERIOD
-      // so historical months retain which client booked that site at that time of month
-      const periodKey = (timeView === 'monthly' || timeView === 'weekly' || timeView === 'yearly')
-        ? getCampaignPeriod(r, timeView)
-        : '';
-      const mapKey = periodKey ? `${code}__${periodKey}` : code;
+      siteMap.get(code).rows.push(r);
+    });
 
-      const prev = siteMap.get(mapKey);
-      if (!prev) {
-        siteMap.set(mapKey, r);
-      } else {
-        const isLinkedNew = String(r.parent_campaign || '').startsWith('LINKED:');
-        const isLinkedPrev = String(prev.parent_campaign || '').startsWith('LINKED:');
+    const now = new Date();
 
-        const endNew = new Date(r.end_date || 0).getTime();
-        const endPrev = new Date(prev.end_date || 0).getTime();
+    const list = Array.from(siteMap.values()).map(site => {
+      const sortedRows = [...site.rows].sort((a, b) => {
+        const da = parseFlexibleDate(a.start_date || a.booking_date) || new Date(0);
+        const db = parseFlexibleDate(b.start_date || b.booking_date) || new Date(0);
+        return db - da;
+      });
 
-        const startNew = new Date(r.start_date || 0).getTime();
-        const startPrev = new Date(prev.start_date || 0).getTime();
+      let activeCampaign = null;
+      let upcomingCampaign = null;
+      let latestCampaign = sortedRows[0] || null;
 
-        let takeNew = false;
-        if (endNew !== endPrev && endNew > 0 && endPrev > 0) {
-          takeNew = endNew > endPrev;
-        } else if (startNew !== startPrev && startNew > 0 && startPrev > 0) {
-          takeNew = startNew > startPrev;
-        } else if (isLinkedNew !== isLinkedPrev) {
-          takeNew = !isLinkedNew && isLinkedPrev; // prefer primary campaign over auto-linked
-        } else {
-          takeNew = (r.id || 0) > (prev.id || 0);
-        }
-
-        if (takeNew) {
-          siteMap.set(mapKey, r);
+      for (const r of sortedRows) {
+        const sDate = parseFlexibleDate(r.start_date || r.booking_date);
+        const eDate = parseFlexibleDate(r.end_date) || (sDate ? new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0, 23, 59, 59) : null);
+        if (sDate && eDate) {
+          if (sDate <= now && eDate >= now) {
+            activeCampaign = r;
+            break;
+          } else if (sDate > now && !upcomingCampaign) {
+            upcomingCampaign = r;
+          }
         }
       }
-    }
 
-    return [...siteMap.values(), ...otherRows];
-  }, [rows, latestOnly, timeView]);
+      const totalAmount = site.rows.reduce((sum, r) => sum + Number(r.total_amount || r.revenue || 0), 0);
+      const totalPending = site.rows.reduce((sum, r) => sum + Number(r.pending || 0), 0);
 
-  // Available periods for Monthly, Weekly, Yearly tabs (extracted across all rows)
-  const availablePeriods = useMemo(() => {
-    if (timeView === 'sitewise' || timeView === 'latest' || timeView === 'all') return [];
-    const set = new Set();
-    for (const r of rows) {
-      const p = getCampaignPeriod(r, timeView);
-      if (p && p !== 'Other' && p !== 'All') set.add(p);
-    }
-    return Array.from(set).sort((a, b) => b.localeCompare(a));
-  }, [rows, timeView]);
+      let status = 'vacant';
+      let currentCampaign = null;
+      if (activeCampaign) {
+        status = 'occupied';
+        currentCampaign = activeCampaign;
+      } else if (upcomingCampaign) {
+        status = 'upcoming';
+        currentCampaign = upcomingCampaign;
+      } else if (latestCampaign) {
+        currentCampaign = latestCampaign;
+        status = 'vacant';
+      }
 
-  // Occupancy metrics
+      return {
+        ...site,
+        rows: sortedRows,
+        campaignCount: site.rows.length,
+        status,
+        currentCampaign,
+        activeCampaign,
+        upcomingCampaign,
+        totalAmount,
+        totalPending
+      };
+    });
+
+    return list.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+  }, [sites, rows]);
+
+  // Filtered sites for By Site view
+  const filteredSiteList = useMemo(() => {
+    return siteMasterList.filter(s => {
+      if (siteStatusFilter === 'occupied' && s.status !== 'occupied' && s.status !== 'upcoming') return false;
+      if (siteStatusFilter === 'vacant' && (s.status === 'occupied' || s.status === 'upcoming')) return false;
+
+      if (!search.trim()) return true;
+      const q = search.trim().toLowerCase();
+      return (
+        s.code.toLowerCase().includes(q) ||
+        s.location.toLowerCase().includes(q) ||
+        s.city.toLowerCase().includes(q) ||
+        s.size.toLowerCase().includes(q) ||
+        s.type.toLowerCase().includes(q) ||
+        (s.currentCampaign?.client && s.currentCampaign.client.toLowerCase().includes(q)) ||
+        (s.currentCampaign?.display && s.currentCampaign.display.toLowerCase().includes(q)) ||
+        s.rows.some(r => (r.client || '').toLowerCase().includes(q) || (r.display || '').toLowerCase().includes(q))
+      );
+    });
+  }, [siteMasterList, siteStatusFilter, search]);
+
+  // Counts for Site Directory
+  const siteOccupiedCount = useMemo(() => {
+    return siteMasterList.filter(s => s.status === 'occupied' || s.status === 'upcoming').length;
+  }, [siteMasterList]);
+
+  const siteVacantCount = siteMasterList.length - siteOccupiedCount;
+
+  // Occupancy metrics across campaigns
   const occupiedCount = useMemo(() => {
-    return processedRows.filter(r => {
+    return rows.filter(r => {
       const occ = getCampaignOccupancy(r);
       return occ.status === 'occupied' || occ.status === 'upcoming';
     }).length;
-  }, [processedRows]);
+  }, [rows]);
 
-  const occupancyRate = processedRows.length > 0 ? Math.round((occupiedCount / processedRows.length) * 100) : 0;
+  const occupancyRate = siteMasterList.length > 0 ? Math.round((siteOccupiedCount / siteMasterList.length) * 100) : 0;
 
-  const months = Array.from(new Set(processedRows.map(r => r.month).filter(Boolean)));
-  const types = Array.from(new Set(['Hoarding', 'Gantry', 'Unipole', 'Billboard', 'DOOH', ...processedRows.map(r => r.type).filter(Boolean)]));
-  const vendors = Array.from(new Set(processedRows.map(r => r.vendor_name).filter(Boolean)));
-
-  const totalAmountSum = processedRows.reduce((acc, r) => acc + Number(r.total_amount || r.revenue || 0), 0);
-  const totalAdvtFeesSum = processedRows.reduce((acc, r) => acc + Number(r.advt_fees || 0), 0);
-  const totalPMSum = processedRows.reduce((acc, r) => acc + Number(r.printing_mounting_cost || (Number(r.printing_cost || 0) + Number(r.mounting_cost || 0))), 0);
-  const totalPendingSum = processedRows.reduce((acc, r) => acc + Number(r.pending || 0), 0);
+  const months = Array.from(new Set(rows.map(r => r.month).filter(Boolean)));
+  const totalAmountSum = rows.reduce((acc, r) => acc + Number(r.total_amount || r.revenue || 0), 0);
+  const totalAdvtFeesSum = rows.reduce((acc, r) => acc + Number(r.advt_fees || 0), 0);
+  const totalPendingSum = rows.reduce((acc, r) => acc + Number(r.pending || 0), 0);
 
   function handleSort(key) {
     setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   }
 
+  // Filtered campaigns for All Campaigns view
   const filtered = useMemo(() => {
-    const list = processedRows.filter(r => {
+    const list = rows.filter(r => {
       const q = search.trim().toLowerCase();
       let matchesSearch = !q;
       if (q) {
@@ -5518,26 +5643,12 @@ function CampaignTrackerView() {
         ].some(v => String(v || '').toLowerCase().includes(q));
       }
 
-      // Site dropdown filter
-      if (selectedSiteFilter !== 'ALL') {
-        const code = String(r.site_code || '').trim().toUpperCase();
-        if (code !== selectedSiteFilter.trim().toUpperCase()) return false;
-      }
-
-      // Period filter for Monthly / Weekly / Yearly
-      if (timeView !== 'sitewise' && timeView !== 'latest' && timeView !== 'all' && selectedPeriod !== 'ALL') {
-        const p = getCampaignPeriod(r, timeView);
-        if (p !== selectedPeriod) return false;
-      }
-
       const matchesMonth = monthFilter === 'ALL' || r.month === monthFilter;
-      const matchesType = typeFilter === 'ALL' || r.type === typeFilter;
-      const matchesVendor = vendorFilter === 'ALL' || r.vendor_name === vendorFilter;
       const matchesStatus = statusFilter === 'ALL' ? true :
         statusFilter === 'Pending' ? Number(r.pending || 0) > 0 :
         statusFilter === 'Cleared' ? Number(r.pending || 0) === 0 : true;
 
-      return matchesSearch && matchesMonth && matchesType && matchesVendor && matchesStatus;
+      return matchesSearch && matchesMonth && matchesStatus;
     });
 
     if (sortState.key) {
@@ -5555,133 +5666,15 @@ function CampaignTrackerView() {
       });
     }
     return list;
-  }, [processedRows, search, timeView, selectedPeriod, selectedSiteFilter, monthFilter, typeFilter, vendorFilter, statusFilter, sortState]);
+  }, [rows, search, monthFilter, statusFilter, sortState]);
 
-  // All site options for the site dropdown selector
-  const allSiteOptions = useMemo(() => {
-    const siteMap = new Map();
-    sites.forEach(s => {
-      const code = String(s.site_code || '').trim().toUpperCase();
-      if (code) siteMap.set(code, { code, label: s.address || s.area || '', campaignCount: 0 });
-    });
-    rows.forEach(r => {
-      const code = String(r.site_code || '').trim().toUpperCase();
-      if (code) {
-        if (!siteMap.has(code)) {
-          siteMap.set(code, { code, label: r.location || '', campaignCount: 0 });
-        }
-        siteMap.get(code).campaignCount++;
-      }
-    });
-    return Array.from(siteMap.values()).sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
-  }, [sites, rows]);
-
-  // Site-wise grouping for accordion and grouped table views
-  const siteGroups = useMemo(() => {
-    if (!groupBySite) return null;
-
-    const map = new Map();
-    filtered.forEach(r => {
-      const code = String(r.site_code || 'UNASSIGNED').trim().toUpperCase();
-      if (!map.has(code)) {
-        map.set(code, []);
-      }
-      map.get(code).push(r);
-    });
-
-    // If in sitewise view and showVacantSites enabled, include master sites with 0 campaigns
-    if (showVacantSites && timeView === 'sitewise') {
-      sites.forEach(s => {
-        const code = String(s.site_code || '').trim().toUpperCase();
-        if (code && !map.has(code)) {
-          if (search) {
-            const q = search.trim().toLowerCase();
-            const matches = [s.site_code, s.address, s.area, s.city, s.size, s.type]
-              .some(v => String(v || '').toLowerCase().includes(q));
-            if (!matches) return;
-          }
-          if (selectedSiteFilter !== 'ALL' && code !== selectedSiteFilter.trim().toUpperCase()) return;
-          map.set(code, []);
-        }
-      });
-    }
-
-    const sortedCodes = Array.from(map.keys()).sort((a, b) => {
-      if (a === 'UNASSIGNED') return 1;
-      if (b === 'UNASSIGNED') return -1;
-      return a.localeCompare(b, undefined, { numeric: true });
-    });
-
-    return sortedCodes.map(code => {
-      const groupRows = map.get(code) || [];
-      const masterSite = sites.find(s => String(s.site_code || '').trim().toUpperCase() === code);
-      const location = masterSite?.address || masterSite?.area || groupRows[0]?.location || '—';
-      const size = masterSite?.size || (masterSite?.width && masterSite?.height ? `${masterSite.width}x${masterSite.height} ft` : groupRows[0]?.size || '—');
-      const type = masterSite?.type || groupRows[0]?.type || 'Hoarding';
-      const totalAmount = groupRows.reduce((sum, r) => sum + Number(r.total_amount || r.revenue || 0), 0);
-      const totalAdvtFees = groupRows.reduce((sum, r) => sum + Number(r.advt_fees || 0), 0);
-      const totalPending = groupRows.reduce((sum, r) => sum + Number(r.pending || 0), 0);
-      const isVacant = groupRows.length === 0;
-
-      let occStatus = { status: 'vacant', label: 'Vacant / Available', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.12)', border: 'rgba(148, 163, 184, 0.25)' };
-      if (!isVacant) {
-        const activeCampaign = groupRows.find(r => {
-          const occ = getCampaignOccupancy(r);
-          return occ.status === 'occupied';
-        }) || groupRows[0];
-        
-        const occ = getCampaignOccupancy(activeCampaign);
-        const bg = occ.status === 'occupied' ? 'rgba(34, 197, 94, 0.16)' :
-                   occ.status === 'upcoming' ? 'rgba(234, 179, 8, 0.16)' :
-                   occ.status === 'partial'  ? 'rgba(56, 189, 248, 0.16)' : 'rgba(148, 163, 184, 0.12)';
-        const color = occ.status === 'occupied' ? '#4ade80' :
-                     occ.status === 'upcoming' ? '#facc15' :
-                     occ.status === 'partial'  ? '#38bdf8' : '#94a3b8';
-        const border = occ.status === 'occupied' ? 'rgba(34, 197, 94, 0.35)' :
-                      occ.status === 'upcoming' ? 'rgba(234, 179, 8, 0.35)' :
-                      occ.status === 'partial'  ? 'rgba(56, 189, 248, 0.35)' : 'rgba(148, 163, 184, 0.25)';
-        occStatus = {
-          status: occ.status,
-          label: occ.label + (activeCampaign.client ? ` · ${activeCampaign.client}` : ''),
-          color,
-          bg,
-          border
-        };
-      }
-
-      return {
-        code,
-        masterSite,
-        location,
-        size,
-        type,
-        rows: groupRows,
-        totalAmount,
-        totalAdvtFees,
-        totalPending,
-        isVacant,
-        occStatus
-      };
-    });
-  }, [filtered, groupBySite, sites, showVacantSites, timeView, search, selectedSiteFilter]);
-
-  function toggleCollapseSite(code) {
-    setCollapsedSites(prev => {
+  function toggleExpandSite(code) {
+    setExpandedSites(prev => {
       const next = new Set(prev);
       if (next.has(code)) next.delete(code);
       else next.add(code);
       return next;
     });
-  }
-
-  function expandAllSites() {
-    setCollapsedSites(new Set());
-  }
-
-  function collapseAllSites() {
-    if (siteGroups) {
-      setCollapsedSites(new Set(siteGroups.map(g => g.code)));
-    }
   }
 
   function toggleSelect(id) {
@@ -6138,698 +6131,578 @@ function CampaignTrackerView() {
         </div>
       )}
 
-      {/* Summary KPI Cards */}
-      <div className="scooh-kpirow" style={{ marginBottom: '22px' }}>
-        <div className={`scooh-kpi ${occupancyRate >= 75 ? 'good' : occupancyRate >= 50 ? 'alert' : 'danger'}`}>
+      {/* Summary KPI Cards (Interactive Filter Shortcuts) */}
+      <div className="scooh-kpirow" style={{ marginBottom: '20px' }}>
+        <div 
+          className={`scooh-kpi ${occupancyRate >= 75 ? 'good' : occupancyRate >= 50 ? 'alert' : 'danger'}`}
+          style={{ cursor: 'pointer' }}
+          onClick={() => { setTimeView('sitewise'); setSiteStatusFilter(prev => prev === 'occupied' ? 'ALL' : 'occupied'); }}
+          title="Click to toggle occupied sites"
+        >
           <div className="n">{occupancyRate}%</div>
           <div className="l">Occupancy Rate</div>
           <div className="scooh-kpi-note" style={{ color: occupancyRate >= 75 ? '#4ade80' : '#fbbf24' }}>
-            {occupiedCount} of {processedRows.length} sites occupied
+            {siteOccupiedCount} of {siteMasterList.length} sites occupied
           </div>
         </div>
-        <div className="scooh-kpi good">
+
+        <div 
+          className="scooh-kpi good"
+          style={{ cursor: 'pointer' }}
+          onClick={() => { setTimeView('sitewise'); setSiteStatusFilter(prev => prev === 'vacant' ? 'ALL' : 'vacant'); }}
+          title="Click to view vacant sites ready for booking"
+        >
+          <div className="n" style={{ color: siteVacantCount > 0 ? '#fbbf24' : '#4ade80' }}>{siteVacantCount}</div>
+          <div className="l">Vacant Sites</div>
+          <div className="scooh-kpi-note" style={{ color: '#94a3b8' }}>Available for new campaigns</div>
+        </div>
+
+        <div 
+          className="scooh-kpi good"
+          style={{ cursor: 'pointer' }}
+          onClick={() => setTimeView('all')}
+          title="Click to view all campaign entries"
+        >
           <div className="n">{money(totalAmountSum)}</div>
           <div className="l">Total Campaign Amount</div>
-          <div className="scooh-kpi-note" style={{ color: '#4ade80' }}>{processedRows.length} active records</div>
+          <div className="scooh-kpi-note" style={{ color: '#4ade80' }}>{rows.length} total campaigns</div>
         </div>
-        <div className="scooh-kpi alert">
-          <div className="n">{money(totalAdvtFeesSum)}</div>
-          <div className="l">Total Advt. Fees</div>
-          <div className="scooh-kpi-note" style={{ color: '#94a3b8' }}>Monthly recurring rate</div>
-        </div>
-        <div className={`scooh-kpi ${totalPendingSum > 0 ? 'danger' : 'good'}`}>
+
+        <div 
+          className={`scooh-kpi ${totalPendingSum > 0 ? 'danger' : 'good'}`}
+          style={{ cursor: 'pointer' }}
+          onClick={() => { setTimeView('all'); setStatusFilter(prev => prev === 'Pending' ? 'ALL' : 'Pending'); }}
+          title="Click to filter pending payments"
+        >
           <div className="n">{money(totalPendingSum)}</div>
           <div className="l">Total Pending Amount</div>
           <div className="scooh-kpi-note" style={{ color: totalPendingSum > 0 ? '#ef4444' : '#4ade80' }}>
-            {totalPendingSum > 0 ? `${processedRows.filter(r => Number(r.pending || 0) > 0).length} pending` : 'All cleared'}
+            {totalPendingSum > 0 ? `${rows.filter(r => Number(r.pending || 0) > 0).length} pending` : 'All cleared'}
           </div>
         </div>
       </div>
 
       {/* Main Campaign Section */}
       <div className="scooh-electricity-section">
-        <div className="scooh-sectionbar">
+        <div className="scooh-sectionbar" style={{ padding: '14px 20px' }}>
           <div>
-            <h2 style={{ fontSize: '16px', fontWeight: 800, color: '#f8fafc' }}>
-              Outdoor Campaigns & Occupancy Tracker
+            <h2 style={{ fontSize: '16px', fontWeight: 800, color: '#f8fafc', margin: 0 }}>
+              {timeView === 'sitewise' ? 'Site Directory & Occupancy' : 'All Outdoor Campaigns'}
             </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+            <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#94a3b8' }}>
               {timeView === 'sitewise'
-                ? `Site-wise view · Showing ${siteGroups ? siteGroups.length : 0} sites (${filtered.length} total campaigns)`
-                : `Showing ${filtered.length} ${timeView === 'latest' ? 'unique sites (latest entry per site, no repeats)' : 'campaign entries'}`
+                ? `Showing ${filteredSiteList.length} of ${siteMasterList.length} sites · Click "+ Book" on any site or "History" to view bookings.`
+                : `Showing ${filtered.length} of ${rows.length} campaign records with billing & PO details.`
               }
-              {timeView === 'latest' && rows.length > processedRows.length ? ` (${rows.length - processedRows.length} older entries hidden)` : ''}
-              {selectedPeriod !== 'ALL' && timeView !== 'sitewise' ? ` · Filtered: ${selectedPeriod}` : ''}
-              {selectedSiteFilter !== 'ALL' ? ` · Filtered by Site: ${selectedSiteFilter}` : ''}.
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             {canAdd && (
-              <button type="button" className="scooh-btn purple-btn" onClick={openNewCampaign}>
+              <button type="button" className="scooh-btn purple-btn" onClick={() => openNewCampaign()}>
                 + Add Campaign
               </button>
             )}
           </div>
         </div>
 
-        {/* View Mode Tabs: Site-wise, Monthly, Weekly, Yearly, Latest, All */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', padding: '14px 20px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          {[
-            { key: 'sitewise', label: 'Site-wise', icon: '🏢' },
-            { key: 'monthly',  label: 'Monthly',   icon: '🗓️' },
-            { key: 'weekly',   label: 'Weekly',    icon: '📆' },
-            { key: 'yearly',   label: 'Yearly',    icon: '📊' },
-            { key: 'latest',   label: 'Latest (No Repeat)', icon: '⚡' },
-            { key: 'all',      label: 'All History', icon: '📋' },
-          ].map(tab => {
-            const isActive = timeView === tab.key;
-            return (
+        {/* Clean, Unified Single Toolbar */}
+        <div className="scooh-toolbar" style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+          
+          {/* Left: View Mode Toggle & Status / Month Filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: '1 1 auto' }}>
+            
+            {/* View Mode Toggle: 2 Clean Options */}
+            <div style={{ display: 'inline-flex', gap: '4px', background: 'rgba(15, 23, 42, 0.7)', padding: '3px', borderRadius: '24px', border: '1px solid #1e293b' }}>
               <button
-                key={tab.key}
                 type="button"
-                onClick={() => {
-                  setTimeView(tab.key);
-                  setSelectedPeriod('ALL');
-                  if (tab.key === 'sitewise') {
-                    setGroupBySite(true);
-                    setLatestOnly(false);
-                  } else if (tab.key === 'latest') {
-                    setLatestOnly(true);
-                  } else if (tab.key === 'all') {
-                    setLatestOnly(false);
-                  }
-                }}
+                onClick={() => setTimeView('sitewise')}
                 style={{
-                  padding: '7px 16px',
+                  padding: '6px 16px',
                   borderRadius: '20px',
-                  border: isActive ? '2px solid #f2c94c' : '1px solid #1e293b',
-                  background: isActive ? 'rgba(242, 201, 76, 0.16)' : '#0d1520',
-                  color: isActive ? '#f2c94c' : '#94a3b8',
-                  fontWeight: isActive ? 800 : 600,
+                  border: 'none',
+                  background: timeView === 'sitewise' ? 'rgba(167, 139, 250, 0.22)' : 'transparent',
+                  color: timeView === 'sitewise' ? '#c4b5fd' : '#94a3b8',
+                  fontWeight: timeView === 'sitewise' ? 800 : 600,
                   fontSize: '12px',
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all .15s'
+                  gap: '6px'
                 }}
               >
-                <span>{tab.icon}</span>
-                <span>{tab.label}</span>
+                <span>🏢</span>
+                <span>By Site ({siteMasterList.length})</span>
               </button>
-            );
-          })}
-        </div>
-
-        {/* Site-wise Navigation & Vacant Toggle Bar */}
-        {timeView === 'sitewise' && (
-          <div style={{
-            display: 'flex',
-            gap: '12px',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '10px 20px',
-            background: 'rgba(8, 14, 24, 0.75)',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
-            flexWrap: 'wrap'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '11px', color: '#c4b5fd', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                🏢 Site-Wise Mode:
-              </span>
-              <span className="scooh-badgechip" style={{ background: 'rgba(56, 189, 248, 0.12)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
-                📍 {siteGroups ? siteGroups.length : 0} Sites
-              </span>
-              <span className="scooh-badgechip" style={{ background: 'rgba(34, 197, 94, 0.12)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.25)' }}>
-                🟢 {siteGroups ? siteGroups.filter(g => !g.isVacant).length : 0} Booked
-              </span>
-              <span className="scooh-badgechip" style={{ background: 'rgba(148, 163, 184, 0.12)', color: '#94a3b8', border: '1px solid rgba(148, 163, 184, 0.25)' }}>
-                ⚪ {siteGroups ? siteGroups.filter(g => g.isVacant).length : 0} Vacant
-              </span>
+              <button
+                type="button"
+                onClick={() => setTimeView('all')}
+                style={{
+                  padding: '6px 16px',
+                  borderRadius: '20px',
+                  border: 'none',
+                  background: timeView === 'all' ? 'rgba(56, 189, 248, 0.22)' : 'transparent',
+                  color: timeView === 'all' ? '#38bdf8' : '#94a3b8',
+                  fontWeight: timeView === 'all' ? 800 : 600,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>📋</span>
+                <span>All Campaigns ({rows.length})</span>
+              </button>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#cbd5e1', cursor: 'pointer', userSelect: 'none' }}>
-                <input
-                  type="checkbox"
-                  checked={showVacantSites}
-                  onChange={e => setShowVacantSites(e.target.checked)}
-                  style={{ accentColor: '#c084fc', cursor: 'pointer' }}
-                />
-                <span style={{ fontWeight: 600 }}>Show Vacant Sites</span>
-              </label>
-
-              {groupBySite && siteGroups && siteGroups.length > 0 && (
-                <div style={{ display: 'inline-flex', gap: '6px' }}>
-                  <button
-                    type="button"
-                    className="scooh-btn ghost"
-                    onClick={expandAllSites}
-                    style={{ fontSize: '11px', padding: '3px 8px', color: '#cbd5e1' }}
-                    title="Expand all site campaign accordions"
-                  >
-                    ▼ Expand All
-                  </button>
-                  <button
-                    type="button"
-                    className="scooh-btn ghost"
-                    onClick={collapseAllSites}
-                    style={{ fontSize: '11px', padding: '3px 8px', color: '#cbd5e1' }}
-                    title="Collapse all site campaign accordions"
-                  >
-                    ▶ Collapse All
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Period Selector Pills: Instant clean filtering for Monthly, Weekly, Yearly */}
-        {availablePeriods.length > 0 && (
-          <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', padding: '10px 20px', background: 'rgba(8, 14, 24, 0.7)', borderBottom: '1px solid rgba(255,255,255,0.05)', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', marginRight: '4px', whiteSpace: 'nowrap' }}>
-              {timeView === 'monthly' ? 'Filter Month:' : timeView === 'weekly' ? 'Filter Week:' : 'Filter Year:'}
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedPeriod('ALL')}
-              style={{
-                padding: '4px 12px',
-                borderRadius: '12px',
-                border: selectedPeriod === 'ALL' ? '1px solid #38bdf8' : '1px solid #1e293b',
-                background: selectedPeriod === 'ALL' ? 'rgba(56, 189, 248, 0.2)' : '#0b1320',
-                color: selectedPeriod === 'ALL' ? '#38bdf8' : '#94a3b8',
-                fontSize: '11px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              All ({processedRows.length})
-            </button>
-            {availablePeriods.map(p => {
-              const count = processedRows.filter(r => getCampaignPeriod(r, timeView) === p).length;
-              const isPActive = selectedPeriod === p;
-              return (
+            {/* Quick Status Pills (When on By Site) */}
+            {timeView === 'sitewise' && (
+              <div style={{ display: 'inline-flex', gap: '5px', background: 'rgba(15, 23, 42, 0.6)', padding: '3px', borderRadius: '18px', border: '1px solid #1e293b' }}>
                 <button
-                  key={p}
                   type="button"
-                  onClick={() => setSelectedPeriod(p)}
+                  onClick={() => setSiteStatusFilter('ALL')}
                   style={{
-                    padding: '4px 12px',
-                    borderRadius: '12px',
-                    border: isPActive ? '1px solid #f2c94c' : '1px solid #1e293b',
-                    background: isPActive ? 'rgba(242, 201, 76, 0.22)' : '#0b1320',
-                    color: isPActive ? '#f2c94c' : '#94a3b8',
+                    padding: '4px 10px',
+                    borderRadius: '14px',
+                    border: 'none',
+                    background: siteStatusFilter === 'ALL' ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
+                    color: siteStatusFilter === 'ALL' ? '#fff' : '#94a3b8',
+                    fontWeight: siteStatusFilter === 'ALL' ? 800 : 600,
                     fontSize: '11px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap'
+                    cursor: 'pointer'
                   }}
                 >
-                  {p} ({count})
+                  All
                 </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Site Filter Active Banner */}
-        {siteQueryParam && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '12px 20px',
-            background: 'linear-gradient(90deg, rgba(56, 189, 248, 0.16), rgba(56, 189, 248, 0.04))',
-            borderBottom: '1px solid rgba(56, 189, 248, 0.35)',
-            color: '#38bdf8',
-            fontSize: '13px',
-            flexWrap: 'wrap',
-            gap: '10px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-              <span style={{ fontSize: '16px' }}>📍</span>
-              <span style={{ fontWeight: 600 }}>
-                Filtered by Site Code: <strong style={{ color: '#fff', fontSize: '13.5px', background: 'rgba(56, 189, 248, 0.25)', padding: '2px 8px', borderRadius: '5px', border: '1px solid #38bdf8' }}>{siteQueryParam}</strong>
-                <span style={{ color: '#94a3b8', marginLeft: '10px', fontSize: '12px' }}>({filtered.length} campaign{filtered.length !== 1 ? 's' : ''} found)</span>
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {canAdd && (
                 <button
                   type="button"
-                  className="scooh-btn purple-btn"
-                  style={{ fontSize: '11.5px', padding: '4px 10px' }}
-                  onClick={() => openNewCampaign(siteQueryParam)}
+                  onClick={() => setSiteStatusFilter('occupied')}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '14px',
+                    border: 'none',
+                    background: siteStatusFilter === 'occupied' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+                    color: siteStatusFilter === 'occupied' ? '#4ade80' : '#94a3b8',
+                    fontWeight: siteStatusFilter === 'occupied' ? 800 : 600,
+                    fontSize: '11px',
+                    cursor: 'pointer'
+                  }}
                 >
-                  + Book for {siteQueryParam}
+                  🟢 Booked ({siteOccupiedCount})
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={() => setSiteStatusFilter('vacant')}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '14px',
+                    border: 'none',
+                    background: siteStatusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
+                    color: siteStatusFilter === 'vacant' ? '#fbbf24' : '#94a3b8',
+                    fontWeight: siteStatusFilter === 'vacant' ? 800 : 600,
+                    fontSize: '11px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ⚪ Vacant ({siteVacantCount})
+                </button>
+              </div>
+            )}
+
+            {/* Month Filter Dropdown (When on All Campaigns) */}
+            {timeView === 'all' && (
+              <select
+                value={monthFilter}
+                onChange={e => setMonthFilter(e.target.value)}
+                style={{ padding: '6px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
+                title="Filter by campaign month"
+              >
+                <option value="ALL">All Months</option>
+                {months.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Payment Filter Dropdown (When on All Campaigns) */}
+            {timeView === 'all' && (
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+                style={{ padding: '6px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
+                title="Filter by payment clearance"
+              >
+                <option value="ALL">All Payments</option>
+                <option value="Pending">Pending Payment</option>
+                <option value="Cleared">Cleared (₹0)</option>
+              </select>
+            )}
+
+            {/* Search Input */}
+            <input
+              className="scooh-search"
+              style={{ minWidth: '180px', maxWidth: '280px', fontSize: '12px' }}
+              placeholder={timeView === 'sitewise' ? 'Search site, location, client…' : 'Search campaigns, PO, Bill…'}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+
+            {(search || siteStatusFilter !== 'ALL' || monthFilter !== 'ALL' || statusFilter !== 'ALL') && (
               <button
                 type="button"
                 className="scooh-btn ghost"
-                style={{ fontSize: '11px', padding: '4px 10px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.5)' }}
+                style={{ fontSize: '11px', padding: '5px 9px' }}
                 onClick={() => {
                   setSearch('');
+                  setSiteStatusFilter('ALL');
+                  setMonthFilter('ALL');
+                  setStatusFilter('ALL');
                   setSiteQueryParam('');
-                  setSelectedSiteFilter('ALL');
                   navigate('/campaigns', { replace: true });
                 }}
               >
-                ✕ Clear Site Filter
+                ✕ Reset
               </button>
-            </div>
+            )}
           </div>
-        )}
 
-        {/* Streamlined Toolbar */}
-        <div className="scooh-toolbar" style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            className="scooh-search"
-            style={{ flex: '1 1 200px', minWidth: '180px' }}
-            placeholder="Search site, client, display, location, vendor, PO…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-
-          {/* Site Selector Dropdown */}
-          <select
-            value={selectedSiteFilter}
-            onChange={e => setSelectedSiteFilter(e.target.value)}
-            style={{ padding: '7px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px', fontWeight: 600 }}
-            title="Filter by individual site code"
-          >
-            <option value="ALL">All Sites ({allSiteOptions.length})</option>
-            {allSiteOptions.map(s => (
-              <option key={s.code} value={s.code}>
-                {s.code} {s.campaignCount > 0 ? `(${s.campaignCount} camp)` : '(Vacant)'}
-              </option>
-            ))}
-          </select>
-
-          {/* Group by Site Toggle */}
-          <button
-            type="button"
-            onClick={() => setGroupBySite(prev => !prev)}
-            className="scooh-btn ghost"
-            style={{
-              fontSize: '12px',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              border: groupBySite ? '1px solid #c084fc' : '1px solid #334155',
-              background: groupBySite ? 'rgba(192, 132, 252, 0.16)' : '#111925',
-              color: groupBySite ? '#c084fc' : '#94a3b8',
-              fontWeight: 700,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-            title="Toggle grouping rows by Site"
-          >
-            <span>🗂️</span>
-            <span>{groupBySite ? 'Grouped by Site' : 'Flat List'}</span>
-          </button>
-
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            style={{ padding: '7px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
-          >
-            <option value="ALL">All Payment Status</option>
-            <option value="Pending">Pending Payment</option>
-            <option value="Cleared">Cleared (₹0)</option>
-          </select>
-
-          <select
-            value={`${sortState.key}:${sortState.dir}`}
-            onChange={e => {
-              const [k, d] = e.target.value.split(':');
-              setSortState({ key: k, dir: d });
-            }}
-            style={{ padding: '7px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px', fontWeight: 600 }}
-          >
-            <option value="id:desc">Sort: Newest First</option>
-            <option value="id:asc">Sort: Oldest First</option>
-            <option value="occupancy:desc">Sort: Occupancy (High–Low)</option>
-            <option value="site_code:asc">Sort: Site Code (A–Z)</option>
-            <option value="month:desc">Sort: Month</option>
-            <option value="client:asc">Sort: Client (A–Z)</option>
-            <option value="start_date:asc">Sort: Start Date (Earliest)</option>
-            <option value="end_date:asc">Sort: End Date (Earliest)</option>
-            <option value="total_amount:desc">Sort: Total Amount (High–Low)</option>
-            <option value="pending:desc">Sort: Pending (High–Low)</option>
-          </select>
-
-          {(search || siteQueryParam || selectedSiteFilter !== 'ALL' || selectedPeriod !== 'ALL' || statusFilter !== 'ALL' || sortState.key !== 'id' || sortState.dir !== 'desc' || showVacantSites) && (
+          {/* Right: Quick Action Buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               type="button"
               className="scooh-btn ghost"
-              style={{ fontSize: '11px', padding: '6px 10px' }}
               onClick={() => {
-                setSearch('');
-                setSiteQueryParam('');
-                setSelectedSiteFilter('ALL');
-                setSelectedPeriod('ALL');
-                setStatusFilter('ALL');
-                setShowVacantSites(false);
-                setSortState({ key: 'id', dir: 'desc' });
-                navigate('/campaigns', { replace: true });
+                if (timeView === 'sitewise') {
+                  const exportRows = filteredSiteList.map(s => ({
+                    site_code: s.code,
+                    location: s.location,
+                    city: s.city,
+                    size: s.size,
+                    type: s.type,
+                    status: s.status.toUpperCase(),
+                    client: s.currentCampaign?.client || 'Vacant',
+                    display: s.currentCampaign?.display || '—',
+                    start_date: s.currentCampaign?.start_date || '',
+                    end_date: s.currentCampaign?.end_date || '',
+                    days: s.currentCampaign?.days || '',
+                    total_amount: s.totalAmount,
+                    pending: s.totalPending
+                  }));
+                  exportCampaignsExcel(exportRows, 'MediaBuzz_Sites_Directory.xlsx');
+                } else {
+                  exportCampaignsExcel(filtered, 'MediaBuzz_Campaigns.xlsx');
+                }
               }}
+              title="Export table to Excel"
+              style={{ fontSize: '11.5px', padding: '6px 12px' }}
             >
-              ✕ Reset
+              📥 Export Excel
             </button>
-          )}
-        </div>
 
-        {/* Batch Selection Action Bar */}
-        {canDelete && selectedIds.size > 0 && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '11px 18px',
-            background: 'linear-gradient(90deg, rgba(239,68,68,0.18), rgba(239,68,68,0.08))',
-            borderBottom: '1px solid rgba(239,68,68,0.3)',
-            color: '#fca5a5',
-            fontSize: '13px',
-            flexWrap: 'wrap',
-            gap: '12px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 800, color: '#ffffff', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }}></span>
-                {selectedIds.size} campaign{selectedIds.size > 1 ? 's' : ''} selected
-              </span>
-              <button
-                type="button"
-                className="scooh-btn ghost"
-                onClick={selectAllVisible}
-                style={{ fontSize: '11.5px', padding: '4px 10px', color: '#f1f5f9', borderColor: '#475569' }}
-              >
-                Select all visible ({filtered.length})
-              </button>
-              <button
-                type="button"
-                className="scooh-btn ghost"
-                onClick={deselectAll}
-                style={{ fontSize: '11.5px', padding: '4px 10px', color: '#cbd5e1', borderColor: '#475569' }}
-              >
-                Deselect all
-              </button>
-            </div>
-            <button
-              type="button"
-              className="scooh-btn danger"
-              onClick={handleBatchDelete}
-              style={{
-                background: '#ef4444',
-                color: '#ffffff',
-                border: 'none',
-                fontWeight: 800,
-                padding: '7px 16px',
-                borderRadius: '7px',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                boxShadow: '0 2px 10px rgba(239,68,68,0.45)'
-              }}
-            >
-              🗑 Delete selected ({selectedIds.size})
+            {(canAdd || canDelete) && (
+              <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', padding: '6px 12px' }} title="Import campaigns spreadsheet">
+                <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+                <input type="file" accept=".xlsx,.xls,.csv,.xlsm,.ods" hidden disabled={importingExcel} onChange={handleCampaignsExcelImport} />
+              </label>
+            )}
+
+            <button type="button" className="scooh-btn ghost" onClick={loadData} title="Refresh data" style={{ fontSize: '11.5px', padding: '6px 10px' }}>
+              🔄
             </button>
           </div>
-        )}
-
-        {/* Top Horizontal Scroller Bar */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          padding: '8px 14px',
-          marginBottom: '8px',
-          borderRadius: '10px',
-          background: 'linear-gradient(90deg, rgba(15, 23, 42, 0.85) 0%, rgba(30, 27, 75, 0.6) 100%)',
-          border: '1px solid rgba(167, 139, 250, 0.25)',
-          boxShadow: '0 2px 10px rgba(0, 0, 0, 0.2)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '0 0 auto', color: '#c4b5fd', fontSize: '11px', fontWeight: 700 }}>
-            <span>↔</span>
-            <span>Scroll Columns:</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => scrollHorizontallyBy(-350)}
-            style={{
-              padding: '3px 9px',
-              borderRadius: '6px',
-              background: 'rgba(255, 255, 255, 0.08)',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              color: '#e2e8f0',
-              cursor: 'pointer',
-              fontSize: '11px',
-              fontWeight: 700,
-              flex: '0 0 auto'
-            }}
-            title="Scroll table left"
-          >
-            ◀ Left
-          </button>
-          <div
-            ref={topScrollRef}
-            onScroll={handleTopScroll}
-            className="scooh-top-horizontal-scroll"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              overflowX: 'auto',
-              overflowY: 'hidden',
-              height: '14px',
-              borderRadius: '7px',
-              background: 'rgba(0, 0, 0, 0.35)',
-              border: '1px solid rgba(255, 255, 255, 0.06)',
-              scrollbarColor: '#a78bfa rgba(15, 23, 42, 0.7)',
-              scrollbarWidth: 'thin'
-            }}
-            title="Top horizontal scroller — drag thumb or scroll to pan table columns"
-          >
-            <div style={{ width: `${Math.max(tableScrollWidth, 2400)}px`, height: '1px' }} />
-          </div>
-          <button
-            type="button"
-            onClick={() => scrollHorizontallyBy(350)}
-            style={{
-              padding: '3px 9px',
-              borderRadius: '6px',
-              background: 'rgba(255, 255, 255, 0.08)',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              color: '#e2e8f0',
-              cursor: 'pointer',
-              fontSize: '11px',
-              fontWeight: 700,
-              flex: '0 0 auto'
-            }}
-            title="Scroll table right"
-          >
-            Right ▶
-          </button>
         </div>
 
-        {/* Table */}
-        <div className="scooh-tablewrap" ref={bottomScrollRef} onScroll={handleBottomScroll}>
-          <table className="scooh-table" ref={tableRef}>
-            <thead>
-              <tr>
-                {canDelete && (
-                  <th style={{ width: '42px', textAlign: 'center', padding: '10px 8px' }}>
-                    <input
-                      type="checkbox"
-                      checked={filtered.length > 0 && filtered.every(r => selectedIds.has(r.id))}
-                      onChange={toggleSelectAll}
-                      title="Select all visible campaigns"
-                      style={{ cursor: 'pointer' }}
-                    />
-                  </th>
-                )}
-                <SortHeader label="Site Code" sortKey="site_code" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
-                <SortHeader label="Month" sortKey="month" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
-                <SortHeader label="Occupancy" sortKey="occupancy" currentSort={sortState} onSort={handleSort} style={{ minWidth: '135px' }} />
-                <SortHeader label="Date" sortKey="booking_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
-                <SortHeader label="Client/Agency Name" sortKey="client" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
-                <SortHeader label="Display" sortKey="display" currentSort={sortState} onSort={handleSort} style={{ minWidth: '160px' }} />
-                <SortHeader label="Vendor Name" sortKey="vendor_name" currentSort={sortState} onSort={handleSort} style={{ minWidth: '140px' }} />
-                <SortHeader label="Location" sortKey="location" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
-                <th style={{ width: '55px', textAlign: 'center' }}>W</th>
-                <th style={{ width: '55px', textAlign: 'center' }}>H</th>
-                <SortHeader label="Size" sortKey="size" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
-                <SortHeader label="Type" sortKey="type" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
-                <SortHeader label="Start Date" sortKey="start_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
-                <SortHeader label="End Date" sortKey="end_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
-                <SortHeader label="Days" sortKey="days" currentSort={sortState} onSort={handleSort} align="center" style={{ width: '70px' }} />
-                <SortHeader label="Advt. Fees" sortKey="advt_fees" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
-                <SortHeader label="Prod/Mount" sortKey="printing_mounting_cost" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
-                <SortHeader label="Total" sortKey="total_amount" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '135px' }} />
-                <SortHeader label="PO" sortKey="po" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
-                <SortHeader label="Bill" sortKey="bill" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
-                <SortHeader label="Pending" sortKey="pending" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '110px' }} />
-                <th style={{ minWidth: '110px', textAlign: 'center' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groupBySite && siteGroups ? (
-                siteGroups.length === 0 ? (
+        {timeView === 'sitewise' ? (
+          /* By Site Directory Table */
+          <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
+            <table className="scooh-table">
+              <thead>
+                <tr>
+                  <th style={{ minWidth: '100px' }}>Site Code</th>
+                  <th style={{ minWidth: '180px' }}>Location & Landmark</th>
+                  <th style={{ minWidth: '110px' }}>Size & Type</th>
+                  <th style={{ minWidth: '120px' }}>Occupancy Status</th>
+                  <th style={{ minWidth: '170px' }}>Current Client & Display</th>
+                  <th style={{ minWidth: '150px' }}>Booking Dates</th>
+                  <th style={{ minWidth: '110px', textAlign: 'right' }}>Total Rev.</th>
+                  <th style={{ minWidth: '100px', textAlign: 'right' }}>Pending</th>
+                  <th style={{ minWidth: '160px', textAlign: 'center' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSiteList.length === 0 ? (
                   <tr>
-                    <td colSpan={canDelete ? 23 : 22} className="scooh-empty" style={{ padding: '36px 20px' }}>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No sites match your query</div>
+                    <td colSpan={9} className="scooh-empty" style={{ padding: '36px 20px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No sites found</div>
                       <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                        {canAdd ? 'Click "+ Add Campaign" or "Import Excel" to load outdoor media campaigns.' : 'No active sites found.'}
+                        Try adjusting your search or status filter.
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  siteGroups.map(group => {
-                    const isCollapsed = collapsedSites.has(group.code);
+                  filteredSiteList.map(s => {
+                    const isExpanded = expandedSites.has(s.code);
+                    const isBooked = s.status === 'occupied';
+                    const isUpcoming = s.status === 'upcoming';
+                    const statusColor = isBooked ? '#4ade80' : isUpcoming ? '#facc15' : '#94a3b8';
+                    const statusBg = isBooked ? 'rgba(34, 197, 94, 0.16)' : isUpcoming ? 'rgba(234, 179, 8, 0.16)' : 'rgba(148, 163, 184, 0.1)';
+                    const statusBorder = isBooked ? 'rgba(34, 197, 94, 0.35)' : isUpcoming ? 'rgba(234, 179, 8, 0.35)' : 'rgba(148, 163, 184, 0.2)';
+
                     return (
-                      <React.Fragment key={`group-${group.code}`}>
-                        {/* Site Header Row */}
-                        <tr
-                          style={{
-                            background: 'linear-gradient(90deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%)',
-                            borderTop: '2px solid rgba(167, 139, 250, 0.35)',
-                            borderBottom: '1px solid rgba(167, 139, 250, 0.2)'
-                          }}
-                        >
-                          <td colSpan={canDelete ? 23 : 22} style={{ padding: '9px 14px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <React.Fragment key={s.code}>
+                        <tr>
+                          <td>
+                            <span className="scooh-plate" style={{ fontSize: '12px', fontWeight: 800 }}>
+                              {s.code}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '12.5px', lineHeight: 1.3 }}>
+                              {s.location}
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                              📍 {s.city}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '12px', color: '#e2e8f0', fontWeight: 600 }}>
+                              {s.size}
+                            </div>
+                            <span className="scooh-badgechip" style={{ fontSize: '10px', marginTop: '2px' }}>
+                              {s.type}
+                            </span>
+                          </td>
+                          <td>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '3px 10px',
+                              borderRadius: '8px',
+                              background: statusBg,
+                              color: statusColor,
+                              border: `1px solid ${statusBorder}`,
+                              fontSize: '11.5px',
+                              fontWeight: 800,
+                              whiteSpace: 'nowrap'
+                            }}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }} />
+                              {isBooked ? 'Occupied' : isUpcoming ? 'Upcoming' : 'Vacant'}
+                            </span>
+                          </td>
+                          <td>
+                            {s.currentCampaign ? (
+                              <div>
+                                <div style={{ fontWeight: 800, color: '#ffffff', fontSize: '12.5px' }}>
+                                  {s.currentCampaign.client || s.currentCampaign.client_name || '—'}
+                                </div>
+                                {s.currentCampaign.display && (
+                                  <div style={{ fontSize: '11.5px', color: '#38bdf8', marginTop: '2px' }}>
+                                    📢 {s.currentCampaign.display}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ color: '#64748b', fontSize: '12px', fontStyle: 'italic' }}>
+                                — Ready for Booking —
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ fontSize: '12px', color: s.currentCampaign ? '#cbd5e1' : '#64748b' }}>
+                            {s.currentCampaign ? (
+                              <div>
+                                <span>{formatDate(s.currentCampaign.start_date || s.currentCampaign.booking_date)}</span>
+                                <span style={{ color: '#64748b', margin: '0 4px' }}>→</span>
+                                <span>{formatDate(s.currentCampaign.end_date) || 'Ongoing'}</span>
+                              </div>
+                            ) : (
+                              <span style={{ color: '#10b981', fontWeight: 600 }}>Available now</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 800, color: s.totalAmount > 0 ? '#4ade80' : '#64748b', fontSize: '12.5px' }}>
+                            {s.totalAmount > 0 ? money(s.totalAmount) : '—'}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: s.totalPending > 0 ? '#f87171' : '#64748b', fontSize: '12px' }}>
+                            {s.totalPending > 0 ? money(s.totalPending) : '—'}
+                          </td>
+                          <td>
+                            <div className="scooh-rowactions" style={{ justifyContent: 'center', gap: '6px' }}>
+                              {canAdd && (
                                 <button
                                   type="button"
-                                  onClick={() => toggleCollapseSite(group.code)}
-                                  style={{
-                                    background: 'rgba(255,255,255,0.08)',
-                                    border: '1px solid rgba(255,255,255,0.15)',
-                                    borderRadius: '6px',
-                                    color: '#c4b5fd',
-                                    padding: '3px 9px',
-                                    fontSize: '11px',
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '5px',
-                                    fontWeight: 800
-                                  }}
-                                  title={isCollapsed ? "Expand campaigns" : "Collapse campaigns"}
+                                  className="scooh-btn purple-btn"
+                                  style={{ fontSize: '11px', padding: '3px 9px', borderRadius: '6px' }}
+                                  onClick={() => openNewCampaign(s.code)}
+                                  title={`Book new campaign for ${s.code}`}
                                 >
-                                  <span>{isCollapsed ? '▶' : '▼'}</span>
-                                  <span>{isCollapsed ? 'Expand' : 'Collapse'}</span>
+                                  + Book
                                 </button>
-                                
-                                <span className="scooh-plate" style={{ fontSize: '12.5px', fontWeight: 900, padding: '3px 9px' }}>
-                                  📍 {group.code}
-                                </span>
-
-                                <span style={{ color: '#f8fafc', fontWeight: 700, fontSize: '13px' }}>
-                                  {group.location}
-                                </span>
-
-                                <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>
-                                  ({group.size} · {group.type})
-                                </span>
-
-                                <span style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '5px',
-                                  padding: '2px 8px',
-                                  borderRadius: '6px',
-                                  background: group.occStatus.bg,
-                                  color: group.occStatus.color,
-                                  border: `1px solid ${group.occStatus.border}`,
-                                  fontSize: '11px',
-                                  fontWeight: 700
-                                }}>
-                                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: group.occStatus.color }} />
-                                  {group.occStatus.label}
-                                </span>
-                              </div>
-
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                                <span style={{ color: '#cbd5e1', fontSize: '12px', fontWeight: 600 }}>
-                                  <strong style={{ color: '#f8fafc' }}>{group.rows.length}</strong> campaign{group.rows.length !== 1 ? 's' : ''}
-                                </span>
-
-                                {group.totalAmount > 0 && (
-                                  <span style={{ color: '#4ade80', fontSize: '12px', fontWeight: 700, background: 'rgba(34, 197, 94, 0.1)', padding: '2px 8px', borderRadius: '5px', border: '1px solid rgba(34,197,94,0.25)' }}>
-                                    Rev: {money(group.totalAmount)}
-                                  </span>
-                                )}
-
-                                {group.totalPending > 0 && (
-                                  <span style={{ color: '#f87171', fontSize: '12px', fontWeight: 700, background: 'rgba(239, 68, 68, 0.1)', padding: '2px 8px', borderRadius: '5px', border: '1px solid rgba(239,68,68,0.25)' }}>
-                                    Pending: {money(group.totalPending)}
-                                  </span>
-                                )}
-
-                                {canAdd && (
-                                  <button
-                                    type="button"
-                                    className="scooh-btn purple-btn"
-                                    style={{ fontSize: '11px', padding: '3px 9px', borderRadius: '6px' }}
-                                    onClick={() => openNewCampaign(group.code)}
-                                  >
-                                    + Book {group.code}
-                                  </button>
-                                )}
-                              </div>
+                              )}
+                              {s.activeCampaign && canEdit && (
+                                <button
+                                  type="button"
+                                  className="scooh-iconbtn scooh-text-action"
+                                  style={{ fontSize: '11px', padding: '3px 8px' }}
+                                  onClick={() => openEditCampaign(s.activeCampaign)}
+                                  title="Edit active campaign"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              {s.rows.length > 0 && (
+                                <button
+                                  type="button"
+                                  className="scooh-btn ghost"
+                                  style={{ fontSize: '11px', padding: '3px 8px', color: isExpanded ? '#c084fc' : '#94a3b8' }}
+                                  onClick={() => toggleExpandSite(s.code)}
+                                  title="View site campaigns history"
+                                >
+                                  {isExpanded ? 'Hide' : `History (${s.campaignCount})`}
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
 
-                        {/* Group Campaigns (if not collapsed) */}
-                        {!isCollapsed && (
-                          group.rows.length === 0 ? (
-                            <tr>
-                              <td colSpan={canDelete ? 23 : 22} style={{ padding: '14px 20px', background: 'rgba(15, 23, 42, 0.3)', color: '#64748b', fontSize: '12px' }}>
-                                <span style={{ color: '#94a3b8' }}>No campaigns booked yet for {group.code}. This site is currently available.</span>
-                                {canAdd && (
-                                  <button
-                                    type="button"
-                                    className="scooh-btn ghost"
-                                    style={{ fontSize: '11px', padding: '2px 8px', marginLeft: '12px', color: '#c084fc', borderColor: 'rgba(192, 132, 252, 0.4)' }}
-                                    onClick={() => openNewCampaign(group.code)}
-                                  >
-                                    + Add Campaign
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ) : (
-                            group.rows.map(r => renderCampaignRow(r))
-                          )
+                        {isExpanded && s.rows.length > 0 && (
+                          <tr>
+                            <td colSpan={9} style={{ background: 'rgba(15, 23, 42, 0.65)', padding: '12px 16px 16px 20px', borderLeft: '3px solid #a855f7' }}>
+                              <div style={{ fontSize: '11px', fontWeight: 800, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                                Campaign History for {s.code} ({s.rows.length})
+                              </div>
+                              <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                <table className="scooh-table" style={{ fontSize: '12px', width: '100%', margin: 0 }}>
+                                  <thead>
+                                    <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
+                                      <th>Client</th>
+                                      <th>Display</th>
+                                      <th>Dates</th>
+                                      <th style={{ textAlign: 'right' }}>Total Amount</th>
+                                      <th style={{ textAlign: 'right' }}>Pending</th>
+                                      <th>PO / Bill</th>
+                                      <th style={{ textAlign: 'center' }}>Action</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {s.rows.map(r => (
+                                      <tr key={r.id}>
+                                        <td style={{ fontWeight: 700, color: '#fff' }}>{r.client || r.client_name || '—'}</td>
+                                        <td style={{ color: '#38bdf8' }}>{r.display || r.campaign_name || '—'}</td>
+                                        <td style={{ color: '#94a3b8' }}>
+                                          {formatDate(r.start_date || r.booking_date)} → {formatDate(r.end_date) || '—'}
+                                        </td>
+                                        <td style={{ textAlign: 'right', fontWeight: 700, color: '#4ade80' }}>
+                                          {money(r.total_amount || r.revenue || 0)}
+                                        </td>
+                                        <td style={{ textAlign: 'right', fontWeight: 700, color: Number(r.pending || 0) > 0 ? '#f87171' : '#94a3b8' }}>
+                                          {money(r.pending || 0)}
+                                        </td>
+                                        <td style={{ color: '#cbd5e1', fontSize: '11px' }}>
+                                          {r.po ? `PO: ${r.po}` : ''} {r.bill ? `Bill: ${r.bill}` : ''}
+                                        </td>
+                                        <td style={{ textAlign: 'center' }}>
+                                          <button
+                                            type="button"
+                                            className="scooh-iconbtn scooh-text-action"
+                                            style={{ fontSize: '11px', padding: '2px 8px' }}
+                                            onClick={() => openEditCampaign(r)}
+                                          >
+                                            Edit
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
                         )}
                       </React.Fragment>
                     );
                   })
-                )
-              ) : (
-                /* Flat rows */
-                filtered.length === 0 ? (
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          /* All Campaigns Table with dual scrollbars */
+          <div>
+            {/* Top Synchronized Scroller Bar */}
+            <div
+              ref={scrollRefTop}
+              className="scooh-tablewrap"
+              style={{
+                overflowX: 'auto',
+                overflowY: 'hidden',
+                maxHeight: '14px',
+                marginBottom: '4px',
+                background: 'rgba(15, 23, 42, 0.6)',
+                borderRadius: '6px',
+                border: '1px solid rgba(255, 255, 255, 0.08)'
+              }}
+            >
+              <div style={{ width: `${topScrollWidth}px`, height: '1px' }} />
+            </div>
+
+            {/* Bottom Primary Table & Scroller */}
+            <div ref={scrollRefBottom} className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
+              <table ref={tableRef} className="scooh-table" style={{ minWidth: '1850px' }}>
+                <thead>
                   <tr>
-                    <td colSpan={canDelete ? 23 : 22} className="scooh-empty" style={{ padding: '36px 20px' }}>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No campaigns match your query</div>
-                      <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                        {canAdd ? 'Click "+ Add Campaign" or "Import Excel" to load outdoor media campaigns.' : 'No active campaigns found.'}
-                      </div>
-                    </td>
+                    {canDelete && (
+                      <th style={{ width: '40px', textAlign: 'center', padding: '10px 8px' }}>
+                        <input
+                          type="checkbox"
+                          checked={filtered.length > 0 && filtered.every(r => selectedIds.has(r.id))}
+                          onChange={toggleSelectAll}
+                          title="Select all visible campaigns"
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </th>
+                    )}
+                    <SortHeader label="Site Code" sortKey="site_code" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                    <SortHeader label="Month" sortKey="month" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
+                    <SortHeader label="Occupancy" sortKey="occupancy" currentSort={sortState} onSort={handleSort} style={{ minWidth: '135px' }} />
+                    <SortHeader label="Date" sortKey="booking_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
+                    <SortHeader label="Client/Agency Name" sortKey="client" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
+                    <SortHeader label="Display" sortKey="display" currentSort={sortState} onSort={handleSort} style={{ minWidth: '160px' }} />
+                    <SortHeader label="Vendor Name" sortKey="vendor_name" currentSort={sortState} onSort={handleSort} style={{ minWidth: '140px' }} />
+                    <SortHeader label="Location" sortKey="location" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
+                    <th style={{ width: '55px', textAlign: 'center' }}>W</th>
+                    <th style={{ width: '55px', textAlign: 'center' }}>H</th>
+                    <SortHeader label="Size" sortKey="size" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
+                    <SortHeader label="Type" sortKey="type" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                    <SortHeader label="Start Date" sortKey="start_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                    <SortHeader label="End Date" sortKey="end_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                    <SortHeader label="Days" sortKey="days" currentSort={sortState} onSort={handleSort} align="center" style={{ width: '70px' }} />
+                    <SortHeader label="Advt. Fees" sortKey="advt_fees" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
+                    <SortHeader label="Prod/Mount" sortKey="printing_mounting_cost" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
+                    <SortHeader label="Total" sortKey="total_amount" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '135px' }} />
+                    <SortHeader label="PO" sortKey="po" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
+                    <SortHeader label="Bill" sortKey="bill" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
+                    <SortHeader label="Pending" sortKey="pending" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '110px' }} />
+                    <th style={{ minWidth: '110px', textAlign: 'center' }}>Actions</th>
                   </tr>
-                ) : (
-                  filtered.map(r => renderCampaignRow(r))
-                )
-              )}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {filtered.length === 0 ? (
+                    <tr>
+                      <td colSpan={canDelete ? 23 : 22} className="scooh-empty" style={{ padding: '36px 20px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No campaigns match your query</div>
+                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                          {canAdd ? 'Click "+ Add Campaign" or "Import Excel" to load outdoor media campaigns.' : 'No active campaigns found.'}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filtered.map(r => renderCampaignRow(r))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add / Edit / View Campaign Modal */}
