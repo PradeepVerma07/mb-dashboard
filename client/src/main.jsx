@@ -408,38 +408,65 @@ function matchSiteByLocationAndSize(location, size, width, height, siteList) {
   return bestScore >= 20 ? bestSite : null;
 }
 
-/** Safely parse any date string to a local-midnight Date (strips time/TZ so day comparisons are exact) */
+/** Safely parse any date string or object to a local-midnight Date (strips time/TZ so day comparisons are exact) */
 function parseDay(d) {
   if (!d) return null;
-  const s = String(d).slice(0, 10); // take 'YYYY-MM-DD' only
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  const dt = new Date(s + 'T00:00:00');
-  return isNaN(dt.getTime()) ? null : dt;
+  if (d instanceof Date) return isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (typeof d === 'number') {
+    const dt = new Date((d - 25569) * 86400000);
+    return isNaN(dt.getTime()) ? null : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  }
+  const s = String(d).trim();
+  if (!s) return null;
+  // Try YYYY-MM-DD
+  const iso = s.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
+  if (iso) {
+    return new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
+  }
+  // Try DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY
+  const dmy = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+  if (dmy) {
+    let y = parseInt(dmy[3], 10);
+    if (y < 100) y += 2000;
+    return new Date(y, parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10));
+  }
+  const fallback = new Date(s);
+  return isNaN(fallback.getTime()) ? null : new Date(fallback.getFullYear(), fallback.getMonth(), fallback.getDate());
 }
 
 /**
- * Returns true if the site has an active campaign running ON the exact given date.
- * A site booked until Sept 20 → selecting Sept 21 shows it as available.
+ * Returns the active campaign running on the given date (or today if empty), or null if vacant.
+ * A site booked until Sept 20 → selecting Sept 21 returns null (Available / Vacant).
  * campaignsBySiteCode: { [UPPERCASE_SITE_CODE]: campaign[] }
  */
-function isSiteOccupiedOnDate(campaignsBySiteCode, siteCode, dateStr) {
-  if (!dateStr || !siteCode) return false;
-  const check = parseDay(dateStr);
-  if (!check) return false;
+function getActiveCampaignOnDate(campaignsBySiteCode, siteCode, dateStr) {
+  if (!siteCode || !campaignsBySiteCode) return null;
+  const check = dateStr ? parseDay(dateStr) : parseDay(new Date());
+  if (!check) return null;
   const key = String(siteCode).toUpperCase().trim();
   const camps = campaignsBySiteCode[key] || [];
-  return camps.some(c => {
-    if (c.record_status && c.record_status !== 'active') return false;
-    const start = parseDay(c.start_date);
+  for (const c of camps) {
+    if (typeof isVacantClient === 'function' && isVacantClient(c.client || c.client_name || c.display)) continue;
+    if (c.record_status && c.record_status !== 'active') continue;
+    const start = parseDay(c.start_date || c.booking_date);
     const end = parseDay(c.end_date);
-    if (!start && !end) return false;
-    // Campaign started but no end date = runs indefinitely
-    if (start && !end) return check >= start;
-    // No start but has end = occupied up to end date (inclusive)
-    if (!start && end) return check <= end;
-    // Both present: occupied if check falls within [start, end] inclusive
-    return check >= start && check <= end;
-  });
+    if (!start && !end) continue;
+    if (start && end) {
+      if (check >= start && check <= end) return c;
+    } else if (start && !end) {
+      if (check >= start) return c;
+    } else if (!start && end) {
+      if (check <= end) return c;
+    }
+  }
+  return null;
+}
+
+/**
+ * Returns true if the site has an active campaign running ON the given date.
+ */
+function isSiteOccupiedOnDate(campaignsBySiteCode, siteCode, dateStr) {
+  return !!getActiveCampaignOnDate(campaignsBySiteCode, siteCode, dateStr);
 }
 
 function unpackSite(s) {
@@ -1818,10 +1845,12 @@ function SitesView() {
       const matchesQuery = matchSiteSearch(s, search);
       const matchesCity = !cityFilter || s.city === cityFilter;
       const matchesMedia = !mediaFilter || s.media_type === mediaFilter;
-      const matchesAvail = !availFilter || (s.ppt_availability || s.availability) === availFilter;
+      const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, dateFilter);
+      const effAvail = activeCamp
+        ? (String(activeCamp.parent_campaign || '').startsWith('LINKED:') ? 'Occupied (Linked)' : 'Occupied')
+        : (dateFilter ? 'Available' : (s.ppt_availability || s.availability || 'Available'));
+      const matchesAvail = !availFilter || effAvail.toLowerCase().includes(availFilter.toLowerCase()) || (availFilter.toLowerCase() === 'available' && effAvail === 'Available');
       const matchesLighting = !lightingFilter || s.lighting === lightingFilter;
-      // Date filter: hide sites occupied on the selected date
-      if (dateFilter && isSiteOccupiedOnDate(campaignsBySiteCode, s.site_code, dateFilter)) return false;
       return matchesQuery && matchesCity && matchesMedia && matchesAvail && matchesLighting;
     });
 
@@ -1834,8 +1863,10 @@ function SitesView() {
           valB = Number(b.ppt_rate || b.monthly_rate || 0);
         }
         if (sortState.key === 'availability') {
-          valA = a.ppt_availability || a.availability || '';
-          valB = b.ppt_availability || b.availability || '';
+          const activeCampA = getActiveCampaignOnDate(campaignsBySiteCode, a.site_code, dateFilter);
+          const activeCampB = getActiveCampaignOnDate(campaignsBySiteCode, b.site_code, dateFilter);
+          valA = activeCampA ? 'Occupied' : (dateFilter ? 'Available' : (a.ppt_availability || a.availability || 'Available'));
+          valB = activeCampB ? 'Occupied' : (dateFilter ? 'Available' : (b.ppt_availability || b.availability || 'Available'));
         }
         return universalCompare(valA, valB, sortState.dir);
       });
@@ -2007,18 +2038,20 @@ function SitesView() {
               {lightings.map(l => <option key={l} value={l}>{l}</option>)}
             </select>
           )}
-          {/* Date availability filter */}
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: dateFilter ? 'rgba(56,189,248,0.1)' : 'rgba(15,23,42,0.6)', border: `1px solid ${dateFilter ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '8px', padding: '4px 10px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: dateFilter ? '#38bdf8' : '#64748b', whiteSpace: 'nowrap' }}>📅 Available on:</span>
+          {/* Date selector for evaluating site availability */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: dateFilter ? 'rgba(56,189,248,0.14)' : 'rgba(15,23,42,0.6)', border: `1px solid ${dateFilter ? 'rgba(56,189,248,0.5)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '8px', padding: '4px 10px' }}>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: dateFilter ? '#38bdf8' : '#94a3b8', whiteSpace: 'nowrap' }}>
+              📅 {dateFilter ? 'Date:' : 'Select Date:'}
+            </span>
             <input
               type="date"
               value={dateFilter}
               onChange={e => setDateFilter(e.target.value)}
-              style={{ background: 'transparent', border: 'none', color: dateFilter ? '#e2e8f0' : '#94a3b8', fontSize: '12px', fontWeight: 600, outline: 'none', cursor: 'pointer', padding: '2px 0' }}
-              title="Show only sites with no active campaign on this date"
+              style={{ background: 'transparent', border: 'none', color: dateFilter ? '#38bdf8' : '#94a3b8', fontSize: '12px', fontWeight: 700, outline: 'none', cursor: 'pointer', padding: '2px 0' }}
+              title="Select a date to evaluate site availability as of that date. Sites whose campaign ends before this date automatically become Available."
             />
             {dateFilter && (
-              <button type="button" onClick={() => setDateFilter('')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 2px' }} title="Clear date filter">×</button>
+              <button type="button" onClick={() => setDateFilter('')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 2px' }} title="Reset date to today">×</button>
             )}
           </div>
           <select
@@ -2120,6 +2153,22 @@ function SitesView() {
         </div>
       )}
 
+      {dateFilter && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '8px', padding: '8px 14px', marginBottom: '12px', fontSize: '12px', color: '#38bdf8' }}>
+          <span style={{ fontSize: '15px' }}>📅</span>
+          <span>
+            Site availability evaluated as of <strong>{formatDate(dateFilter) || dateFilter}</strong>. Any site whose campaign ends before this date automatically displays as <strong>Available</strong>.
+          </span>
+          <button
+            type="button"
+            onClick={() => setDateFilter('')}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '11.5px', fontWeight: 700, textDecoration: 'underline' }}
+          >
+            Reset to Today
+          </button>
+        </div>
+      )}
+
       <div className="scooh-tablewrap">
         <table className="scooh-table">
           <thead>
@@ -2210,21 +2259,51 @@ function SitesView() {
                   <td>{s.size}</td>
                   <td><span className="scooh-badge">{s.lighting}</span></td>
                   <td>
-                    {String(s.availability || '').startsWith('Occupied (Linked') ? (
-                      <span
-                        className="scooh-pill watch"
-                        title={s.availability}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', whiteSpace: 'nowrap', background: 'rgba(245,158,11,0.15)', color: '#fbbf24', borderColor: 'rgba(245,158,11,0.35)' }}
-                      >
-                        🔗 {s.availability}
-                      </span>
-                    ) : String(s.availability || '').toLowerCase() === 'occupied' ? (
-                      <span className="scooh-pill vacant">Occupied</span>
-                    ) : (
-                      <span className={`scooh-pill ${s.availability === 'Available' ? 'active' : 'watch'}`}>
-                        {s.availability || 'Available'}
-                      </span>
-                    )}
+                    {(() => {
+                      const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, dateFilter);
+                      const isOccupied = activeCamp ? true : (dateFilter ? false : (String(s.ppt_availability || s.availability || '').toLowerCase() === 'occupied'));
+                      const effAvail = activeCamp
+                        ? (String(activeCamp.parent_campaign || '').startsWith('LINKED:') ? 'Occupied (Linked)' : 'Occupied')
+                        : (dateFilter ? 'Available' : (s.ppt_availability || s.availability || 'Available'));
+
+                      if (String(effAvail || '').startsWith('Occupied (Linked')) {
+                        const endFmt = activeCamp && activeCamp.end_date ? formatDate(activeCamp.end_date) : '';
+                        return (
+                          <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                            <span
+                              className="scooh-pill watch"
+                              title={effAvail}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', whiteSpace: 'nowrap', background: 'rgba(245,158,11,0.15)', color: '#fbbf24', borderColor: 'rgba(245,158,11,0.35)' }}
+                            >
+                              🔗 {effAvail}
+                            </span>
+                            {endFmt && (
+                              <span style={{ fontSize: '10px', color: '#fbbf24', marginTop: '2px', whiteSpace: 'nowrap' }}>
+                                Till {endFmt}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+                      if (isOccupied || String(effAvail || '').toLowerCase() === 'occupied') {
+                        const endFmt = activeCamp && activeCamp.end_date ? formatDate(activeCamp.end_date) : '';
+                        return (
+                          <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                            <span className="scooh-pill vacant">Occupied</span>
+                            {endFmt && (
+                              <span style={{ fontSize: '10px', color: '#f87171', fontWeight: 600, marginTop: '2px', whiteSpace: 'nowrap' }}>
+                                Till {endFmt}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+                      return (
+                        <span className={`scooh-pill ${effAvail === 'Available' ? 'active' : 'watch'}`}>
+                          {effAvail}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td><b>{money(s.ppt_rate || s.monthly_rate)}</b></td>
                   <td>
@@ -2423,7 +2502,8 @@ function PptView() {
   function fmtDate(iso) {
     if (!iso) return '';
     try {
-      const d = new Date(iso);
+      const d = parseDay(iso) || new Date(iso);
+      if (isNaN(d.getTime())) return iso;
       return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
     } catch { return iso; }
   }
@@ -2530,8 +2610,6 @@ function PptView() {
     const list = sites.filter(s => {
       if (!matchSiteSearch(s, query)) return false;
       if (areaFilter && s.area !== areaFilter) return false;
-      // Date filter: hide sites that are occupied on the selected date
-      if (dateFilter && isSiteOccupiedOnDate(campaignsBySiteCode, s.site_code, dateFilter)) return false;
       return true;
     });
 
@@ -2547,6 +2625,12 @@ function PptView() {
         if (sortState.key === 'monthly_rate') {
           valA = Number(a.ppt_rate || a.monthly_rate || 0);
           valB = Number(b.ppt_rate || b.monthly_rate || 0);
+        }
+        if (sortState.key === 'availability') {
+          const activeCampA = getActiveCampaignOnDate(campaignsBySiteCode, a.site_code, dateFilter);
+          const activeCampB = getActiveCampaignOnDate(campaignsBySiteCode, b.site_code, dateFilter);
+          valA = activeCampA ? 'Occupied' : 'Available';
+          valB = activeCampB ? 'Occupied' : 'Available';
         }
         return universalCompare(valA, valB, sortState.dir);
       }
@@ -2818,22 +2902,17 @@ function PptView() {
 
       const rows = targetSites.map((x, idx) => {
         const v = sel[x.id || x.site_code] || {};
-        const cCode = String(x.site_code || '').toUpperCase().trim();
-        const camp = campaignMap[cCode];
-        let autoAvail = v.availability ?? x.ppt_availability ?? x.availability ?? 'Available';
+        const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, x.site_code, dateFilter);
+        let autoAvail = v.availability ?? (dateFilter ? undefined : (x.ppt_availability ?? x.availability)) ?? 'Available';
         let endDateFmt = '';
-        if (camp && camp.end_date) {
-          const endFmt = fmtDate(camp.end_date);
-          const endDate = new Date(camp.end_date);
-          const now = new Date();
-          if (endDate >= now) {
-            endDateFmt = endFmt;
-            if (!v.availability) {
-              autoAvail = `Booked till ${endFmt}`;
-            }
-          } else {
-            if (!v.availability) autoAvail = 'Available';
+        if (activeCamp && activeCamp.end_date) {
+          const endFmt = fmtDate(activeCamp.end_date);
+          endDateFmt = endFmt;
+          if (!v.availability) {
+            autoAvail = `Booked till ${endFmt}`;
           }
+        } else {
+          if (!v.availability) autoAvail = 'Available';
         }
         let w = x.width || '', h = x.height || '';
         if ((!w || !h) && x.size) {
@@ -2871,24 +2950,19 @@ function PptView() {
       .filter(s => sel[s.id || s.site_code]?.checked)
       .map(s => {
         const v = sel[s.id || s.site_code] || {};
-        // Look up active campaign from Campaign Tracker for this site (only end date)
-        const cCode = String(s.site_code || '').toUpperCase().trim();
-        const camp = campaignMap[cCode];
+        // Look up active campaign from Campaign Tracker for this site as of dateFilter
+        const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, dateFilter);
         let autoAvail = v.availability ?? s.ppt_availability ?? s.availability;
         let endDateFmt = '';
-        if (camp && camp.end_date) {
-          const endFmt = fmtDate(camp.end_date);
-          const endDate = new Date(camp.end_date);
-          const now = new Date();
-          if (endDate >= now) {
-            endDateFmt = endFmt;
-            // Auto-set availability to only show the end date unless user manually overrode it
-            if (!v.availability) {
-              autoAvail = `Booked till ${endFmt}`;
-            }
-          } else {
-            if (!v.availability) autoAvail = 'Available';
+        if (activeCamp && activeCamp.end_date) {
+          const endFmt = fmtDate(activeCamp.end_date);
+          endDateFmt = endFmt;
+          // Auto-set availability to only show the end date unless user manually overrode it
+          if (!v.availability) {
+            autoAvail = `Booked till ${endFmt}`;
           }
+        } else {
+          if (!v.availability) autoAvail = 'Available';
         }
         return {
           ...s,
@@ -3207,23 +3281,36 @@ function PptView() {
             </select>
           </div>
           <div className="scooh-field">
-            <label>📅 Available on date</label>
-            <input
-              id="scooh-ppt-date-filter"
-              type="date"
-              value={dateFilter}
-              onChange={e => setDateFilter(e.target.value)}
-              title="Show only sites with no active campaign on this date"
-            />
+            <label>📅 Select Date</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <input
+                id="scooh-ppt-date-filter"
+                type="date"
+                value={dateFilter}
+                onChange={e => setDateFilter(e.target.value)}
+                style={{ flex: 1 }}
+                title="Select a date to evaluate site availability as of that date. Sites whose campaign ends before this date automatically become Available."
+              />
+              {dateFilter && (
+                <button
+                  type="button"
+                  className="scooh-btn ghost"
+                  onClick={() => setDateFilter('')}
+                  style={{ minHeight: '38px', padding: '0 10px', fontSize: '13px', color: '#f87171' }}
+                  title="Reset date"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
             {dateFilter && (
-              <span style={{ fontSize: '11px', color: '#4ade80', fontWeight: 600, marginTop: '4px', display: 'block' }}>
-                ✓ Showing sites available on {new Date(dateFilter + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+              <span style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 600, marginTop: '4px', display: 'block' }}>
+                ✓ Evaluating site availability as of {formatDate(dateFilter) || dateFilter}
               </span>
             )}
           </div>
           <div className="scooh-note">
-            Sites with an active campaign booking on the selected date are automatically hidden.
-
+            Select a date to evaluate availability across all sites. Sites whose campaign ends before this date automatically show as Available (no sites are hidden).
           </div>
         </div>
 
@@ -3358,6 +3445,23 @@ function PptView() {
           )}
         </div>
 
+        {/* Dynamic Date Evaluation Banner */}
+        {dateFilter && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '8px', padding: '8px 14px', margin: '10px 0 16px', fontSize: '12px', color: '#38bdf8' }}>
+            <span style={{ fontSize: '15px' }}>📅</span>
+            <span>
+              Site availability evaluated as of <strong>{formatDate(dateFilter) || dateFilter}</strong>. Any site whose campaign ends before this date automatically displays as <strong>Available</strong>.
+            </span>
+            <button
+              type="button"
+              onClick={() => setDateFilter('')}
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '11.5px', fontWeight: 700, textDecoration: 'underline' }}
+            >
+              Reset to Today
+            </button>
+          </div>
+        )}
+
         {/* Sites Grid */}
         <div className="scooh-ppt-grid" id="scooh-ppt-grid">
           {filtered.map(s => {
@@ -3365,19 +3469,24 @@ function PptView() {
             const v = sel[siteKey] || {};
             const isChecked = !!v.checked;
             const imgs = s.ppt_images || [];
-            const cCode = String(s.site_code || '').toUpperCase().trim();
-            const camp = campaignMap[cCode];
+            const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, dateFilter);
             let autoAvail = '';
             let endDateText = '';
-            if (camp && camp.end_date) {
-              const endFmt = fmtDate(camp.end_date);
-              const endDate = new Date(camp.end_date);
-              const now = new Date();
-              if (endDate >= now) {
+            if (activeCamp && activeCamp.end_date) {
+              const endFmt = fmtDate(activeCamp.end_date);
+              autoAvail = `Booked till ${endFmt}`;
+              endDateText = endFmt;
+            } else if (dateFilter) {
+              autoAvail = 'Available';
+              endDateText = '';
+            } else {
+              const todayCamp = getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, '');
+              if (todayCamp && todayCamp.end_date) {
+                const endFmt = fmtDate(todayCamp.end_date);
                 autoAvail = `Booked till ${endFmt}`;
                 endDateText = endFmt;
               } else {
-                autoAvail = 'Available';
+                autoAvail = s.ppt_availability || s.availability || 'Available';
                 endDateText = '';
               }
             }
@@ -3468,7 +3577,7 @@ function PptView() {
                     <span>{s.site_code || 'Site'}</span>
                     <span style={{ fontSize: '10px', opacity: 0.8 }}>↗ Tracker</span>
                   </button>
-                  {camp && endDateText && (
+                  {endDateText ? (
                     <button
                       type="button"
                       onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
@@ -3489,7 +3598,24 @@ function PptView() {
                     >
                       <span>📅 End Date: {endDateText}</span>
                     </button>
-                  )}
+                  ) : dateFilter ? (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: '5px',
+                        background: 'rgba(34, 197, 94, 0.15)',
+                        color: '#4ade80',
+                        border: '1px solid rgba(34, 197, 94, 0.35)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>✓ Available</span>
+                    </span>
+                  ) : null}
                 </div>
                 <small>{s.location || s.address || s.area || s.city || ''}</small>
                 <small className="scooh-ppt-coordinates">Latitude: {s.latitude ?? '—'}</small>
@@ -3498,25 +3624,34 @@ function PptView() {
                 <div className="scooh-ppt-availability" onClick={e => e.stopPropagation()}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <label style={{ margin: 0 }}>Availability for PPT</label>
-                    {endDateText && (
+                    {endDateText ? (
                       <span style={{ fontSize: '10.5px', color: '#fbbf24', fontWeight: 600 }}>
                         Auto from Campaign Tracker
                       </span>
-                    )}
+                    ) : dateFilter ? (
+                      <span style={{ fontSize: '10.5px', color: '#4ade80', fontWeight: 600 }}>
+                        Available on {formatDate(dateFilter) || dateFilter}
+                      </span>
+                    ) : null}
                   </div>
                   <input
                     type="text"
                     className="scooh-ppt-availability-input"
-                    value={v.availability ?? s.ppt_availability ?? (autoAvail || '')}
+                    value={v.availability !== undefined ? v.availability : autoAvail}
                     placeholder={autoAvail || "Immediate or DD.MM.YYYY"}
                     onChange={e => setSel({ ...sel, [siteKey]: { ...v, availability: e.target.value } })}
                   />
-                  {endDateText && (
+                  {endDateText ? (
                     <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <span>📅 End Date:</span>
                       <span style={{ fontWeight: 600 }}>{endDateText}</span>
                     </div>
-                  )}
+                  ) : dateFilter ? (
+                    <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span>✓</span>
+                      <span style={{ fontWeight: 600 }}>Available on this date</span>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="scooh-ppt-output-options" onClick={e => e.stopPropagation()}>
@@ -6370,7 +6505,7 @@ function OccupancyView() {
   );
 }
 
-function getCampaignOccupancy(r) {
+function getCampaignOccupancy(r, refDate) {
   if (r.occupancy !== undefined && r.occupancy !== null && String(r.occupancy).trim() !== '') {
     const raw = String(r.occupancy).trim();
     const num = parseFloat(raw.replace('%', ''));
@@ -6384,11 +6519,11 @@ function getCampaignOccupancy(r) {
     return { pct: null, label: raw, status: 'custom' };
   }
 
-  const today = new Date();
+  const today = refDate ? (parseDay(refDate) || new Date()) : new Date();
   today.setHours(0, 0, 0, 0);
 
-  const start = r.start_date ? new Date(r.start_date) : null;
-  const end = r.end_date ? new Date(r.end_date) : null;
+  const start = parseDay(r.start_date || r.booking_date);
+  const end = parseDay(r.end_date);
 
   if (end && !isNaN(end.getTime())) {
     end.setHours(23, 59, 59, 999);
@@ -6795,12 +6930,13 @@ function CampaignTrackerView() {
       siteMap.get(code).rows.push(r);
     });
 
-    const now = new Date();
+    const evalDate = dateFilter ? (parseDay(dateFilter) || new Date()) : new Date();
+    evalDate.setHours(0, 0, 0, 0);
 
     const list = Array.from(siteMap.values()).map(site => {
       const sortedRows = [...site.rows].sort((a, b) => {
-        const da = parseFlexibleDate(a.start_date || a.booking_date) || new Date(0);
-        const db = parseFlexibleDate(b.start_date || b.booking_date) || new Date(0);
+        const da = parseDay(a.start_date || a.booking_date) || new Date(0);
+        const db = parseDay(b.start_date || b.booking_date) || new Date(0);
         return db - da;
       });
 
@@ -6809,14 +6945,22 @@ function CampaignTrackerView() {
       let latestCampaign = sortedRows[0] || null;
 
       for (const r of sortedRows) {
-        const sDate = parseFlexibleDate(r.start_date || r.booking_date);
-        const eDate = parseFlexibleDate(r.end_date) || (sDate ? new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0, 23, 59, 59) : null);
+        const sDate = parseDay(r.start_date || r.booking_date);
+        let eDate = parseDay(r.end_date);
+        if (!eDate && sDate) {
+          eDate = new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0);
+        }
         if (sDate && eDate) {
-          if (sDate <= now && eDate >= now) {
+          if (sDate <= evalDate && eDate >= evalDate) {
             activeCampaign = r;
             break;
-          } else if (sDate > now && !upcomingCampaign) {
+          } else if (sDate > evalDate && !upcomingCampaign) {
             upcomingCampaign = r;
+          }
+        } else if (sDate && !eDate) {
+          if (sDate <= evalDate) {
+            activeCampaign = r;
+            break;
           }
         }
       }
@@ -6824,7 +6968,7 @@ function CampaignTrackerView() {
       const totalAmount = site.rows.reduce((sum, r) => sum + Number(r.total_amount || r.revenue || 0), 0);
       const totalPending = site.rows.reduce((sum, r) => sum + Number(r.pending || 0), 0);
 
-      // A site is occupied ONLY if it currently has an active campaign running today!
+      // A site is occupied ONLY if it currently has an active campaign running on evalDate!
       let status = 'vacant';
       let currentCampaign = null;
       if (activeCampaign) {
@@ -6853,10 +6997,11 @@ function CampaignTrackerView() {
     });
 
     return list.sort((a, b) => universalCompare(a.code, b.code, 'asc'));
-  }, [sites, rows]);
+  }, [sites, rows, dateFilter]);
 
   // Unified dataset: exactly 1 row per physical site displaying ONLY its latest/current booking
   const latestSiteCampaigns = useMemo(() => {
+    const evalDate = dateFilter ? (parseDay(dateFilter) || new Date()) : new Date();
     return siteMasterList.map(s => {
       const c = s.currentCampaign;
       return {
@@ -6876,7 +7021,7 @@ function CampaignTrackerView() {
         campaign_id: c?.id || null,
         campaign: c || null,
         month: c?.month || (c?.start_date ? new Date(c.start_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''),
-        occupancy: (s.status === 'occupied' && c) ? getCampaignOccupancy(c) : { pct: 0, label: '0% Vacant', status: 'vacant' },
+        occupancy: (s.status === 'occupied' && c) ? getCampaignOccupancy(c, evalDate) : { pct: 0, label: '0% Vacant', status: 'vacant' },
         booking_date: c?.booking_date || c?.date || '',
         client: c?.client || c?.client_name || '',
         display: c?.display || c?.campaign_name || '',
@@ -6894,7 +7039,7 @@ function CampaignTrackerView() {
         notes: c?.notes || ''
       };
     });
-  }, [siteMasterList]);
+  }, [siteMasterList, dateFilter]);
 
   // Counts & metrics
   const totalSites = siteMasterList.length;
@@ -6976,32 +7121,13 @@ function CampaignTrackerView() {
     setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   }
 
-  // Filtered and sorted latest site bookings list
+  // Filtered and sorted latest site bookings list (statuses are evaluated dynamically as of dateFilter)
   const filteredLatest = useMemo(() => {
     const list = latestSiteCampaigns.filter(item => {
       if (statusFilter === 'occupied' && item.siteStatus !== 'occupied') return false;
       if (statusFilter === 'upcoming' && item.siteStatus !== 'upcoming') return false;
       if (statusFilter === 'vacant' && item.siteStatus !== 'vacant') return false;
       if (statusFilter === 'pending' && item.pending <= 0) return false;
-
-      // Date filter: show only sites FREE on the exact selected date
-      // Example: site booked till Sept 20 → selecting Sept 21 shows it as available
-      if (dateFilter) {
-        const check = parseDay(dateFilter);
-        if (check) {
-          // Vacant sites have no campaign — always free
-          if (item.siteStatus !== 'vacant') {
-            const start = parseDay(item.start_date);
-            const end = parseDay(item.end_date);
-            // No end date = campaign runs indefinitely = occupied on any future date
-            if (start && !end && check >= start) return false;
-            // Campaign covers the selected date [start, end] inclusive → occupied → hide
-            if (start && end && check >= start && check <= end) return false;
-            // No start but has end: occupied up to end
-            if (!start && end && check <= end) return false;
-          }
-        }
-      }
 
       if (!search.trim()) return true;
       const q = search.trim().toLowerCase();
@@ -7037,7 +7163,7 @@ function CampaignTrackerView() {
       list.sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
     }
     return list;
-  }, [latestSiteCampaigns, statusFilter, dateFilter, search, sortState]);
+  }, [latestSiteCampaigns, statusFilter, search, sortState]);
 
   function toggleSelect(id) {
     if (!id) return;
@@ -7881,18 +8007,20 @@ function CampaignTrackerView() {
               onChange={e => setSearch(e.target.value)}
             />
 
-            {/* Date availability filter */}
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: dateFilter ? 'rgba(56,189,248,0.1)' : 'rgba(15,23,42,0.6)', border: `1px solid ${dateFilter ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '8px', padding: '5px 10px' }}>
-              <span style={{ fontSize: '11px', fontWeight: 700, color: dateFilter ? '#38bdf8' : '#64748b', whiteSpace: 'nowrap' }}>📅 Available on:</span>
+            {/* Date selector for evaluating site status */}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: dateFilter ? 'rgba(56,189,248,0.14)' : 'rgba(15,23,42,0.6)', border: `1px solid ${dateFilter ? 'rgba(56,189,248,0.5)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '8px', padding: '5px 10px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: dateFilter ? '#38bdf8' : '#94a3b8', whiteSpace: 'nowrap' }}>
+                📅 {dateFilter ? 'Date:' : 'Select Date:'}
+              </span>
               <input
                 type="date"
                 value={dateFilter}
                 onChange={e => setDateFilter(e.target.value)}
-                style={{ background: 'transparent', border: 'none', color: dateFilter ? '#e2e8f0' : '#94a3b8', fontSize: '12px', fontWeight: 600, outline: 'none', cursor: 'pointer', padding: '2px 0' }}
-                title="Show only sites with no active campaign running on this date"
+                style={{ background: 'transparent', border: 'none', color: dateFilter ? '#38bdf8' : '#94a3b8', fontSize: '12px', fontWeight: 700, outline: 'none', cursor: 'pointer', padding: '2px 0' }}
+                title="Select a date to evaluate site occupancy as of that date. Sites whose campaign ends before this date automatically become Vacant."
               />
               {dateFilter && (
-                <button type="button" onClick={() => setDateFilter('')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 2px' }} title="Clear date filter">×</button>
+                <button type="button" onClick={() => setDateFilter('')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 2px' }} title="Reset date to today">×</button>
               )}
             </div>
 
@@ -7984,6 +8112,21 @@ function CampaignTrackerView() {
         </div>
 
         {/* Unified Latest Bookings Table with Dual Synchronized Scrollers */}
+        {dateFilter && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '8px', padding: '8px 14px', marginBottom: '10px', fontSize: '12px', color: '#38bdf8' }}>
+            <span style={{ fontSize: '15px' }}>📅</span>
+            <span>
+              Site occupancy evaluated as of <strong>{formatDate(dateFilter) || dateFilter}</strong>. Any campaign ending before this date automatically shows as <strong>Vacant</strong> ({vacantSitesCount} vacant, {occupiedSitesCount} occupied).
+            </span>
+            <button
+              type="button"
+              onClick={() => setDateFilter('')}
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '11.5px', fontWeight: 700, textDecoration: 'underline' }}
+            >
+              Reset to Today
+            </button>
+          </div>
+        )}
         <div>
           {/* Top Synchronized Scroller Bar */}
           <div
