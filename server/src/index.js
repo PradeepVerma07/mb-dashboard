@@ -2289,6 +2289,80 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
   }
 });
 
+// ── Occupancy Records CRUD ─────────────────────────────────────────────────
+
+// GET all occupancy records
+app.get('/api/occupancy', auth, async (req, res) => {
+  try {
+    // Ensure table exists (in case server hasn't imported yet)
+    await q(`CREATE TABLE IF NOT EXISTS occupancy_records (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      site_code VARCHAR(60) NOT NULL DEFAULT '',
+      location VARCHAR(255) NOT NULL DEFAULT '',
+      city VARCHAR(120) NOT NULL DEFAULT '',
+      area VARCHAR(190) NOT NULL DEFAULT '',
+      size VARCHAR(60) NOT NULL DEFAULT '',
+      client VARCHAR(190) NOT NULL DEFAULT '',
+      brand VARCHAR(190) NOT NULL DEFAULT '',
+      display VARCHAR(190) NOT NULL DEFAULT '',
+      month VARCHAR(60) NOT NULL DEFAULT '',
+      start_date DATE NULL,
+      end_date DATE NULL,
+      days INT NOT NULL DEFAULT 30,
+      occupancy_pct DECIMAL(5,2) NULL,
+      total_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+      pending DECIMAL(15,2) NOT NULL DEFAULT 0,
+      po VARCHAR(100) NOT NULL DEFAULT '',
+      bill VARCHAR(100) NOT NULL DEFAULT '',
+      status VARCHAR(40) NOT NULL DEFAULT 'active',
+      notes TEXT NULL,
+      record_status VARCHAR(20) NOT NULL DEFAULT 'active',
+      created_at DATETIME NOT NULL,
+      updated_at DATETIME NOT NULL,
+      KEY site_code(site_code),
+      KEY month(month),
+      KEY record_status(record_status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
+    const rows = await q(`SELECT * FROM occupancy_records ORDER BY site_code ASC, start_date DESC`);
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /api/occupancy error:', err);
+    res.status(500).json({ message: 'Failed to fetch occupancy records: ' + err.message });
+  }
+});
+
+// DELETE single occupancy record
+app.delete('/api/occupancy/:id', auth, managerOrAdmin, async (req, res) => {
+  try {
+    await q(`DELETE FROM occupancy_records WHERE id = ?`, [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('DELETE /api/occupancy/:id error:', err);
+    res.status(500).json({ message: 'Failed to delete occupancy record: ' + err.message });
+  }
+});
+
+// Batch delete occupancy records
+app.post('/api/occupancy/batch-delete', auth, managerOrAdmin, async (req, res) => {
+  try {
+    const { ids, hard } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      // If no ids provided, delete ALL records
+      await q(`DELETE FROM occupancy_records`);
+      return res.json({ success: true, message: 'All occupancy records deleted.' });
+    }
+    if (hard) {
+      await q(`DELETE FROM occupancy_records WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+    } else {
+      await q(`UPDATE occupancy_records SET record_status='archived', updated_at=NOW() WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+    }
+    res.json({ success: true, deleted: ids.length });
+  } catch (err) {
+    console.error('POST /api/occupancy/batch-delete error:', err);
+    res.status(500).json({ message: 'Failed to delete occupancy records: ' + err.message });
+  }
+});
+
 app.post('/api/import/json', auth, managerOrAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No JSON file provided' });
   try {

@@ -4116,14 +4116,14 @@ function OccPercentBar({ pct, days, totalDays, showText = true, height = 7, clie
 function OccupancyView() {
   const location = useLocation();
   const [dbSites, setDbSites] = useState([]);
-  const [dbOccupancy, setDbOccupancy] = useState([]);
+  const [dbOccupancy, setDbOccupancy] = useState([]); // fed from /campaigns (same as Campaign Tracker)
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState('history'); // 'history' | '6months' | 'overview'
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
   const [siteTypeFilter, setSiteTypeFilter] = useState('ALL'); // 'ALL' | 'Combined' | 'Split Face'
   const [search, setSearch] = useState('');
   const [modalData, setModalData] = useState(null); // For inspecting month/site booking history details
-  
+
   // Auto-sync search from URL (e.g. /occupancy?site=MB-01)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -4133,19 +4133,17 @@ function OccupancyView() {
       setViewTab('history');
     }
   }, [location.search]);
-  
-  // Excel import state
-  const fileRef = useRef();
 
+  // Load sites + campaigns (shared with Campaign Tracker)
   const loadSystemData = useCallback(async () => {
     setLoading(true);
     try {
-      const [sRes, oRes] = await Promise.all([
+      const [sRes, cRes] = await Promise.all([
         api.get('/sites'),
-        api.get('/occupancy')
+        api.get('/campaigns')
       ]);
       setDbSites(Array.isArray(sRes.data) ? sRes.data : []);
-      setDbOccupancy(Array.isArray(oRes.data) ? oRes.data : []);
+      setDbOccupancy(Array.isArray(cRes.data) ? cRes.data : []);
     } catch (err) {
       console.error('Failed to load occupancy data:', err);
     } finally {
@@ -4156,42 +4154,6 @@ function OccupancyView() {
   useEffect(() => {
     loadSystemData();
   }, [loadSystemData]);
-
-  // Handle dedicated Occupancy Excel import (persisted into occupancy_records table)
-  async function handleOccupancyExcelImport(file) {
-    if (!file) return;
-    setLoading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await api.post('/import/occupancy-xlsx', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      alert(res.data?.message || 'Occupancy Excel imported successfully!');
-      await loadSystemData();
-    } catch (err) {
-      alert('Failed to import Occupancy Excel: ' + (err.response?.data?.message || err.message));
-    } finally {
-      setLoading(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  }
-
-  async function handleClearOccupancy() {
-    if (!confirm('Are you sure you want to clear all Occupancy records? This only resets Occupancy, NOT Campaign Tracker.')) return;
-    setLoading(true);
-    try {
-      if (dbOccupancy.length > 0) {
-        await api.post('/occupancy/batch-delete', { ids: dbOccupancy.map(o => o.id), hard: true });
-      }
-      await loadSystemData();
-      alert('Occupancy records cleared successfully.');
-    } catch (err) {
-      alert('Failed to clear occupancy: ' + (err.response?.data?.message || err.message));
-    } finally {
-      setLoading(false);
-    }
-  }
 
   // ── Compute periods (6 Months & Yearly) ──────────────────────────────
   const { periods6M, periodsYearly, period365 } = useMemo(() => {
@@ -4242,7 +4204,7 @@ function OccupancyView() {
 
   // ── Calculate Site History with Client Tracking ───────────────────────
   const siteHistory = useMemo(() => {
-    if (dataSource === 'excel' && rawRows.length > 0) {
+    if (false) {  // legacy excel-only path (unused)
       // Build site history from imported Excel rows
       const cols = Object.keys(rawRows[0] || {});
       const scCol = cols.find(c => /site\s*code|sitecode|site_code|site\s*id|siteid|hoarding\s*no|board\s*no|^code$|^site$/i.test(c));
@@ -5147,35 +5109,7 @@ function OccupancyView() {
               📥 Export Excel
             </button>
 
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              style={{ display: 'none' }}
-              onChange={e => handleOccupancyExcelImport(e.target.files?.[0])}
-            />
-
-            <button
-              type="button"
-              className="scooh-btn primary"
-              style={{ padding: '6px 14px', fontSize: '11.5px', fontWeight: 800 }}
-              onClick={() => { fileRef.current.value = ''; fileRef.current.click(); }}
-              title="Upload your separate Occupancy Excel sheet (does NOT affect Campaign Tracker)"
-            >
-              Import Occupancy Excel
-            </button>
-
-            {dbOccupancy.length > 0 && (
-              <button
-                type="button"
-                className="scooh-btn ghost"
-                style={{ fontSize: '11.5px', padding: '6px 12px', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.35)' }}
-                onClick={handleClearOccupancy}
-                title="Clear all Occupancy records (Campaign Tracker remains untouched)"
-              >
-                🗑 Clear Occupancy ({dbOccupancy.length})
-              </button>
-            )}
+            {/* Data is shared from Campaign Tracker — import/manage via Campaign Tracker tab */}
 
             <button
               type="button"
