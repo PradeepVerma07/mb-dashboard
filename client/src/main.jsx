@@ -6005,40 +6005,31 @@ function CampaignTrackerView() {
     }
   }, [location.search]);
 
-  // Master directory of all sites with current/latest campaign, status, and amounts
+  // Master directory — only sites that have campaign records (DB sites used for auto-match only)
   const siteMasterList = useMemo(() => {
-    const siteMap = new Map();
-
-    // 1. Initialize from master sites in database
+    // Build a lookup from DB sites for enriching campaign rows with site metadata
+    const siteDbLookup = new Map();
     sites.forEach(s => {
       const code = String(s.site_code || '').trim().toUpperCase();
-      if (!code) return;
-      siteMap.set(code, {
-        code,
-        id: s.id,
-        location: s.address || s.area || '—',
-        city: s.city || 'Ahmedabad',
-        size: s.size || (s.width && s.height ? `${s.width}x${s.height} ft` : '—'),
-        width: s.width ?? null,
-        height: s.height ?? null,
-        type: s.type || 'Hoarding',
-        rows: []
-      });
+      if (code) siteDbLookup.set(code, s);
     });
 
-    // 2. Add campaigns to their sites
+    const siteMap = new Map();
+
+    // Only add sites that have campaign rows
     rows.forEach(r => {
       const code = String(r.site_code || 'UNASSIGNED').trim().toUpperCase();
       if (!siteMap.has(code)) {
+        const dbSite = siteDbLookup.get(code);
         siteMap.set(code, {
           code,
-          id: null,
-          location: r.location || '—',
-          city: 'Ahmedabad',
-          size: r.size || (r.width && r.height ? `${r.width}x${r.height} ft` : '—'),
-          width: r.width ?? null,
-          height: r.height ?? null,
-          type: r.type || 'Hoarding',
+          id: dbSite?.id || null,
+          location: dbSite?.address || dbSite?.area || r.location || '—',
+          city: dbSite?.city || 'Ahmedabad',
+          size: dbSite?.size || (dbSite?.width && dbSite?.height ? `${dbSite.width}x${dbSite.height} ft` : r.size || (r.width && r.height ? `${r.width}x${r.height} ft` : '—')),
+          width: dbSite?.width ?? r.width ?? null,
+          height: dbSite?.height ?? r.height ?? null,
+          type: dbSite?.type || r.type || 'Hoarding',
           rows: []
         });
       }
