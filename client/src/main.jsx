@@ -4204,116 +4204,7 @@ function OccupancyView() {
 
   // ── Calculate Site History with Client Tracking ───────────────────────
   const siteHistory = useMemo(() => {
-    if (false) {  // legacy excel-only path (unused)
-      // Build site history from imported Excel rows
-      const cols = Object.keys(rawRows[0] || {});
-      const scCol = cols.find(c => /site\s*code|sitecode|site_code|site\s*id|siteid|hoarding\s*no|board\s*no|^code$|^site$/i.test(c));
-      const locCol = cols.find(c => /location|address|landmark|area|sitename|site\s*name/i.test(c));
-      const sizeCol = cols.find(c => /size|dimension|measurement|w\s*x\s*h/i.test(c));
-      const wCol = cols.find(c => /^w$|^width/i.test(c));
-      const hCol = cols.find(c => /^h$|^height/i.test(c));
-      const dateCol = cols.find(c => /date|month|period|time/i.test(c)) || cols[1] || cols[0];
-      const valCol = cols.find(c => /occ|pct|percent|rate|value|days/i.test(c)) || cols[cols.length - 1];
-      const clientCol = cols.find(c => /client|customer|brand|advertiser|agency/i.test(c));
-      const brandCol = cols.find(c => /brand|product|display/i.test(c));
-
-      const siteMap = new Map();
-      rawRows.forEach((r, rIdx) => {
-        let rawCode = scCol ? String(r[scCol] || '').trim() : '';
-        const rowLoc = locCol ? String(r[locCol] || '').trim() : (r.location || r.Location || r.address || r.Address || r.area || r.Area || '');
-        const rowSize = sizeCol ? String(r[sizeCol] || '').trim() : (r.size || r.Size || '');
-        const rowW = wCol ? r[wCol] : (r.width || r.Width || '');
-        const rowH = hCol ? r[hCol] : (r.height || r.Height || '');
-
-        let matchedDbSite = null;
-        const isExplicitMb = /^mb[-\s]?\d+/i.test(rawCode);
-
-        // 1. Explicit MB-XX code
-        if (rawCode && isExplicitMb) {
-          const cleanCode = rawCode.toLowerCase().replace(/[^a-z0-9]/g, '');
-          matchedDbSite = dbSites.find(s => String(s.site_code || '').toLowerCase().replace(/[^a-z0-9]/g, '') === cleanCode);
-        }
-
-        // 2. Auto-detect site code from location and size
-        if (!matchedDbSite && (rowLoc || rowSize || rowW || rowH)) {
-          matchedDbSite = matchSiteByLocationAndSize(rowLoc, rowSize, rowW, rowH, dbSites);
-        }
-
-        // 3. Fallback to direct code match or numeric row match
-        if (!matchedDbSite && rawCode) {
-          const cleanCode = rawCode.toLowerCase().replace(/[^a-z0-9]/g, '');
-          matchedDbSite = dbSites.find(s => String(s.site_code || '').toLowerCase().replace(/[^a-z0-9]/g, '') === cleanCode);
-          if (!matchedDbSite && /^\d+$/.test(rawCode)) {
-            const num = parseInt(rawCode, 10);
-            matchedDbSite = dbSites.find(s => String(s.site_code || '').toLowerCase().replace(/[^a-z0-9]/g, '') === `mb${String(num).padStart(2, '0')}` || String(s.site_code || '').toLowerCase().replace(/[^a-z0-9]/g, '') === `mb${num}`);
-          }
-        }
-
-        const sCode = matchedDbSite?.site_code || rawCode || (rowLoc ? `MB-${rowLoc.slice(0, 8).toUpperCase().replace(/[^A-Z0-9]/g, '')}` : `MB-${rIdx + 1}`);
-        if (!sCode) return;
-
-        if (!siteMap.has(sCode)) {
-          siteMap.set(sCode, {
-            site_code: sCode,
-            city: matchedDbSite?.city || r.city || r.City || 'Ahmedabad',
-            area: matchedDbSite?.address || matchedDbSite?.area || rowLoc || '—',
-            size: matchedDbSite?.size || rowSize || (matchedDbSite?.width && matchedDbSite?.height ? `${matchedDbSite.width}x${matchedDbSite.height} ft` : '—'),
-            currentClient: clientCol ? String(r[clientCol] || '').trim() : null,
-            currentBrand: brandCol ? String(r[brandCol] || '').trim() : null,
-            currentStatus: 'active',
-            allCampaigns: [],
-            by6M: {},
-            byYearly: {},
-            days365: 0,
-            pct365: 0,
-            clients365: []
-          });
-        }
-        const siteObj = siteMap.get(sCode);
-        const rawDate = r[dateCol];
-        const d = parseFlexibleDate(rawDate);
-        const rawVal = r[valCol];
-        const numVal = parseFloat(String(rawVal).replace('%', ''));
-        const val = isNaN(numVal) ? 0 : Math.min(100, Math.max(0, numVal));
-        const clientVal = clientCol ? String(r[clientCol] || '').trim() : '';
-        const brandVal = brandCol ? String(r[brandCol] || '').trim() : '';
-
-        if (clientVal) {
-          siteObj.currentClient = clientVal;
-          if (!siteObj.clients365.includes(clientVal)) siteObj.clients365.push(clientVal);
-        }
-        if (brandVal) siteObj.currentBrand = brandVal;
-
-        const bookingItem = {
-          client: clientVal,
-          brand: brandVal,
-          month: rawDate,
-          occupancy: `${val}%`,
-          campaign_name: r.campaign || r.display || 'Excel Import Booking'
-        };
-        siteObj.allCampaigns.push(bookingItem);
-
-        if (d) {
-          const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          siteObj.by6M[mKey] = {
-            pct: val,
-            clients: clientVal ? [clientVal] : [],
-            brands: brandVal ? [brandVal] : [],
-            campaigns: [bookingItem]
-          };
-          const yKey = String(d.getFullYear());
-          siteObj.byYearly[yKey] = {
-            pct: val,
-            clients: clientVal ? [clientVal] : [],
-            brands: brandVal ? [brandVal] : [],
-            campaigns: [bookingItem]
-          };
-        }
-      });
-
-      return Array.from(siteMap.values()).sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
-    }
-
+    // Uses live campaigns data (shared with Campaign Tracker)
     // Calculate from Live DB Sites, synthesized Combined/Split-face hierarchy, and Occupancy records
     const activeDbSites = dbSites.filter(s => s.record_status !== 'archived');
     const activeOccupancies = dbOccupancy.filter(c => c.record_status !== 'archived');
@@ -4879,7 +4770,7 @@ function OccupancyView() {
                 {stats.total}
               </div>
               <div style={{ fontSize: '12px', color: '#64748b' }}>
-                {dataSource === 'excel' ? 'Imported from Excel' : 'Live from Database'}
+                Live from Campaign Tracker
               </div>
             </div>
           </>
