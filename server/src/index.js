@@ -3223,6 +3223,33 @@ app.post('/api/:entity', auth, notViewer, async (req, res) => {
     if (req.params.entity === 'campaigns') {
       await syncLinkedCampaigns(q, result.insertId);
       await syncSiteAvailability();
+
+      // Automatically convert any overlapping vacant occupancy records to occupied
+      if (data.site_code) {
+        try {
+          const cSite = cleanStr(data.site_code);
+          const cStart = data.start_date || new Date().toISOString().slice(0, 10);
+          const cEnd = data.end_date || cStart;
+          const clientName = data.client || data.display || 'Booked Campaign';
+          await q(`UPDATE occupancy_records 
+                   SET client=?, brand=?, display=?, status='active', occupancy_pct=100, updated_at=NOW()
+                   WHERE record_status='active' AND status='vacant' 
+                     AND REPLACE(REPLACE(UPPER(site_code), '-', ''), ' ', '') = ?
+                     AND (
+                       (start_date <= ? AND end_date >= ?) OR
+                       (start_date >= ? AND start_date <= ?) OR
+                       (end_date >= ? AND end_date <= ?)
+                     )`, [
+            clientName,
+            data.brand || '',
+            data.display || data.campaign_name || clientName,
+            cSite,
+            cEnd, cStart, cStart, cEnd, cStart, cEnd
+          ]);
+        } catch (occErr) {
+          console.warn('Error auto-syncing vacant occupancy on campaign insert:', occErr.message);
+        }
+      }
     }
     const rows = await q(`SELECT * FROM \`${e.table}\` WHERE id=?`, [result.insertId]);
     res.status(201).json(rows[0]);
@@ -3269,6 +3296,33 @@ app.put('/api/:entity/:id', auth, notViewer, async (req, res) => {
   if (req.params.entity === 'campaigns') {
     await syncLinkedCampaigns(q, req.params.id);
     await syncSiteAvailability();
+
+    const siteCode = after?.site_code || before?.site_code;
+    if (siteCode && after?.record_status === 'active') {
+      try {
+        const cSite = cleanStr(siteCode);
+        const cStart = after.start_date || before.start_date || new Date().toISOString().slice(0, 10);
+        const cEnd = after.end_date || before.end_date || cStart;
+        const clientName = after.client || after.display || 'Booked Campaign';
+        await q(`UPDATE occupancy_records 
+                 SET client=?, brand=?, display=?, status='active', occupancy_pct=100, updated_at=NOW()
+                 WHERE record_status='active' AND status='vacant' 
+                   AND REPLACE(REPLACE(UPPER(site_code), '-', ''), ' ', '') = ?
+                   AND (
+                     (start_date <= ? AND end_date >= ?) OR
+                     (start_date >= ? AND start_date <= ?) OR
+                     (end_date >= ? AND end_date <= ?)
+                   )`, [
+          clientName,
+          after.brand || '',
+          after.display || after.campaign_name || clientName,
+          cSite,
+          cEnd, cStart, cStart, cEnd, cStart, cEnd
+        ]);
+      } catch (e) {
+        console.warn('Error auto-syncing vacant occupancy on campaign update:', e.message);
+      }
+    }
   }
   res.json(after);
 });

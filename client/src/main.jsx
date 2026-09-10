@@ -4514,6 +4514,10 @@ function OccupancyView() {
   const [siteTypeFilter, setSiteTypeFilter] = useState(new Set(['ALL', 'Combined', 'Split Face'])); // multi-select
   const [search, setSearch] = useState('');
   const [modalData, setModalData] = useState(null); // For inspecting month/site booking history details
+  const [dbCampaigns, setDbCampaigns] = useState([]);
+  const [bookingRecordId, setBookingRecordId] = useState(null);
+  const [bookingClientName, setBookingClientName] = useState('');
+  const [savingBooking, setSavingBooking] = useState(false);
 
   const currentRole = getCurrentRole();
   const canImport = currentRole === 'admin' || currentRole === 'manager';
@@ -4531,22 +4535,84 @@ function OccupancyView() {
     }
   }, [location.search]);
 
-  // Load sites + occupancy records (independent from Campaign Tracker)
+  // Load sites + occupancy records + campaigns (so added campaigns automatically turn vacant to occupied)
   const loadSystemData = useCallback(async () => {
     setLoading(true);
     try {
-      const [sRes, cRes] = await Promise.all([
+      const [sRes, cRes, campRes] = await Promise.all([
         api.get('/sites'),
-        api.get('/occupancy')
+        api.get('/occupancy'),
+        api.get('/campaigns').catch(() => ({ data: [] }))
       ]);
       setDbSites(Array.isArray(sRes.data) ? sRes.data : []);
       setDbOccupancy(Array.isArray(cRes.data) ? cRes.data : []);
+      setDbCampaigns(Array.isArray(campRes.data) ? campRes.data : []);
     } catch (err) {
       console.error('Failed to load occupancy data:', err);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  async function handleBookVacantRecord(record, clientName) {
+    if (!clientName || !clientName.trim()) {
+      alert('Please enter a client name.');
+      return;
+    }
+    const cleanClient = clientName.trim();
+    setSavingBooking(true);
+    try {
+      if (record.id && typeof record.id === 'number') {
+        await api.put(`/occupancy/${record.id}`, {
+          client: cleanClient,
+          display: cleanClient,
+          status: 'active',
+          occupancy_pct: 100
+        });
+      } else {
+        await api.post('/occupancy', {
+          site_code: record.site_code,
+          location: record.location || '',
+          start_date: record.start_date,
+          end_date: record.end_date,
+          client: cleanClient,
+          display: cleanClient,
+          status: 'active',
+          occupancy_pct: 100
+        });
+      }
+
+      setBookingRecordId(null);
+      setBookingClientName('');
+      await loadSystemData();
+
+      if (modalData) {
+        setModalData(prev => {
+          if (!prev) return null;
+          const updatedCampaigns = (prev.campaigns || []).map(c => {
+            if ((c.id && c.id === record.id) || (c.site_code === record.site_code && c.start_date === record.start_date)) {
+              return {
+                ...c,
+                client: cleanClient,
+                client_name: cleanClient,
+                display: cleanClient,
+                status: 'active',
+                is_vacant: false,
+                occupancy_pct: 100
+              };
+            }
+            return c;
+          });
+          return { ...prev, campaigns: updatedCampaigns };
+        });
+      }
+    } catch (err) {
+      console.error('Failed to book vacant record:', err);
+      alert('Failed to update booking: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setSavingBooking(false);
+    }
+  }
 
   useEffect(() => {
     loadSystemData();
@@ -4737,12 +4803,56 @@ function OccupancyView() {
       const overlappingCodes = new Set(getOverlappingSiteCodes(siteCode).map(canonicalSiteCode));
       overlappingCodes.add(siteCode);
 
-      // All records for this site (including booked clients and blank intervals)
-      const allRecordsForSite = activeOccupancies.filter(c => {
+      // Find all occupancy records for this site
+      const rawOccs = activeOccupancies.filter(c => {
         if (c.site_id && site.id && String(c.site_id) === String(site.id)) return true;
         const cCode = canonicalSiteCode(c.site_code);
         return cCode && overlappingCodes.has(cCode);
       });
+
+      // Find any campaigns for this site from Campaign Tracker
+      const siteCampaigns = (dbCampaigns || []).filter(c => {
+        if (c.record_status === 'archived' || isVacantClient(c.client || c.client_name)) return false;
+        if (c.site_id && site.id && String(c.site_id) === String(site.id)) return true;
+        const cCode = canonicalSiteCode(c.site_code);
+        return cCode && overlappingCodes.has(cCode);
+      });
+
+      // Merge: when a campaign exists, it automatically overrides and changes any overlapping vacant record to occupied!
+      const mergedRecords = [];
+      const usedVacantIds = new Set();
+
+      siteCampaigns.forEach(cmp => {
+        const cmpStart = parseFlexibleDate(cmp.start_date || cmp.booking_date);
+        const cmpEnd = parseFlexibleDate(cmp.end_date) || cmpStart;
+        const cmpStartTs = cmpStart ? cmpStart.getTime() : 0;
+        const cmpEndTs = cmpEnd ? cmpEnd.getTime() : cmpStartTs;
+
+        rawOccs.forEach(occ => {
+          const isVac = occ.status === 'vacant' || occ.is_vacant || isVacantClient(occ.client || occ.client_name);
+          if (isVac) {
+            const occStart = parseFlexibleDate(occ.start_date || occ.booking_date);
+            const occEnd = parseFlexibleDate(occ.end_date) || occStart;
+            if (occStart && occEnd) {
+              const occStartTs = occStart.getTime();
+              const occEndTs = occEnd.getTime();
+              if (cmpStartTs <= occEndTs && cmpEndTs >= occStartTs) {
+                usedVacantIds.add(occ.id);
+              }
+            }
+          }
+        });
+
+        mergedRecords.push(cmp);
+      });
+
+      rawOccs.forEach(occ => {
+        if (!usedVacantIds.has(occ.id)) {
+          mergedRecords.push(occ);
+        }
+      });
+
+      const allRecordsForSite = mergedRecords;
 
       // Filter non-vacant for actual occupancy percentage & occupied day counting
       const siteCamps = allRecordsForSite.filter(c => {
@@ -4940,7 +5050,7 @@ function OccupancyView() {
 
       return a.site_code.localeCompare(b.site_code, undefined, { numeric: true });
     });
-  }, [dbSites, dbOccupancy, periods6M, periods12M, periodsYearly, period365]);
+  }, [dbSites, dbOccupancy, dbCampaigns, periods6M, periods12M, periodsYearly, period365]);
 
   // ── Filtered sites with simple Status Filter (All / Occupied / Vacant) and Site Type Filter ──
   const filteredSites = useMemo(() => {
@@ -6003,20 +6113,22 @@ function OccupancyView() {
                   return dea - deb;
                 }).map((c, i) => {
                   const isVac = c.status === 'vacant' || c.is_vacant || isVacantClient(c.client || c.client_name);
+                  const isEditingThis = bookingRecordId === (c.id || `${c.site_code}_${c.start_date}`);
                   return (
                     <div
                       key={c.id || i}
                       style={{
                         padding: '14px',
-                        background: isVac ? 'rgba(15, 23, 42, 0.4)' : '#0b1320',
+                        background: isVac ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(20, 14, 8, 0.6) 100%)' : '#0b1320',
                         borderRadius: '8px',
-                        border: isVac ? '1px dashed rgba(148, 163, 184, 0.3)' : '1px solid #1e3a5f'
+                        border: isVac ? '1.5px dashed rgba(245, 158, 11, 0.65)' : '1px solid #1e3a5f',
+                        boxShadow: isVac ? '0 4px 14px rgba(245, 158, 11, 0.08)' : 'none'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px', gap: '10px' }}>
                         <div>
-                          <div style={{ fontSize: '15px', fontWeight: 800, color: isVac ? '#94a3b8' : '#38bdf8' }}>
-                            {isVac ? '⚪ Blank / Vacant' : `👤 ${c.client || c.client_name || 'Client Not Specified'}`}
+                          <div style={{ fontSize: '15px', fontWeight: 800, color: isVac ? '#fbbf24' : '#38bdf8' }}>
+                            {isVac ? '🟡 Blank / Vacant Slot' : `👤 ${c.client || c.client_name || 'Client Not Specified'}`}
                           </div>
                           {c.brand && c.brand !== (c.client || c.client_name) && !isVac && (
                             <div style={{ fontSize: '12px', color: '#cbd5e1', marginTop: '2px' }}>
@@ -6024,28 +6136,105 @@ function OccupancyView() {
                             </div>
                           )}
                         </div>
-                        <span
-                          className="scooh-badgechip"
-                          style={{
-                            background: isVac ? 'rgba(148, 163, 184, 0.12)' : 'rgba(16, 185, 129, 0.15)',
-                            color: isVac ? '#94a3b8' : '#10b981',
-                            border: isVac ? '1px solid rgba(148, 163, 184, 0.25)' : '1px solid rgba(16, 185, 129, 0.3)',
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {isVac ? 'Vacant (Not Occupied)' : (c.month || 'Active Booking')}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            className="scooh-badgechip"
+                            style={{
+                              background: isVac ? 'rgba(245, 158, 11, 0.22)' : 'rgba(16, 185, 129, 0.15)',
+                              color: isVac ? '#fbbf24' : '#10b981',
+                              border: isVac ? '1px solid rgba(245, 158, 11, 0.5)' : '1px solid rgba(16, 185, 129, 0.3)',
+                              fontWeight: 800,
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            {isVac ? '🟡 Vacant (0% Occ)' : (c.month || 'Active Booking')}
+                          </span>
+                          {isVac && canImport && !isEditingThis && (
+                            <button
+                              type="button"
+                              className="scooh-btn"
+                              onClick={() => {
+                                setBookingRecordId(c.id || `${c.site_code}_${c.start_date}`);
+                                setBookingClientName('');
+                              }}
+                              style={{
+                                fontSize: '11px',
+                                padding: '3px 8px',
+                                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                color: '#0f172a',
+                                fontWeight: 800,
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                              }}
+                              title="Add a client campaign to book this site and change it from vacant to occupied"
+                            >
+                              ⚡ Book Site
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      <div style={{ fontSize: '12.5px', color: isVac ? '#94a3b8' : '#e2e8f0', margin: '8px 0 6px' }}>
-                        {isVac ? (
-                          <span>ℹ️ <i>Site is vacant during this interval (0 days counted in occupancy)</i></span>
-                        ) : (
-                          <span>📢 <b>Campaign:</b> {c.campaign_name || c.display || 'Standard Display'}</span>
-                        )}
-                      </div>
+                      {/* Inline booking form when user clicks "Book Site" */}
+                      {isEditingThis ? (
+                        <div style={{
+                          background: 'rgba(15, 23, 42, 0.85)',
+                          border: '1px solid rgba(245, 158, 11, 0.4)',
+                          borderRadius: '6px',
+                          padding: '10px 12px',
+                          margin: '8px 0',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px'
+                        }}>
+                          <div style={{ fontSize: '12px', color: '#fbbf24', fontWeight: 700 }}>
+                            📝 Enter Client Name to Book this Site (changes to Occupied):
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <input
+                              type="text"
+                              className="scooh-input"
+                              placeholder="Client / Brand Name (e.g. Swagat Group, Hocco, Zydus)..."
+                              value={bookingClientName}
+                              onChange={e => setBookingClientName(e.target.value)}
+                              autoFocus
+                              style={{ flex: 1, fontSize: '12px', padding: '6px 10px' }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') handleBookVacantRecord(c, bookingClientName);
+                                if (e.key === 'Escape') setBookingRecordId(null);
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="scooh-btn primary"
+                              disabled={savingBooking}
+                              onClick={() => handleBookVacantRecord(c, bookingClientName)}
+                              style={{ fontSize: '11.5px', padding: '6px 14px', whiteSpace: 'nowrap' }}
+                            >
+                              {savingBooking ? 'Saving…' : '✓ Confirm'}
+                            </button>
+                            <button
+                              type="button"
+                              className="scooh-btn ghost"
+                              disabled={savingBooking}
+                              onClick={() => setBookingRecordId(null)}
+                              style={{ fontSize: '11.5px', padding: '6px 10px' }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '12.5px', color: isVac ? '#fcd34d' : '#e2e8f0', margin: '8px 0 6px' }}>
+                          {isVac ? (
+                            <span>ℹ️ <i>Site is currently vacant & available during this interval (0 days counted in occupancy)</i></span>
+                          ) : (
+                            <span>📢 <b>Campaign:</b> {c.campaign_name || c.display || 'Standard Display'}</span>
+                          )}
+                        </div>
+                      )}
 
-                      <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: '#94a3b8', flexWrap: 'wrap', borderTop: '1px solid #1e293b', paddingTop: '8px', marginTop: '8px' }}>
+                      <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: isVac ? '#cbd5e1' : '#94a3b8', flexWrap: 'wrap', borderTop: isVac ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid #1e293b', paddingTop: '8px', marginTop: '8px' }}>
                         {(c.start_date || c.booking_date) && (
                           <span>🗓️ <b>Dates:</b> {(() => {
                             const sd = parseFlexibleDate(c.start_date || c.booking_date);
