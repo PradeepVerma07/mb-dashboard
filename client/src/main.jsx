@@ -6517,6 +6517,9 @@ function CampaignTrackerView() {
   const [isViewingOnly, setIsViewingOnly] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [expandedHistorySites, setExpandedHistorySites] = useState(new Set());
+  const [modalSelectedSites, setModalSelectedSites] = useState([]);
+  const [siteFilterText, setSiteFilterText] = useState('');
+  const [onlyVacantFilter, setOnlyVacantFilter] = useState(false);
 
   function toggleHistoryExpand(siteCode) {
     setExpandedHistorySites(prev => {
@@ -6832,6 +6835,47 @@ function CampaignTrackerView() {
   const latestRevenueSum = useMemo(() => latestSiteCampaigns.reduce((sum, x) => sum + x.total_amount, 0), [latestSiteCampaigns]);
   const latestPendingSum = useMemo(() => latestSiteCampaigns.reduce((sum, x) => sum + x.pending, 0), [latestSiteCampaigns]);
 
+  const vacantSiteCodeSet = useMemo(() => {
+    const set = new Set();
+    latestSiteCampaigns.forEach(s => {
+      if (s.siteStatus === 'vacant') set.add(String(s.site_code || '').trim().toUpperCase());
+    });
+    return set;
+  }, [latestSiteCampaigns]);
+
+  const selectableSitesList = useMemo(() => {
+    return sites.filter(s => {
+      const code = String(s.site_code || '').trim().toUpperCase();
+      if (!code) return false;
+      if (onlyVacantFilter && !vacantSiteCodeSet.has(code)) return false;
+      if (!siteFilterText.trim()) return true;
+      const q = siteFilterText.trim().toLowerCase();
+      return (
+        code.toLowerCase().includes(q) ||
+        String(s.address || '').toLowerCase().includes(q) ||
+        String(s.area || '').toLowerCase().includes(q) ||
+        String(s.size || '').toLowerCase().includes(q) ||
+        String(s.media_type || s.type || '').toLowerCase().includes(q)
+      );
+    });
+  }, [sites, siteFilterText, onlyVacantFilter, vacantSiteCodeSet]);
+
+  function toggleModalSite(code) {
+    if (!code) return;
+    const clean = code.trim();
+    setModalSelectedSites(prev => {
+      const next = prev.includes(clean) ? prev.filter(c => c !== clean) : [...prev, clean];
+      if (next.length === 1) {
+        handleSiteCodeChange(next[0]);
+      } else if (next.length === 0) {
+        setModalSiteCode('');
+      } else {
+        setModalSiteCode(next.join(', '));
+      }
+      return next;
+    });
+  }
+
   function handleSort(key) {
     setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   }
@@ -7009,6 +7053,9 @@ function CampaignTrackerView() {
     setIsViewingOnly(false);
     const initialSiteCode = typeof code === 'string' && code ? code : (siteQueryParam || (search.trim().startsWith('MB-') ? search.trim() : ''));
     setModalSiteCode(initialSiteCode);
+    setModalSelectedSites(initialSiteCode ? [initialSiteCode] : []);
+    setSiteFilterText('');
+    setOnlyVacantFilter(false);
     const foundSite = sites.find(s => String(s.site_code || '').toUpperCase() === initialSiteCode.toUpperCase());
     const initLoc = foundSite ? (foundSite.address || foundSite.area || '') : '';
     const initW = foundSite?.width ?? '';
@@ -7050,6 +7097,7 @@ function CampaignTrackerView() {
     if (!r) return;
     setIsViewingOnly(false);
     setModalSiteCode(r.site_code || '');
+    setModalSelectedSites(r.site_code ? [r.site_code] : []);
     setModalLocation(r.location || '');
     setModalWidth(r.width ?? '');
     setModalHeight(r.height ?? '');
@@ -7063,6 +7111,7 @@ function CampaignTrackerView() {
     if (!r) return;
     setIsViewingOnly(true);
     setModalSiteCode(r.site_code || '');
+    setModalSelectedSites(r.site_code ? [r.site_code] : []);
     setModalLocation(r.location || '');
     setModalWidth(r.width ?? '');
     setModalHeight(r.height ?? '');
@@ -7095,18 +7144,62 @@ function CampaignTrackerView() {
     if (!payload.size && payload.width && payload.height) {
       payload.size = `${payload.width}x${payload.height} ft`;
     }
-    if (payload.site_code) payload.site_code = String(payload.site_code).trim();
     if (payload.client) payload.client_name = payload.client;
     if (payload.display) {
       payload.campaign_name = payload.display;
       payload.brand = payload.display;
     }
+    // PO and Bill are completely optional without compulsion
+    payload.po = payload.po ? String(payload.po).trim() : '';
+    payload.bill = payload.bill ? String(payload.bill).trim() : '';
+
+    // Determine target site codes
+    let targetSiteCodes = [];
+    if (!editModal?.id && modalSelectedSites.length > 0) {
+      targetSiteCodes = [...modalSelectedSites];
+    } else if (payload.site_code) {
+      targetSiteCodes = String(payload.site_code).split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    if (targetSiteCodes.length === 0) {
+      alert('Please select or enter at least one site code for this campaign.');
+      setSaving(false);
+      return;
+    }
 
     try {
       if (editModal?.id) {
+        payload.site_code = targetSiteCodes[0] || String(payload.site_code).trim();
         await api.put(`/campaigns/${editModal.id}`, payload);
         setBanner('✓ Campaign record updated successfully!');
+      } else if (targetSiteCodes.length > 1) {
+        // Multi-site campaign creation for the same client
+        const groupTag = `${payload.client || 'Client'} - ${payload.display || 'Campaign'} (${targetSiteCodes.length} sites)`;
+        const promises = targetSiteCodes.map(code => {
+          const upper = code.toUpperCase();
+          const s = sites.find(x => String(x.site_code || '').trim().toUpperCase() === upper);
+          const sLoc = s ? (s.address || s.area || payload.location || '') : (payload.location || '');
+          const sW = s?.width ?? payload.width ?? null;
+          const sH = s?.height ?? payload.height ?? null;
+          const sSize = s?.size || (s?.width && s?.height ? `${s.width}x${s.height} ft` : payload.size || '');
+          const sType = s?.type || s?.media_type || payload.type || 'Hoarding';
+
+          const sitePayload = {
+            ...payload,
+            site_code: code,
+            location: sLoc,
+            width: sW,
+            height: sH,
+            size: sSize,
+            type: sType,
+            parent_campaign: payload.parent_campaign || groupTag
+          };
+          return api.post('/campaigns', sitePayload);
+        });
+        await Promise.all(promises);
+        setBanner(`✓ Campaign created across ${targetSiteCodes.length} sites for ${payload.client || 'client'} successfully!`);
       } else {
+        payload.site_code = targetSiteCodes[0];
         await api.post('/campaigns', payload);
         setBanner('✓ New campaign created successfully!');
       }
@@ -7853,10 +7946,182 @@ function CampaignTrackerView() {
             </div>
             <form onSubmit={saveCampaign}>
               <div className="scooh-modalbody" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+                {/* Multi-Site Selection Header & Picker (Available when creating a new campaign) */}
+                {!editModal.id && !isViewingOnly && (
+                  <div style={{
+                    marginBottom: '16px',
+                    padding: '14px',
+                    background: 'rgba(15, 23, 42, 0.75)',
+                    border: '1px solid rgba(168, 85, 247, 0.35)',
+                    borderRadius: '10px',
+                    boxShadow: '0 4px 14px rgba(0,0,0,0.3)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '18px' }}>📍</span>
+                        <div>
+                          <label style={{ margin: 0, fontSize: '13px', fontWeight: 800, color: '#f8fafc' }}>
+                            Select Sites for this Client ({modalSelectedSites.length} Selected)
+                          </label>
+                          <span style={{ display: 'block', fontSize: '11px', color: '#c084fc' }}>
+                            You can select multiple sites to book together for this client in one go.
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="scooh-btn ghost"
+                          style={{ fontSize: '11px', padding: '3px 9px', color: '#4ade80', borderColor: 'rgba(74, 222, 128, 0.3)' }}
+                          onClick={() => {
+                            const vacantCodes = sites
+                              .map(s => s.site_code)
+                              .filter(code => code && vacantSiteCodeSet.has(code.toUpperCase()));
+                            setModalSelectedSites(Array.from(new Set([...modalSelectedSites, ...vacantCodes])));
+                          }}
+                          title="Select all vacant sites ready for booking"
+                        >
+                          + Select All Vacant ({vacantSitesCount})
+                        </button>
+                        {modalSelectedSites.length > 0 && (
+                          <button
+                            type="button"
+                            className="scooh-btn ghost"
+                            style={{ fontSize: '11px', padding: '3px 9px', color: '#f87171', borderColor: 'rgba(248, 113, 113, 0.3)' }}
+                            onClick={() => {
+                              setModalSelectedSites([]);
+                              setModalSiteCode('');
+                            }}
+                          >
+                            Clear All
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Selected Site Badges / Chips */}
+                    {modalSelectedSites.length > 0 ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px', maxHeight: '80px', overflowY: 'auto' }}>
+                        {modalSelectedSites.map(sc => (
+                          <span key={sc} style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            background: 'rgba(168, 85, 247, 0.22)',
+                            border: '1px solid rgba(168, 85, 247, 0.5)',
+                            borderRadius: '16px',
+                            padding: '3px 10px',
+                            fontSize: '11.5px',
+                            fontWeight: 700,
+                            color: '#e9d5ff'
+                          }}>
+                            {sc}
+                            <button
+                              type="button"
+                              onClick={() => toggleModalSite(sc)}
+                              style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: '13px', padding: '0 2px', lineHeight: 1 }}
+                              title="Remove site"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', marginBottom: '8px' }}>
+                        No sites selected yet. Check one or more sites below, or search to pick:
+                      </div>
+                    )}
+
+                    {/* Filter & Search Bar */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        placeholder="Search sites by code, area, location or size…"
+                        value={siteFilterText}
+                        onChange={e => setSiteFilterText(e.target.value)}
+                        style={{ fontSize: '11.5px', padding: '6px 10px', flex: 1, background: 'rgba(0,0,0,0.3)', border: '1px solid #334155', borderRadius: '6px', color: '#fff' }}
+                      />
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', color: '#cbd5e1', cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none' }}>
+                        <input
+                          type="checkbox"
+                          checked={onlyVacantFilter}
+                          onChange={e => setOnlyVacantFilter(e.target.checked)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        Vacant Only
+                      </label>
+                    </div>
+
+                    {/* Quick Checklist */}
+                    <div style={{
+                      maxHeight: '140px',
+                      overflowY: 'auto',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '6px',
+                      background: 'rgba(0,0,0,0.25)',
+                      padding: '4px 6px'
+                    }}>
+                      {selectableSitesList.length === 0 ? (
+                        <div style={{ padding: '8px', fontSize: '11.5px', color: '#64748b', textAlign: 'center' }}>
+                          No sites match the search query.
+                        </div>
+                      ) : (
+                        selectableSitesList.map(s => {
+                          const isChecked = modalSelectedSites.includes(s.site_code);
+                          const isVacant = vacantSiteCodeSet.has(String(s.site_code || '').toUpperCase());
+                          return (
+                            <div
+                              key={s.id || s.site_code}
+                              onClick={() => toggleModalSite(s.site_code)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '5px 8px',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                background: isChecked ? 'rgba(168, 85, 247, 0.18)' : 'transparent',
+                                marginBottom: '2px',
+                                transition: 'background 0.15s'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => {}}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                                <span style={{ fontWeight: 700, color: isChecked ? '#c084fc' : '#f1f5f9', fontSize: '12px' }}>
+                                  {s.site_code}
+                                </span>
+                                <span style={{ color: '#94a3b8', fontSize: '11.5px' }}>
+                                  {s.address || s.area || '—'} {s.size ? `[${s.size}]` : ''}
+                                </span>
+                              </div>
+                              <span style={{
+                                fontSize: '10.5px',
+                                padding: '1px 6px',
+                                borderRadius: '10px',
+                                fontWeight: 600,
+                                background: isVacant ? 'rgba(148, 163, 184, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                                color: isVacant ? '#cbd5e1' : '#4ade80'
+                              }}>
+                                {isVacant ? '⚪ Vacant' : '🟢 Occupied'}
+                              </span>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
                   <div className="scooh-field">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <label>Site Code</label>
+                      <label>{modalSelectedSites.length > 1 ? `Site Codes (${modalSelectedSites.length} selected)` : 'Site Code'}</label>
                       {autoMatchedSite && (
                         <span style={{ fontSize: '11px', color: '#10b981', fontWeight: 700 }}>
                           ✓ Match: {autoMatchedSite.site_code}
@@ -7868,7 +8133,7 @@ function CampaignTrackerView() {
                       list="campaign-site-codes-list"
                       value={modalSiteCode}
                       onChange={e => handleSiteCodeChange(e.target.value)}
-                      placeholder="e.g. MB-06 or MB-02"
+                      placeholder="e.g. MB-06 or select sites above"
                       disabled={isViewingOnly || isReadOnly}
                     />
                     <datalist id="campaign-site-codes-list">
@@ -8069,12 +8334,12 @@ function CampaignTrackerView() {
                     <input type="number" step="any" name="total_amount" defaultValue={editModal.total_amount ?? editModal.revenue ?? ''} placeholder="0" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
-                    <label>PO (Purchase Order)</label>
-                    <input name="po" defaultValue={editModal.po ?? ''} placeholder="e.g. PO-2026-881" disabled={isViewingOnly || isReadOnly} />
+                    <label>PO (Purchase Order) <span style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'normal' }}>(Optional)</span></label>
+                    <input name="po" defaultValue={editModal.po ?? ''} placeholder="Optional (e.g. PO-2026-881)" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
-                    <label>Bill (Invoice No / Status)</label>
-                    <input name="bill" defaultValue={editModal.bill ?? editModal.invoice_no ?? ''} placeholder="e.g. INV-9912 / Sent" disabled={isViewingOnly || isReadOnly} />
+                    <label>Bill (Invoice No / Status) <span style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'normal' }}>(Optional)</span></label>
+                    <input name="bill" defaultValue={editModal.bill ?? editModal.invoice_no ?? ''} placeholder="Optional (e.g. INV-9912 / Sent)" disabled={isViewingOnly || isReadOnly} />
                   </div>
                   <div className="scooh-field">
                     <label>Pending (₹)</label>
@@ -8106,7 +8371,7 @@ function CampaignTrackerView() {
                   </button>
                   {!isViewingOnly && !isReadOnly && (
                     <button type="submit" className="scooh-btn purple-btn" disabled={saving}>
-                      {saving ? 'Saving…' : editModal.id ? 'Update Campaign' : 'Create Campaign'}
+                      {saving ? 'Saving…' : editModal.id ? 'Update Campaign' : (modalSelectedSites.length > 1 ? `Create Campaign (${modalSelectedSites.length} Sites)` : 'Create Campaign')}
                     </button>
                   )}
                 </div>
