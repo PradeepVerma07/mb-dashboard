@@ -4106,13 +4106,24 @@ function OccPercentBar({ pct, days, totalDays, showText = true, height = 7, clie
 }
 
 function OccupancyView() {
+  const location = useLocation();
   const [dbSites, setDbSites] = useState([]);
   const [dbCampaigns, setDbCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [viewTab, setViewTab] = useState('6months'); // '6months' | 'overview'
+  const [viewTab, setViewTab] = useState('history'); // 'history' | '6months' | 'overview'
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
   const [search, setSearch] = useState('');
   const [modalData, setModalData] = useState(null); // For inspecting month/site booking history details
+  
+  // Auto-sync search from URL (e.g. /occupancy?site=MB-01)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const siteParam = (params.get('site') || params.get('search') || '').trim();
+    if (siteParam) {
+      setSearch(siteParam);
+      setViewTab('history');
+    }
+  }, [location.search]);
   
   // Excel import state
   const [rawRows, setRawRows] = useState([]);
@@ -4480,6 +4491,114 @@ function OccupancyView() {
     });
   }, [siteHistory, search, statusFilter]);
 
+  // ── Complete Chronological Bookings Ledger (All Previous, Current, Upcoming) ──
+  const allBookings = useMemo(() => {
+    const list = [];
+    const now = new Date();
+
+    if (dataSource === 'excel' && rawRows.length > 0) {
+      siteHistory.forEach(s => {
+        (s.allCampaigns || []).forEach((c, cIdx) => {
+          const sDate = parseFlexibleDate(c.start_date || c.booking_date || c.month);
+          const eDate = parseFlexibleDate(c.end_date) || (sDate ? new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0, 23, 59, 59) : null);
+          const isAct = sDate && eDate && sDate <= now && eDate >= now;
+          const isUpc = sDate && sDate > now;
+          list.push({
+            id: c.id || `${s.site_code}-${cIdx}`,
+            site_code: s.site_code,
+            location: s.area,
+            city: s.city,
+            client: c.client || c.client_name || '—',
+            brand: c.brand || '—',
+            display: c.campaign_name || c.display || '—',
+            vendor_name: c.vendor_name || '—',
+            month: c.month || (sDate ? fmtMonthYear(sDate) : '—'),
+            start_date: c.start_date || c.booking_date,
+            end_date: c.end_date,
+            days: c.days ?? (sDate && eDate ? Math.round((eDate - sDate) / 86400000) + 1 : '—'),
+            total_amount: Number(c.total_amount || c.revenue || 0),
+            pending: Number(c.pending || 0),
+            po: c.po || '',
+            bill: c.bill || '',
+            sDate,
+            eDate,
+            status: isAct ? 'active' : isUpc ? 'upcoming' : 'past'
+          });
+        });
+      });
+    } else {
+      const activeSitesMap = new Map();
+      dbSites.forEach(s => activeSitesMap.set(String(s.site_code || '').toUpperCase(), s));
+
+      dbCampaigns
+        .filter(c => c.record_status !== 'archived')
+        .forEach(c => {
+          const sCode = String(c.site_code || '').toUpperCase();
+          const site = activeSitesMap.get(sCode);
+          const sDate = parseFlexibleDate(c.start_date || c.booking_date);
+          const eDate = parseFlexibleDate(c.end_date) || (sDate ? new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0, 23, 59, 59) : null);
+          const isAct = sDate && eDate && sDate <= now && eDate >= now;
+          const isUpc = sDate && sDate > now;
+
+          list.push({
+            id: c.id,
+            site_code: c.site_code || '—',
+            location: c.location || site?.address || site?.area || '—',
+            city: c.city || site?.city || 'Ahmedabad',
+            client: c.client || c.client_name || '—',
+            brand: c.brand || '—',
+            display: c.display || c.campaign_name || '—',
+            vendor_name: c.vendor_name || '—',
+            month: c.month || (sDate ? fmtMonthYear(sDate) : '—'),
+            start_date: c.start_date || c.booking_date,
+            end_date: c.end_date,
+            days: c.days ?? (sDate && eDate ? Math.round((eDate - sDate) / 86400000) + 1 : '—'),
+            total_amount: Number(c.total_amount || c.revenue || 0),
+            pending: Number(c.pending || 0),
+            po: c.po || '',
+            bill: c.bill || '',
+            sDate,
+            eDate,
+            status: isAct ? 'active' : isUpc ? 'upcoming' : 'past'
+          });
+        });
+    }
+
+    return list.sort((a, b) => {
+      const siteComp = String(a.site_code || '').localeCompare(String(b.site_code || ''), undefined, { numeric: true });
+      if (siteComp !== 0) return siteComp;
+      const tA = a.sDate ? a.sDate.getTime() : 0;
+      const tB = b.sDate ? b.sDate.getTime() : 0;
+      return tB - tA;
+    });
+  }, [dataSource, rawRows, dbSites, dbCampaigns, siteHistory]);
+
+  const filteredBookings = useMemo(() => {
+    return allBookings.filter(b => {
+      if (statusFilter === 'occupied' && b.status !== 'active') return false;
+      if (statusFilter === 'past' && b.status !== 'past') return false;
+      if (statusFilter === 'upcoming' && b.status !== 'upcoming') return false;
+      if (statusFilter === 'vacant') return false;
+
+      if (!search.trim()) return true;
+      const q = search.trim().toLowerCase();
+      return (
+        b.site_code.toLowerCase().includes(q) ||
+        b.location.toLowerCase().includes(q) ||
+        b.client.toLowerCase().includes(q) ||
+        b.display.toLowerCase().includes(q) ||
+        b.month.toLowerCase().includes(q) ||
+        (b.po && b.po.toLowerCase().includes(q)) ||
+        (b.bill && b.bill.toLowerCase().includes(q))
+      );
+    });
+  }, [allBookings, statusFilter, search]);
+
+  const activeBookingsCount = useMemo(() => allBookings.filter(b => b.status === 'active').length, [allBookings]);
+  const pastBookingsCount = useMemo(() => allBookings.filter(b => b.status === 'past').length, [allBookings]);
+  const upcomingBookingsCount = useMemo(() => allBookings.filter(b => b.status === 'upcoming').length, [allBookings]);
+  const totalHistoricalRev = useMemo(() => allBookings.reduce((sum, b) => sum + b.total_amount, 0), [allBookings]);
+
   // ── Overall Stats ─────────────────────────────────────────────────────
   const stats = useMemo(() => {
     const total = siteHistory.length;
@@ -4507,59 +4626,97 @@ function OccupancyView() {
   async function exportOccupancyExcel() {
     try {
       const workbook = new ExcelJS.Workbook();
-      const ws = workbook.addWorksheet('Occupancy History');
+      const ws = workbook.addWorksheet(viewTab === 'history' ? 'Bookings History' : 'Occupancy History');
       
-      const periods = viewTab === '6months' ? periods6M : [];
-      
-      const columns = [
-        { header: 'Site Code', key: 'site_code', width: 14 },
-        { header: 'Location / Area', key: 'area', width: 28 },
-        { header: 'City', key: 'city', width: 16 },
-        { header: 'Client / Brand', key: 'client', width: 26 },
-        { header: 'Status', key: 'status', width: 14 }
-      ];
+      if (viewTab === 'history') {
+        ws.columns = [
+          { header: 'Site Code', key: 'site_code', width: 14 },
+          { header: 'Location / Area', key: 'location', width: 28 },
+          { header: 'City', key: 'city', width: 16 },
+          { header: 'Client / Agency', key: 'client', width: 26 },
+          { header: 'Display / Campaign', key: 'display', width: 24 },
+          { header: 'Month', key: 'month', width: 16 },
+          { header: 'Start Date', key: 'start_date', width: 14 },
+          { header: 'End Date', key: 'end_date', width: 14 },
+          { header: 'Days', key: 'days', width: 10 },
+          { header: 'Status', key: 'status', width: 14 },
+          { header: 'Total Amount', key: 'total_amount', width: 16 },
+          { header: 'Pending', key: 'pending', width: 14 },
+          { header: 'PO Number', key: 'po', width: 16 },
+          { header: 'Bill Number', key: 'bill', width: 16 }
+        ];
 
-      if (viewTab === 'overview') {
-        columns.push({ header: 'Occupied Days (365d)', key: 'days', width: 20 });
-        columns.push({ header: 'Occupancy Rate %', key: 'pct', width: 18 });
-      } else {
-        periods.forEach(p => {
-          columns.push({ header: `${p.label} (Occ %)`, key: `pct_${p.key}`, width: 16 });
-          columns.push({ header: `${p.label} (Booked Client)`, key: `client_${p.key}`, width: 24 });
+        filteredBookings.forEach(b => {
+          ws.addRow({
+            site_code: b.site_code,
+            location: b.location,
+            city: b.city,
+            client: b.client,
+            display: b.display,
+            month: b.month,
+            start_date: b.start_date ? formatDate(b.start_date) : '',
+            end_date: b.end_date ? formatDate(b.end_date) : '',
+            days: b.days,
+            status: b.status.toUpperCase(),
+            total_amount: b.total_amount,
+            pending: b.pending,
+            po: b.po,
+            bill: b.bill
+          });
         });
-        columns.push({ header: 'Average %', key: 'avg', width: 14 });
-      }
-
-      ws.columns = columns;
-
-      filteredSites.forEach(s => {
-        const rowData = {
-          site_code: s.site_code,
-          area: s.area,
-          city: s.city,
-          client: s.currentClient ? `${s.currentClient}${s.currentBrand ? ` (${s.currentBrand})` : ''}` : 'Vacant',
-          status: s.currentStatus ? s.currentStatus.toUpperCase() : 'VACANT'
-        };
+      } else {
+        const periods = viewTab === '6months' ? periods6M : [];
+        
+        const columns = [
+          { header: 'Site Code', key: 'site_code', width: 14 },
+          { header: 'Location / Area', key: 'area', width: 28 },
+          { header: 'City', key: 'city', width: 16 },
+          { header: 'Client / Brand', key: 'client', width: 26 },
+          { header: 'Status', key: 'status', width: 14 }
+        ];
 
         if (viewTab === 'overview') {
-          rowData.days = s.days365;
-          rowData.pct = `${s.pct365}%`;
+          columns.push({ header: 'Occupied Days (365d)', key: 'days', width: 20 });
+          columns.push({ header: 'Occupancy Rate %', key: 'pct', width: 18 });
         } else {
-          const dataMap = s.by6M;
-          let sum = 0;
           periods.forEach(p => {
-            const entry = dataMap?.[p.key];
-            const pct = typeof entry === 'object' ? (entry?.pct ?? 0) : (Number(entry) || 0);
-            const clients = typeof entry === 'object' && entry?.clients ? entry.clients.join(', ') : '';
-            rowData[`pct_${p.key}`] = `${pct}%`;
-            rowData[`client_${p.key}`] = clients || (pct > 0 ? 'Occupied' : 'Vacant');
-            sum += pct;
+            columns.push({ header: `${p.label} (Occ %)`, key: `pct_${p.key}`, width: 16 });
+            columns.push({ header: `${p.label} (Booked Client)`, key: `client_${p.key}`, width: 24 });
           });
-          rowData.avg = `${Math.round(sum / (periods.length || 1))}%`;
+          columns.push({ header: 'Average %', key: 'avg', width: 14 });
         }
 
-        ws.addRow(rowData);
-      });
+        ws.columns = columns;
+
+        filteredSites.forEach(s => {
+          const rowData = {
+            site_code: s.site_code,
+            area: s.area,
+            city: s.city,
+            client: s.currentClient ? `${s.currentClient}${s.currentBrand ? ` (${s.currentBrand})` : ''}` : 'Vacant',
+            status: s.currentStatus ? s.currentStatus.toUpperCase() : 'VACANT'
+          };
+
+          if (viewTab === 'overview') {
+            rowData.days = s.days365;
+            rowData.pct = `${s.pct365}%`;
+          } else {
+            const dataMap = s.by6M;
+            let sum = 0;
+            periods.forEach(p => {
+              const entry = dataMap?.[p.key];
+              const pct = typeof entry === 'object' ? (entry?.pct ?? 0) : (Number(entry) || 0);
+              const clients = typeof entry === 'object' && entry?.clients ? entry.clients.join(', ') : '';
+              rowData[`pct_${p.key}`] = `${pct}%`;
+              rowData[`client_${p.key}`] = clients || (pct > 0 ? 'Occupied' : 'Vacant');
+              sum += pct;
+            });
+            rowData.avg = `${Math.round(sum / (periods.length || 1))}%`;
+          }
+
+          ws.addRow(rowData);
+        });
+      }
 
       // Style header
       const headerRow = ws.getRow(1);
@@ -4574,7 +4731,7 @@ function OccupancyView() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Site_Occupancy_History_${viewTab}.xlsx`;
+      a.download = `Site_Occupancy_${viewTab}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
@@ -4592,78 +4749,152 @@ function OccupancyView() {
 
       {/* ── Top Summary & KPI Cards (Click to filter) ────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '16px' }}>
-        <div 
-          className="scooh-panel" 
-          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.08)' }}
-          onClick={() => setStatusFilter('ALL')}
-          title="Click to view all sites"
-        >
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Average Occupancy
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <span style={{ fontSize: '28px', fontWeight: 900, color: stats.avgPct >= 60 ? '#10b981' : stats.avgPct >= 30 ? '#38bdf8' : '#f59e0b', lineHeight: 1 }}>
-              {stats.avgPct}%
-            </span>
-            <span style={{ fontSize: '12px', color: '#64748b' }}>across portfolio</span>
-          </div>
-          <div style={{ height: '6px', background: '#0b1016', borderRadius: '999px', overflow: 'hidden', border: '1px solid #222c37' }}>
-            <div style={{ height: '100%', width: `${stats.avgPct}%`, background: stats.avgPct >= 60 ? '#10b981' : '#38bdf8', borderRadius: '999px' }} />
-          </div>
-        </div>
+        {viewTab === 'history' ? (
+          <>
+            <div 
+              className="scooh-panel" 
+              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.08)' }}
+              onClick={() => setStatusFilter('ALL')}
+              title="Click to view all booking records"
+            >
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Total Bookings History
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: 900, color: '#f1f5f9', lineHeight: 1.1 }}>
+                {allBookings.length}
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>
+                All previous & active campaigns
+              </div>
+            </div>
 
-        <div 
-          className="scooh-panel" 
-          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'occupied' ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'occupied' ? 'rgba(16, 185, 129, 0.08)' : undefined }}
-          onClick={() => setStatusFilter(prev => prev === 'occupied' ? 'ALL' : 'occupied')}
-          title="Click to filter only occupied sites"
-        >
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>🟢 Occupied Sites</span>
-            {statusFilter === 'occupied' && <span style={{ fontSize: '10px', background: '#10b981', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active Filter</span>}
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>
-            {stats.occupied}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
-            {stats.total > 0 ? `${Math.round((stats.occupied / stats.total) * 100)}% active campaigns` : 'No sites'}
-          </div>
-        </div>
+            <div 
+              className="scooh-panel" 
+              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'occupied' ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'occupied' ? 'rgba(16, 185, 129, 0.08)' : undefined }}
+              onClick={() => setStatusFilter(prev => prev === 'occupied' ? 'ALL' : 'occupied')}
+              title="Click to filter currently active bookings"
+            >
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>🟢 Currently Active</span>
+                {statusFilter === 'occupied' && <span style={{ fontSize: '10px', background: '#10b981', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active</span>}
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>
+                {activeBookingsCount}
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>
+                Currently running on sites
+              </div>
+            </div>
 
-        <div 
-          className="scooh-panel" 
-          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'vacant' ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.08)' : undefined }}
-          onClick={() => setStatusFilter(prev => prev === 'vacant' ? 'ALL' : 'vacant')}
-          title="Click to filter only vacant sites"
-        >
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>⚪ Vacant Sites</span>
-            {statusFilter === 'vacant' && <span style={{ fontSize: '10px', background: '#f59e0b', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active Filter</span>}
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 900, color: stats.vacant > 0 ? '#f59e0b' : '#10b981', lineHeight: 1.1 }}>
-            {stats.vacant}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
-            Ready for booking
-          </div>
-        </div>
+            <div 
+              className="scooh-panel" 
+              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'past' ? '2px solid #a855f7' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'past' ? 'rgba(168, 85, 247, 0.08)' : undefined }}
+              onClick={() => setStatusFilter(prev => prev === 'past' ? 'ALL' : 'past')}
+              title="Click to filter previous completed bookings"
+            >
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>⏱ Previous / Completed</span>
+                {statusFilter === 'past' && <span style={{ fontSize: '10px', background: '#a855f7', color: '#fff', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active</span>}
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: 900, color: '#c084fc', lineHeight: 1.1 }}>
+                {pastBookingsCount}
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>
+                Archived & completed bookings
+              </div>
+            </div>
 
-        <div 
-          className="scooh-panel" 
-          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid #38bdf8' : '1px solid rgba(255,255,255,0.08)' }}
-          onClick={() => setStatusFilter('ALL')}
-          title="Click to show all sites"
-        >
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Total Sites Tracked
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 900, color: '#f1f5f9', lineHeight: 1.1 }}>
-            {stats.total}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
-            {dataSource === 'excel' ? 'Imported from Excel' : 'Live from Database'}
-          </div>
-        </div>
+            <div 
+              className="scooh-panel" 
+              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Total Revenue
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: 900, color: '#4ade80', lineHeight: 1.1 }}>
+                {money(totalHistoricalRev)}
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>
+                Cumulative booking revenue
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div 
+              className="scooh-panel" 
+              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.08)' }}
+              onClick={() => setStatusFilter('ALL')}
+              title="Click to view all sites"
+            >
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Average Occupancy
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                <span style={{ fontSize: '28px', fontWeight: 900, color: stats.avgPct >= 60 ? '#10b981' : stats.avgPct >= 30 ? '#38bdf8' : '#f59e0b', lineHeight: 1 }}>
+                  {stats.avgPct}%
+                </span>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>across portfolio</span>
+              </div>
+              <div style={{ height: '6px', background: '#0b1016', borderRadius: '999px', overflow: 'hidden', border: '1px solid #222c37' }}>
+                <div style={{ height: '100%', width: `${stats.avgPct}%`, background: stats.avgPct >= 60 ? '#10b981' : '#38bdf8', borderRadius: '999px' }} />
+              </div>
+            </div>
+
+            <div 
+              className="scooh-panel" 
+              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'occupied' ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'occupied' ? 'rgba(16, 185, 129, 0.08)' : undefined }}
+              onClick={() => setStatusFilter(prev => prev === 'occupied' ? 'ALL' : 'occupied')}
+              title="Click to filter only occupied sites"
+            >
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>🟢 Occupied Sites</span>
+                {statusFilter === 'occupied' && <span style={{ fontSize: '10px', background: '#10b981', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active Filter</span>}
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>
+                {stats.occupied}
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>
+                {stats.total > 0 ? `${Math.round((stats.occupied / stats.total) * 100)}% active campaigns` : 'No sites'}
+              </div>
+            </div>
+
+            <div 
+              className="scooh-panel" 
+              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'vacant' ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.08)' : undefined }}
+              onClick={() => setStatusFilter(prev => prev === 'vacant' ? 'ALL' : 'vacant')}
+              title="Click to filter only vacant sites"
+            >
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>⚪ Vacant Sites</span>
+                {statusFilter === 'vacant' && <span style={{ fontSize: '10px', background: '#f59e0b', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active Filter</span>}
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: 900, color: stats.vacant > 0 ? '#f59e0b' : '#10b981', lineHeight: 1.1 }}>
+                {stats.vacant}
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>
+                Ready for booking
+              </div>
+            </div>
+
+            <div 
+              className="scooh-panel" 
+              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid #38bdf8' : '1px solid rgba(255,255,255,0.08)' }}
+              onClick={() => setStatusFilter('ALL')}
+              title="Click to show all sites"
+            >
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Total Sites Tracked
+              </div>
+              <div style={{ fontSize: '28px', fontWeight: 900, color: '#f1f5f9', lineHeight: 1.1 }}>
+                {stats.total}
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b' }}>
+                {dataSource === 'excel' ? 'Imported from Excel' : 'Live from Database'}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── Unified Clean Controls Toolbar ───────────────────────────────── */}
@@ -4675,7 +4906,7 @@ function OccupancyView() {
             <input
               className="scooh-search"
               style={{ minWidth: '220px', maxWidth: '320px', fontSize: '12px' }}
-              placeholder="Search site, client, area…"
+              placeholder={viewTab === 'history' ? "Search client, display, site code, PO…" : "Search site, client, area…"}
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -4696,7 +4927,7 @@ function OccupancyView() {
                   cursor: 'pointer'
                 }}
               >
-                All ({siteHistory.length})
+                All ({viewTab === 'history' ? allBookings.length : siteHistory.length})
               </button>
               <button
                 type="button"
@@ -4712,31 +4943,84 @@ function OccupancyView() {
                   cursor: 'pointer'
                 }}
               >
-                🟢 Occupied ({stats.occupied})
+                🟢 Active ({viewTab === 'history' ? activeBookingsCount : stats.occupied})
               </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter('vacant')}
-                style={{
-                  padding: '4px 12px',
-                  borderRadius: '16px',
-                  border: 'none',
-                  background: statusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.25)' : 'transparent',
-                  color: statusFilter === 'vacant' ? '#fbbf24' : '#94a3b8',
-                  fontWeight: statusFilter === 'vacant' ? 800 : 600,
-                  fontSize: '11.5px',
-                  cursor: 'pointer'
-                }}
-              >
-                ⚪ Vacant ({stats.vacant})
-              </button>
+              {viewTab === 'history' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('past')}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: '16px',
+                      border: 'none',
+                      background: statusFilter === 'past' ? 'rgba(168, 85, 247, 0.25)' : 'transparent',
+                      color: statusFilter === 'past' ? '#c084fc' : '#94a3b8',
+                      fontWeight: statusFilter === 'past' ? 800 : 600,
+                      fontSize: '11.5px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ⏱ Previous ({pastBookingsCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('upcoming')}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: '16px',
+                      border: 'none',
+                      background: statusFilter === 'upcoming' ? 'rgba(234, 179, 8, 0.25)' : 'transparent',
+                      color: statusFilter === 'upcoming' ? '#facc15' : '#94a3b8',
+                      fontWeight: statusFilter === 'upcoming' ? 800 : 600,
+                      fontSize: '11.5px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ⏳ Upcoming ({upcomingBookingsCount})
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('vacant')}
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: '16px',
+                    border: 'none',
+                    background: statusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.25)' : 'transparent',
+                    color: statusFilter === 'vacant' ? '#fbbf24' : '#94a3b8',
+                    fontWeight: statusFilter === 'vacant' ? 800 : 600,
+                    fontSize: '11.5px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ⚪ Vacant ({stats.vacant})
+                </button>
+              )}
             </div>
           </div>
 
           {/* Right: Clean View Switcher & Action Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            {/* View Mode Toggle: 2 Clear Views */}
+            {/* View Mode Toggle: 3 Clear Views */}
             <div style={{ display: 'inline-flex', gap: '4px', background: 'rgba(15, 23, 42, 0.6)', padding: '3px', borderRadius: '20px', border: '1px solid #1e293b' }}>
+              <button
+                type="button"
+                onClick={() => setViewTab('history')}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: viewTab === 'history' ? 'rgba(56, 189, 248, 0.25)' : 'transparent',
+                  color: viewTab === 'history' ? '#38bdf8' : '#94a3b8',
+                  fontWeight: viewTab === 'history' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                📋 All Bookings History ({allBookings.length})
+              </button>
               <button
                 type="button"
                 onClick={() => setViewTab('6months')}
@@ -4833,6 +5117,122 @@ function OccupancyView() {
             <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔄</div>
             <b>Loading occupancy history...</b>
           </div>
+        ) : viewTab === 'history' ? (
+          /* ── Dedicated All Bookings History Table (Zero Confusion) ── */
+          filteredBookings.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
+              <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔍</div>
+              <h4 style={{ margin: '0 0 6px', color: '#f1f5f9' }}>No booking history records found</h4>
+              <p style={{ margin: 0, fontSize: '12px' }}>Try adjusting your search filter or status pill.</p>
+            </div>
+          ) : (
+            <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
+              <table className="scooh-table" style={{ width: '100%', minWidth: '1100px' }}>
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: '100px' }}>Site Code</th>
+                    <th style={{ minWidth: '160px' }}>Location / Area</th>
+                    <th style={{ minWidth: '160px' }}>Client / Agency</th>
+                    <th style={{ minWidth: '150px' }}>Display / Brand</th>
+                    <th style={{ minWidth: '100px' }}>Month</th>
+                    <th style={{ minWidth: '180px' }}>Booking Dates</th>
+                    <th style={{ minWidth: '70px', textAlign: 'center' }}>Days</th>
+                    <th style={{ minWidth: '130px', textAlign: 'center' }}>Status</th>
+                    <th style={{ minWidth: '120px', textAlign: 'right' }}>Total Amount</th>
+                    <th style={{ minWidth: '110px', textAlign: 'right' }}>Pending</th>
+                    <th style={{ minWidth: '110px' }}>PO / Bill</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredBookings.map((b, bIdx) => {
+                    const isAct = b.status === 'active';
+                    const isUpc = b.status === 'upcoming';
+                    const statusColor = isAct ? '#4ade80' : isUpc ? '#facc15' : '#94a3b8';
+                    const statusBg = isAct ? 'rgba(34, 197, 94, 0.16)' : isUpc ? 'rgba(234, 179, 8, 0.16)' : 'rgba(148, 163, 184, 0.12)';
+                    const statusBorder = isAct ? 'rgba(34, 197, 94, 0.35)' : isUpc ? 'rgba(234, 179, 8, 0.35)' : 'rgba(148, 163, 184, 0.25)';
+                    const statusLabel = isAct ? '● Active' : isUpc ? '⏳ Upcoming' : '⏱ Completed';
+
+                    return (
+                      <tr key={b.id || bIdx}>
+                        <td>
+                          <span className="scooh-plate" style={{ fontSize: '11.5px', fontWeight: 800 }}>
+                            {b.site_code}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '12.5px', lineHeight: 1.3 }}>
+                            {b.location}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                            📍 {b.city}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 800, color: '#ffffff', fontSize: '13px' }}>
+                            {b.client}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ color: '#38bdf8', fontWeight: 600, fontSize: '12px' }}>
+                            {b.display}
+                          </div>
+                          {b.brand && b.brand !== '—' && b.brand !== b.client && (
+                            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '1px' }}>
+                              Brand: {b.brand}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <span style={{ fontSize: '11.5px', color: '#cbd5e1', background: 'rgba(56,189,248,0.1)', padding: '2px 7px', borderRadius: '5px', border: '1px solid rgba(56,189,248,0.25)' }}>
+                            {b.month}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '12px', color: '#cbd5e1' }}>
+                          <div>
+                            <span>{formatDate(b.start_date)}</span>
+                            <span style={{ color: '#64748b', margin: '0 4px' }}>→</span>
+                            <span>{formatDate(b.end_date) || 'Ongoing'}</span>
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'center', fontWeight: 700, color: '#e2e8f0', fontSize: '12px' }}>
+                          {b.days}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            background: statusBg,
+                            color: statusColor,
+                            border: `1px solid ${statusBorder}`,
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            whiteSpace: 'nowrap'
+                          }}>
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }} />
+                            {statusLabel}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 800, color: b.total_amount > 0 ? '#4ade80' : '#64748b', fontSize: '12.5px' }}>
+                          {b.total_amount > 0 ? money(b.total_amount) : '—'}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: b.pending > 0 ? '#f87171' : '#64748b', fontSize: '12px' }}>
+                          {b.pending > 0 ? money(b.pending) : '—'}
+                        </td>
+                        <td>
+                          {b.po ? <span className="scooh-plate" style={{ fontSize: '10.5px' }}>{b.po}</span> : ''}
+                          {b.bill ? <span style={{ color: '#93c5fd', fontSize: '11px', marginLeft: b.po ? '4px' : 0 }}>{b.bill}</span> : ''}
+                          {!b.po && !b.bill && <span style={{ color: '#64748b', fontSize: '11px' }}>—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
         ) : filteredSites.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
             <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔍</div>
@@ -5467,18 +5867,12 @@ function CampaignTrackerView() {
     if (siteParam) {
       setSearch(siteParam);
       setSiteQueryParam(siteParam);
-      setSelectedSiteFilter(siteParam.toUpperCase());
     } else {
       setSiteQueryParam('');
-      setSelectedSiteFilter('ALL');
     }
   }, [location.search]);
 
-  const [timeView, setTimeView] = useState('sitewise'); // 'sitewise' | 'all'
-  const [siteStatusFilter, setSiteStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
-  const [selectedSiteFilter, setSelectedSiteFilter] = useState('ALL');
-
-  // Master directory of all sites with current campaign, status, and amounts
+  // Master directory of all sites with current/latest campaign, status, and amounts
   const siteMasterList = useMemo(() => {
     const siteMap = new Map();
 
@@ -5492,6 +5886,8 @@ function CampaignTrackerView() {
         location: s.address || s.area || '—',
         city: s.city || 'Ahmedabad',
         size: s.size || (s.width && s.height ? `${s.width}x${s.height} ft` : '—'),
+        width: s.width ?? null,
+        height: s.height ?? null,
         type: s.type || 'Hoarding',
         rows: []
       });
@@ -5507,6 +5903,8 @@ function CampaignTrackerView() {
           location: r.location || '—',
           city: 'Ahmedabad',
           size: r.size || (r.width && r.height ? `${r.width}x${r.height} ft` : '—'),
+          width: r.width ?? null,
+          height: r.height ?? null,
           type: r.type || 'Hoarding',
           rows: []
         });
@@ -5564,6 +5962,7 @@ function CampaignTrackerView() {
         currentCampaign,
         activeCampaign,
         upcomingCampaign,
+        latestCampaign,
         totalAmount,
         totalPending
       };
@@ -5572,82 +5971,83 @@ function CampaignTrackerView() {
     return list.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
   }, [sites, rows]);
 
-  // Filtered sites for By Site view
-  const filteredSiteList = useMemo(() => {
-    return siteMasterList.filter(s => {
-      if (siteStatusFilter === 'occupied' && s.status !== 'occupied' && s.status !== 'upcoming') return false;
-      if (siteStatusFilter === 'vacant' && (s.status === 'occupied' || s.status === 'upcoming')) return false;
+  // Unified dataset: exactly 1 row per physical site displaying ONLY its latest/current booking
+  const latestSiteCampaigns = useMemo(() => {
+    return siteMasterList.map(s => {
+      const c = s.currentCampaign;
+      return {
+        site_code: s.code,
+        site_id: s.id,
+        location: s.location,
+        city: s.city,
+        size: s.size,
+        type: c?.type || s.type || 'Hoarding',
+        width: c?.width ?? s.width ?? '',
+        height: c?.height ?? s.height ?? '',
+        siteStatus: s.status, // 'occupied' | 'upcoming' | 'vacant'
+        campaignCount: s.campaignCount,
+        allCampaigns: s.rows,
 
-      if (!search.trim()) return true;
-      const q = search.trim().toLowerCase();
-      return (
-        s.code.toLowerCase().includes(q) ||
-        s.location.toLowerCase().includes(q) ||
-        s.city.toLowerCase().includes(q) ||
-        s.size.toLowerCase().includes(q) ||
-        s.type.toLowerCase().includes(q) ||
-        (s.currentCampaign?.client && s.currentCampaign.client.toLowerCase().includes(q)) ||
-        (s.currentCampaign?.display && s.currentCampaign.display.toLowerCase().includes(q)) ||
-        s.rows.some(r => (r.client || '').toLowerCase().includes(q) || (r.display || '').toLowerCase().includes(q))
-      );
+        // Latest campaign data:
+        campaign_id: c?.id || null,
+        campaign: c || null,
+        month: c?.month || (c?.start_date ? new Date(c.start_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : ''),
+        occupancy: c ? getCampaignOccupancy(c) : { pct: 0, label: '0% Vacant', status: 'vacant' },
+        booking_date: c?.booking_date || c?.date || '',
+        client: c?.client || c?.client_name || '',
+        display: c?.display || c?.campaign_name || '',
+        vendor_name: c?.vendor_name || '',
+        start_date: c?.start_date || '',
+        end_date: c?.end_date || '',
+        days: c?.days || (c?.start_date && c?.end_date ? Math.max(1, Math.round((new Date(c.end_date) - new Date(c.start_date)) / 86400000) + 1) : (c ? 30 : '')),
+        advt_fees: Number(c?.advt_fees || 0),
+        printing_mounting_cost: Number(c?.printing_mounting_cost || (Number(c?.printing_cost || 0) + Number(c?.mounting_cost || 0))),
+        total_amount: Number(c?.total_amount || c?.revenue || 0),
+        po: c?.po || '',
+        bill: c?.bill || c?.invoice_no || '',
+        pending: Number(c?.pending || 0),
+        parent_campaign: c?.parent_campaign || '',
+        notes: c?.notes || ''
+      };
     });
-  }, [siteMasterList, siteStatusFilter, search]);
-
-  // Counts for Site Directory
-  const siteOccupiedCount = useMemo(() => {
-    return siteMasterList.filter(s => s.status === 'occupied' || s.status === 'upcoming').length;
   }, [siteMasterList]);
 
-  const siteVacantCount = siteMasterList.length - siteOccupiedCount;
-
-  // Occupancy metrics across campaigns
-  const occupiedCount = useMemo(() => {
-    return rows.filter(r => {
-      const occ = getCampaignOccupancy(r);
-      return occ.status === 'occupied' || occ.status === 'upcoming';
-    }).length;
-  }, [rows]);
-
-  const occupancyRate = siteMasterList.length > 0 ? Math.round((siteOccupiedCount / siteMasterList.length) * 100) : 0;
-
-  const months = Array.from(new Set(rows.map(r => r.month).filter(Boolean)));
-  const totalAmountSum = rows.reduce((acc, r) => acc + Number(r.total_amount || r.revenue || 0), 0);
-  const totalAdvtFeesSum = rows.reduce((acc, r) => acc + Number(r.advt_fees || 0), 0);
-  const totalPendingSum = rows.reduce((acc, r) => acc + Number(r.pending || 0), 0);
+  // Counts & metrics
+  const totalSites = siteMasterList.length;
+  const occupiedSitesCount = useMemo(() => latestSiteCampaigns.filter(x => x.siteStatus === 'occupied').length, [latestSiteCampaigns]);
+  const upcomingSitesCount = useMemo(() => latestSiteCampaigns.filter(x => x.siteStatus === 'upcoming').length, [latestSiteCampaigns]);
+  const vacantSitesCount = useMemo(() => latestSiteCampaigns.filter(x => x.siteStatus === 'vacant').length, [latestSiteCampaigns]);
+  const occupancyRate = totalSites > 0 ? Math.round((occupiedSitesCount / totalSites) * 100) : 0;
+  const latestRevenueSum = useMemo(() => latestSiteCampaigns.reduce((sum, x) => sum + x.total_amount, 0), [latestSiteCampaigns]);
+  const latestPendingSum = useMemo(() => latestSiteCampaigns.reduce((sum, x) => sum + x.pending, 0), [latestSiteCampaigns]);
 
   function handleSort(key) {
     setSortState(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   }
 
-  // Filtered campaigns for All Campaigns view
-  const filtered = useMemo(() => {
-    const list = rows.filter(r => {
+  // Filtered and sorted latest site bookings list
+  const filteredLatest = useMemo(() => {
+    const list = latestSiteCampaigns.filter(item => {
+      if (statusFilter === 'occupied' && item.siteStatus !== 'occupied') return false;
+      if (statusFilter === 'upcoming' && item.siteStatus !== 'upcoming') return false;
+      if (statusFilter === 'vacant' && item.siteStatus !== 'vacant') return false;
+      if (statusFilter === 'pending' && item.pending <= 0) return false;
+
+      if (!search.trim()) return true;
       const q = search.trim().toLowerCase();
-      let matchesSearch = !q;
-      if (q) {
-        matchesSearch = [
-          r.site_code,
-          r.client,
-          r.client_name,
-          r.display,
-          r.campaign_name,
-          r.vendor_name,
-          r.location,
-          r.size,
-          r.type,
-          r.month,
-          r.po,
-          r.bill,
-          r.notes
-        ].some(v => String(v || '').toLowerCase().includes(q));
-      }
-
-      const matchesMonth = monthFilter === 'ALL' || r.month === monthFilter;
-      const matchesStatus = statusFilter === 'ALL' ? true :
-        statusFilter === 'Pending' ? Number(r.pending || 0) > 0 :
-        statusFilter === 'Cleared' ? Number(r.pending || 0) === 0 : true;
-
-      return matchesSearch && matchesMonth && matchesStatus;
+      return (
+        item.site_code.toLowerCase().includes(q) ||
+        item.location.toLowerCase().includes(q) ||
+        item.city.toLowerCase().includes(q) ||
+        item.size.toLowerCase().includes(q) ||
+        item.type.toLowerCase().includes(q) ||
+        item.client.toLowerCase().includes(q) ||
+        item.display.toLowerCase().includes(q) ||
+        item.vendor_name.toLowerCase().includes(q) ||
+        item.month.toLowerCase().includes(q) ||
+        item.po.toLowerCase().includes(q) ||
+        item.bill.toLowerCase().includes(q)
+      );
     });
 
     if (sortState.key) {
@@ -5655,8 +6055,8 @@ function CampaignTrackerView() {
         let valA = a[sortState.key];
         let valB = b[sortState.key];
         if (sortState.key === 'occupancy') {
-          valA = getCampaignOccupancy(a).pct ?? 0;
-          valB = getCampaignOccupancy(b).pct ?? 0;
+          valA = a.occupancy?.pct ?? 0;
+          valB = b.occupancy?.pct ?? 0;
         } else if (['advt_fees', 'printing_mounting_cost', 'total_amount', 'pending', 'days', 'width', 'height'].includes(sortState.key)) {
           valA = Number(valA || 0);
           valB = Number(valB || 0);
@@ -5664,21 +6064,13 @@ function CampaignTrackerView() {
         return universalCompare(valA, valB, sortState.dir);
       });
     } else {
-      list.sort((a, b) => {
-        const siteA = String(a.site_code || '');
-        const siteB = String(b.site_code || '');
-        if (siteA && siteB) {
-          const comp = siteA.localeCompare(siteB, undefined, { numeric: true, sensitivity: 'base' });
-          if (comp !== 0) return comp;
-        } else if (siteA) return -1;
-        else if (siteB) return 1;
-        return new Date(b.booking_date || b.start_date || 0) - new Date(a.booking_date || a.start_date || 0);
-      });
+      list.sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
     }
     return list;
-  }, [rows, search, monthFilter, statusFilter, sortState]);
+  }, [latestSiteCampaigns, statusFilter, search, sortState]);
 
   function toggleSelect(id) {
+    if (!id) return;
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -5688,25 +6080,25 @@ function CampaignTrackerView() {
   }
 
   function toggleSelectAll() {
-    const visibleIds = filtered.map(r => r.id).filter(Boolean);
-    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+    const visibleCampaignIds = filteredLatest.map(r => r.campaign_id).filter(Boolean);
+    const allSelected = visibleCampaignIds.length > 0 && visibleCampaignIds.every(id => selectedIds.has(id));
     if (allSelected) {
       setSelectedIds(prev => {
         const next = new Set(prev);
-        visibleIds.forEach(id => next.delete(id));
+        visibleCampaignIds.forEach(id => next.delete(id));
         return next;
       });
     } else {
       setSelectedIds(prev => {
         const next = new Set(prev);
-        visibleIds.forEach(id => next.add(id));
+        visibleCampaignIds.forEach(id => next.add(id));
         return next;
       });
     }
   }
 
   function selectAllVisible() {
-    setSelectedIds(new Set(filtered.map(r => r.id).filter(Boolean)));
+    setSelectedIds(new Set(filteredLatest.map(r => r.campaign_id).filter(Boolean)));
   }
 
   function deselectAll() {
@@ -5872,26 +6264,37 @@ function CampaignTrackerView() {
     }
   }
 
-  function renderCampaignRow(r) {
-    const isPending = Number(r.pending || 0) > 0;
+  function renderLatestSiteRow(item) {
+    const isPending = item.pending > 0;
+    const isBooked = item.siteStatus === 'occupied';
+    const isUpcoming = item.siteStatus === 'upcoming';
+    const statusBg = isBooked ? 'rgba(34, 197, 94, 0.16)' : isUpcoming ? 'rgba(234, 179, 8, 0.16)' : 'rgba(148, 163, 184, 0.12)';
+    const statusColor = isBooked ? '#4ade80' : isUpcoming ? '#facc15' : '#94a3b8';
+    const statusBorder = isBooked ? 'rgba(34, 197, 94, 0.35)' : isUpcoming ? 'rgba(234, 179, 8, 0.35)' : 'rgba(148, 163, 184, 0.25)';
+
     return (
-      <tr key={r.id}>
+      <tr key={item.site_code}>
         {canDelete && (
           <td style={{ textAlign: 'center', padding: '10px 8px' }}>
-            <input
-              type="checkbox"
-              checked={selectedIds.has(r.id)}
-              onChange={() => toggleSelect(r.id)}
-              style={{ cursor: 'pointer' }}
-            />
+            {item.campaign_id ? (
+              <input
+                type="checkbox"
+                checked={selectedIds.has(item.campaign_id)}
+                onChange={() => toggleSelect(item.campaign_id)}
+                style={{ cursor: 'pointer' }}
+                title={`Select latest campaign on ${item.site_code}`}
+              />
+            ) : (
+              <span style={{ color: '#475569', fontSize: '11px' }}>—</span>
+            )}
           </td>
         )}
         <td>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <span className="scooh-plate" style={{ fontSize: '11.5px', fontWeight: 800 }}>
-              {r.site_code || '—'}
+            <span className="scooh-plate" style={{ fontSize: '12px', fontWeight: 800 }}>
+              {item.site_code}
             </span>
-            {String(r.parent_campaign || '').startsWith('LINKED:') ? (
+            {String(item.parent_campaign || '').startsWith('LINKED:') ? (
               <span
                 style={{
                   fontSize: '10px',
@@ -5902,179 +6305,191 @@ function CampaignTrackerView() {
                   border: '1px solid rgba(245,158,11,0.4)',
                   fontWeight: 700
                 }}
-                title={r.notes || 'Auto-booked linked entry'}
+                title={item.notes || 'Auto-booked linked entry'}
               >
                 🔗 Linked
               </span>
-            ) : getSiteTypeTag(r.site_code) !== 'Single' && (
+            ) : getSiteTypeTag(item.site_code) !== 'Single' && (
               <span
                 style={{
                   fontSize: '10px',
                   padding: '1px 5px',
                   borderRadius: '4px',
-                  background: getSiteTypeTag(r.site_code) === 'Combined' ? 'rgba(168,85,247,0.2)' : 'rgba(56,189,248,0.2)',
-                  color: getSiteTypeTag(r.site_code) === 'Combined' ? '#c084fc' : '#38bdf8',
+                  background: getSiteTypeTag(item.site_code) === 'Combined' ? 'rgba(168,85,247,0.2)' : 'rgba(56,189,248,0.2)',
+                  color: getSiteTypeTag(item.site_code) === 'Combined' ? '#c084fc' : '#38bdf8',
                   fontWeight: 700
                 }}
-                title={getConflictSummary(r.site_code)?.message || ''}
+                title={getConflictSummary(item.site_code)?.message || ''}
               >
-                {getSiteTypeTag(r.site_code)}
+                {getSiteTypeTag(item.site_code)}
               </span>
             )}
           </div>
         </td>
         <td style={{ color: '#cbd5e1', fontSize: '12px', fontWeight: 600 }}>
-          <span style={{ padding: '2px 8px', borderRadius: '5px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.25)', color: '#38bdf8' }}>
-            {r.month || (r.start_date ? new Date(r.start_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—')}
+          {item.month ? (
+            <span style={{ padding: '2px 8px', borderRadius: '5px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.25)', color: '#38bdf8' }}>
+              {item.month}
+            </span>
+          ) : (
+            <span style={{ color: '#64748b' }}>—</span>
+          )}
+        </td>
+        <td>
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            padding: '3px 9px',
+            borderRadius: '6px',
+            background: statusBg,
+            color: statusColor,
+            border: `1px solid ${statusBorder}`,
+            fontSize: '11.5px',
+            fontWeight: 800,
+            whiteSpace: 'nowrap'
+          }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }} />
+            {isBooked ? 'Occupied' : isUpcoming ? 'Upcoming' : 'Vacant'}
           </span>
         </td>
-        <td>
-          {(() => {
-            const occ = getCampaignOccupancy(r);
-            const bg = occ.status === 'occupied' ? 'rgba(34, 197, 94, 0.16)' :
-                       occ.status === 'upcoming' ? 'rgba(234, 179, 8, 0.16)' :
-                       occ.status === 'partial'  ? 'rgba(56, 189, 248, 0.16)' : 'rgba(148, 163, 184, 0.12)';
-            const color = occ.status === 'occupied' ? '#4ade80' :
-                         occ.status === 'upcoming' ? '#facc15' :
-                         occ.status === 'partial'  ? '#38bdf8' : '#94a3b8';
-            const border = occ.status === 'occupied' ? 'rgba(34, 197, 94, 0.35)' :
-                          occ.status === 'upcoming' ? 'rgba(234, 179, 8, 0.35)' :
-                          occ.status === 'partial'  ? 'rgba(56, 189, 248, 0.35)' : 'rgba(148, 163, 184, 0.25)';
-            return (
-              <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '2px' }}>
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  padding: '3px 9px',
-                  borderRadius: '6px',
-                  background: bg,
-                  color: color,
-                  border: `1px solid ${border}`,
-                  fontSize: '11.5px',
-                  fontWeight: 800,
-                  whiteSpace: 'nowrap'
-                }}>
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: color }} />
-                  {occ.label}
-                </span>
-                {occ.sub && (
-                  <span style={{ fontSize: '10px', color: '#64748b', fontWeight: 600 }}>
-                    {occ.sub}
-                  </span>
-                )}
-              </div>
-            );
-          })()}
-        </td>
         <td style={{ color: '#94a3b8', fontSize: '11.5px' }}>
-          {formatDate(r.booking_date || r.date)}
+          {formatDate(item.booking_date) || '—'}
         </td>
         <td>
-          <div style={{ fontWeight: 800, color: '#ffffff', fontSize: '13px' }}>
-            {r.client || r.client_name || '—'}
-          </div>
+          {item.client ? (
+            <div style={{ fontWeight: 800, color: '#ffffff', fontSize: '13px' }}>
+              {item.client}
+            </div>
+          ) : (
+            <span style={{ color: '#64748b', fontSize: '12px', fontStyle: 'italic' }}>
+              — Ready for Booking —
+            </span>
+          )}
         </td>
         <td>
-          <div style={{ color: '#38bdf8', fontWeight: 600, fontSize: '12.5px' }}>
-            {r.display || r.campaign_name || '—'}
-          </div>
+          {item.display ? (
+            <div style={{ color: '#38bdf8', fontWeight: 600, fontSize: '12.5px' }}>
+              📢 {item.display}
+            </div>
+          ) : (
+            <span style={{ color: '#64748b' }}>—</span>
+          )}
         </td>
         <td style={{ color: '#cbd5e1', fontSize: '12px' }}>
-          {r.vendor_name || '—'}
+          {item.vendor_name || '—'}
         </td>
         <td>
-          <div style={{ color: '#edf2f6', fontSize: '12px', lineHeight: 1.35 }}>
-            {r.location || '—'}
+          <div style={{ color: '#edf2f6', fontSize: '12px', lineHeight: 1.35, fontWeight: 600 }}>
+            {item.location || '—'}
           </div>
+          {item.city && (
+            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+              📍 {item.city}
+            </div>
+          )}
         </td>
         <td style={{ textAlign: 'center', color: '#94a3b8', fontSize: '11.5px' }}>
-          {r.width || '—'}
+          {item.width || '—'}
         </td>
         <td style={{ textAlign: 'center', color: '#94a3b8', fontSize: '11.5px' }}>
-          {r.height || '—'}
+          {item.height || '—'}
         </td>
         <td style={{ color: '#e2e8f0', fontSize: '12px', fontWeight: 600 }}>
-          {r.size || (r.width && r.height ? `${r.width}x${r.height} ft` : '—')}
+          {item.size || '—'}
         </td>
         <td>
           <span className="scooh-badgechip" style={{ background: 'rgba(56,189,248,0.14)', color: '#38bdf8', fontSize: '11px', fontWeight: 700 }}>
-            {r.type || 'Hoarding'}
+            {item.type}
           </span>
         </td>
         <td style={{ fontSize: '11.5px', color: '#94a3b8' }}>
-          {formatDate(r.start_date)}
+          {formatDate(item.start_date) || '—'}
         </td>
         <td style={{ fontSize: '11.5px', color: '#94a3b8' }}>
-          {formatDate(r.end_date)}
+          {formatDate(item.end_date) || (item.start_date ? 'Ongoing' : '—')}
         </td>
         <td style={{ textAlign: 'center', fontWeight: 700, color: '#e2e8f0', fontSize: '12px' }}>
-          {r.days ?? '30'}
+          {item.days ? `${item.days}d` : '—'}
         </td>
         <td style={{ textAlign: 'right', fontWeight: 600, color: '#e2e8f0', fontSize: '12.5px' }}>
-          {String(r.parent_campaign || '').startsWith('LINKED:') ? (
+          {String(item.parent_campaign || '').startsWith('LINKED:') ? (
             <span style={{ color: '#94a3b8', fontSize: '11.5px', fontStyle: 'italic' }}>—</span>
+          ) : item.advt_fees > 0 ? (
+            money(item.advt_fees)
           ) : (
-            money(r.advt_fees || 0)
+            '—'
           )}
         </td>
         <td style={{ textAlign: 'right', fontWeight: 600, color: '#e2e8f0', fontSize: '12.5px' }}>
-          {String(r.parent_campaign || '').startsWith('LINKED:') ? (
+          {String(item.parent_campaign || '').startsWith('LINKED:') ? (
             <span style={{ color: '#94a3b8', fontSize: '11.5px', fontStyle: 'italic' }}>—</span>
+          ) : item.printing_mounting_cost > 0 ? (
+            money(item.printing_mounting_cost)
           ) : (
-            money(r.printing_mounting_cost || (Number(r.printing_cost || 0) + Number(r.mounting_cost || 0)))
+            '—'
           )}
         </td>
         <td style={{ textAlign: 'right', fontWeight: 800, color: '#4ade80', fontSize: '13px' }}>
-          {String(r.parent_campaign || '').startsWith('LINKED:') ? (
+          {String(item.parent_campaign || '').startsWith('LINKED:') ? (
             <span style={{ color: '#94a3b8', fontSize: '11.5px', fontStyle: 'italic', fontWeight: 600 }} title="Covered under primary booking">
               Covered
             </span>
+          ) : item.total_amount > 0 ? (
+            money(item.total_amount)
           ) : (
-            money(r.total_amount || r.revenue || 0)
+            '—'
           )}
         </td>
         <td>
-          {r.po ? <span className="scooh-plate" style={{ fontSize: '11px' }}>{r.po}</span> : '—'}
+          {item.po ? <span className="scooh-plate" style={{ fontSize: '11px' }}>{item.po}</span> : '—'}
         </td>
         <td>
-          {r.bill || r.invoice_no ? <span style={{ color: '#93c5fd', fontSize: '11px' }}>{r.bill || r.invoice_no}</span> : '—'}
+          {item.bill ? <span style={{ color: '#93c5fd', fontSize: '11px' }}>{item.bill}</span> : '—'}
         </td>
         <td style={{ textAlign: 'right', fontWeight: 700, color: isPending ? '#f87171' : '#94a3b8', fontSize: '12.5px' }}>
-          {money(r.pending || 0)}
+          {item.pending > 0 ? money(item.pending) : item.total_amount > 0 ? <span style={{ color: '#4ade80', fontSize: '11px' }}>₹0</span> : '—'}
         </td>
         <td>
-          <div className="scooh-rowactions" style={{ justifyContent: 'center' }}>
-            {String(r.parent_campaign || '').startsWith('LINKED:') ? (
+          <div className="scooh-rowactions" style={{ justifyContent: 'center', gap: '5px' }}>
+            {canAdd && (
               <button
                 type="button"
-                className="scooh-iconbtn scooh-text-action"
-                style={{ color: '#fbbf24', borderColor: 'rgba(245,158,11,0.4)' }}
-                onClick={() => {
-                  const parentId = Number(r.parent_campaign.replace('LINKED:', ''));
-                  const parentRow = rows.find(x => x.id === parentId);
-                  openEditCampaign(parentRow || r);
-                }}
-                title="Jump to Primary Booking"
+                className="scooh-btn purple-btn"
+                style={{ fontSize: '11px', padding: '3px 8px', borderRadius: '5px' }}
+                onClick={() => openNewCampaign(item.site_code)}
+                title={`Book new campaign for ${item.site_code}`}
               >
-                Primary ↗
+                + Book
               </button>
-            ) : (
+            )}
+            {item.campaign && canEdit && (
               <button
                 type="button"
                 className="scooh-iconbtn scooh-text-action"
-                onClick={() => openEditCampaign(r)}
-                title={isReadOnly ? 'View Campaign Details' : 'Edit Campaign'}
+                style={{ fontSize: '11px', padding: '3px 8px' }}
+                onClick={() => openEditCampaign(item.campaign)}
+                title="Edit latest campaign"
               >
                 {isReadOnly ? 'View' : 'Edit'}
               </button>
             )}
-            {canDelete && (
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              style={{ fontSize: '11px', padding: '3px 8px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}
+              onClick={() => navigate(`/occupancy?site=${encodeURIComponent(item.site_code)}`)}
+              title={`View all ${item.campaignCount} historical bookings for ${item.site_code} in Occupancy`}
+            >
+              History ↗{item.campaignCount > 0 ? ` (${item.campaignCount})` : ''}
+            </button>
+            {canDelete && item.campaign_id && (
               <button
                 type="button"
                 className="scooh-iconbtn danger-icon"
-                onClick={() => deleteRecord(r.id)}
-                title={String(r.parent_campaign || '').startsWith('LINKED:') ? "Remove linked campaign" : "Delete Campaign"}
+                style={{ fontSize: '11px', padding: '3px 6px' }}
+                onClick={() => deleteRecord(item.campaign_id)}
+                title="Delete this campaign record"
               >
                 ×
               </button>
@@ -6096,7 +6511,7 @@ function CampaignTrackerView() {
             Campaign Tracker
           </h1>
           <p style={{ margin: '6px 0 0', color: '#94a3b8', fontSize: '13px' }}>
-            Live outdoor campaigns, client billing, vendor assignments, and pending payment tracking.
+            Live outdoor campaigns, latest client billing, and real-time site occupancy.
           </p>
         </div>
         <div className="scooh-headactions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -6109,11 +6524,11 @@ function CampaignTrackerView() {
               <input type="file" accept=".xlsx,.xls,.csv,.xlsm,.ods" hidden disabled={importingExcel} onChange={handleCampaignsExcelImport} />
             </label>
           )}
-          <button type="button" className="scooh-btn ghost" onClick={() => exportCampaignsExcel(filtered)}>
+          <button type="button" className="scooh-btn ghost" onClick={() => exportCampaignsExcel(filteredLatest, 'MediaBuzz_Campaign_Tracker.xlsx')}>
             📥 Export Excel
           </button>
           {canAdd && (
-            <button type="button" className="scooh-btn purple-btn" onClick={openNewCampaign}>
+            <button type="button" className="scooh-btn purple-btn" onClick={() => openNewCampaign()}>
               + Add Campaign
             </button>
           )}
@@ -6137,23 +6552,23 @@ function CampaignTrackerView() {
         <div 
           className={`scooh-kpi ${occupancyRate >= 75 ? 'good' : occupancyRate >= 50 ? 'alert' : 'danger'}`}
           style={{ cursor: 'pointer' }}
-          onClick={() => { setTimeView('sitewise'); setSiteStatusFilter(prev => prev === 'occupied' ? 'ALL' : 'occupied'); }}
+          onClick={() => setStatusFilter(prev => prev === 'occupied' ? 'ALL' : 'occupied')}
           title="Click to toggle occupied sites"
         >
           <div className="n">{occupancyRate}%</div>
           <div className="l">Occupancy Rate</div>
           <div className="scooh-kpi-note" style={{ color: occupancyRate >= 75 ? '#4ade80' : '#fbbf24' }}>
-            {siteOccupiedCount} of {siteMasterList.length} sites occupied
+            {occupiedSitesCount} of {totalSites} sites occupied
           </div>
         </div>
 
         <div 
           className="scooh-kpi good"
           style={{ cursor: 'pointer' }}
-          onClick={() => { setTimeView('sitewise'); setSiteStatusFilter(prev => prev === 'vacant' ? 'ALL' : 'vacant'); }}
+          onClick={() => setStatusFilter(prev => prev === 'vacant' ? 'ALL' : 'vacant')}
           title="Click to view vacant sites ready for booking"
         >
-          <div className="n" style={{ color: siteVacantCount > 0 ? '#fbbf24' : '#4ade80' }}>{siteVacantCount}</div>
+          <div className="n" style={{ color: vacantSitesCount > 0 ? '#fbbf24' : '#4ade80' }}>{vacantSitesCount}</div>
           <div className="l">Vacant Sites</div>
           <div className="scooh-kpi-note" style={{ color: '#94a3b8' }}>Available for new campaigns</div>
         </div>
@@ -6161,24 +6576,24 @@ function CampaignTrackerView() {
         <div 
           className="scooh-kpi good"
           style={{ cursor: 'pointer' }}
-          onClick={() => setTimeView('all')}
-          title="Click to view all campaign entries"
+          onClick={() => setStatusFilter('ALL')}
+          title="Click to view all sites"
         >
-          <div className="n">{money(totalAmountSum)}</div>
-          <div className="l">Total Campaign Amount</div>
-          <div className="scooh-kpi-note" style={{ color: '#4ade80' }}>{rows.length} total campaigns</div>
+          <div className="n">{money(latestRevenueSum)}</div>
+          <div className="l">Current Campaign Revenue</div>
+          <div className="scooh-kpi-note" style={{ color: '#4ade80' }}>{occupiedSitesCount + upcomingSitesCount} active / upcoming bookings</div>
         </div>
 
         <div 
-          className={`scooh-kpi ${totalPendingSum > 0 ? 'danger' : 'good'}`}
+          className={`scooh-kpi ${latestPendingSum > 0 ? 'danger' : 'good'}`}
           style={{ cursor: 'pointer' }}
-          onClick={() => { setTimeView('all'); setStatusFilter(prev => prev === 'Pending' ? 'ALL' : 'Pending'); }}
+          onClick={() => setStatusFilter(prev => prev === 'pending' ? 'ALL' : 'pending')}
           title="Click to filter pending payments"
         >
-          <div className="n">{money(totalPendingSum)}</div>
+          <div className="n">{money(latestPendingSum)}</div>
           <div className="l">Total Pending Amount</div>
-          <div className="scooh-kpi-note" style={{ color: totalPendingSum > 0 ? '#ef4444' : '#4ade80' }}>
-            {totalPendingSum > 0 ? `${rows.filter(r => Number(r.pending || 0) > 0).length} pending` : 'All cleared'}
+          <div className="scooh-kpi-note" style={{ color: latestPendingSum > 0 ? '#ef4444' : '#4ade80' }}>
+            {latestPendingSum > 0 ? `${latestSiteCampaigns.filter(r => r.pending > 0).length} pending sites` : 'All cleared'}
           </div>
         </div>
       </div>
@@ -6188,16 +6603,22 @@ function CampaignTrackerView() {
         <div className="scooh-sectionbar" style={{ padding: '14px 20px' }}>
           <div>
             <h2 style={{ fontSize: '16px', fontWeight: 800, color: '#f8fafc', margin: 0 }}>
-              {timeView === 'sitewise' ? 'Site Directory & Occupancy' : 'All Outdoor Campaigns'}
+              Live Sites & Latest Campaigns
             </h2>
             <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#94a3b8' }}>
-              {timeView === 'sitewise'
-                ? `Showing ${filteredSiteList.length} of ${siteMasterList.length} sites · Click "+ Book" on any site or "History" to view bookings.`
-                : `Showing ${filtered.length} of ${rows.length} campaign records with billing & PO details.`
-              }
+              Showing latest booking per site ({filteredLatest.length} of {totalSites} sites). To see full previous booking records, visit Occupancy.
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={() => navigate('/occupancy')}
+              style={{ fontSize: '12px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}
+              title="Open full booking history ledger in Occupancy"
+            >
+              📋 All Previous Bookings (Occupancy) ↗
+            </button>
             {canAdd && (
               <button type="button" className="scooh-btn purple-btn" onClick={() => openNewCampaign()}>
                 + Add Campaign
@@ -6209,160 +6630,125 @@ function CampaignTrackerView() {
         {/* Clean, Unified Single Toolbar */}
         <div className="scooh-toolbar" style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
           
-          {/* Left: View Mode Toggle & Status / Month Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', flex: '1 1 auto' }}>
+          {/* Left: Status Filter Pills & Live Search */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: '1 1 auto' }}>
             
-            {/* View Mode Toggle: 2 Clean Options */}
-            <div style={{ display: 'inline-flex', gap: '4px', background: 'rgba(15, 23, 42, 0.7)', padding: '3px', borderRadius: '24px', border: '1px solid #1e293b' }}>
+            <div style={{ display: 'inline-flex', gap: '4px', background: 'rgba(15, 23, 42, 0.7)', padding: '3px', borderRadius: '20px', border: '1px solid #1e293b' }}>
               <button
                 type="button"
-                onClick={() => setTimeView('sitewise')}
+                onClick={() => setStatusFilter('ALL')}
                 style={{
-                  padding: '6px 16px',
-                  borderRadius: '20px',
+                  padding: '5px 12px',
+                  borderRadius: '16px',
                   border: 'none',
-                  background: timeView === 'sitewise' ? 'rgba(167, 139, 250, 0.22)' : 'transparent',
-                  color: timeView === 'sitewise' ? '#c4b5fd' : '#94a3b8',
-                  fontWeight: timeView === 'sitewise' ? 800 : 600,
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px'
+                  background: statusFilter === 'ALL' ? 'rgba(167, 139, 250, 0.22)' : 'transparent',
+                  color: statusFilter === 'ALL' ? '#c4b5fd' : '#94a3b8',
+                  fontWeight: statusFilter === 'ALL' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
                 }}
               >
-                <span>🏢</span>
-                <span>By Site ({siteMasterList.length})</span>
+                All Sites ({totalSites})
               </button>
               <button
                 type="button"
-                onClick={() => setTimeView('all')}
+                onClick={() => setStatusFilter('occupied')}
                 style={{
-                  padding: '6px 16px',
-                  borderRadius: '20px',
+                  padding: '5px 12px',
+                  borderRadius: '16px',
                   border: 'none',
-                  background: timeView === 'all' ? 'rgba(56, 189, 248, 0.22)' : 'transparent',
-                  color: timeView === 'all' ? '#38bdf8' : '#94a3b8',
-                  fontWeight: timeView === 'all' ? 800 : 600,
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px'
+                  background: statusFilter === 'occupied' ? 'rgba(34, 197, 94, 0.2)' : 'transparent',
+                  color: statusFilter === 'occupied' ? '#4ade80' : '#94a3b8',
+                  fontWeight: statusFilter === 'occupied' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
                 }}
               >
-                <span>📋</span>
-                <span>All Campaigns ({rows.length})</span>
+                🟢 Occupied ({occupiedSitesCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('upcoming')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: statusFilter === 'upcoming' ? 'rgba(234, 179, 8, 0.2)' : 'transparent',
+                  color: statusFilter === 'upcoming' ? '#facc15' : '#94a3b8',
+                  fontWeight: statusFilter === 'upcoming' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                🟡 Upcoming ({upcomingSitesCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('vacant')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: statusFilter === 'vacant' ? 'rgba(148, 163, 184, 0.2)' : 'transparent',
+                  color: statusFilter === 'vacant' ? '#e2e8f0' : '#94a3b8',
+                  fontWeight: statusFilter === 'vacant' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                ⚪ Vacant ({vacantSitesCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('pending')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: statusFilter === 'pending' ? 'rgba(239, 68, 68, 0.2)' : 'transparent',
+                  color: statusFilter === 'pending' ? '#f87171' : '#94a3b8',
+                  fontWeight: statusFilter === 'pending' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                ⚠️ Pending ({latestSiteCampaigns.filter(x => x.pending > 0).length})
               </button>
             </div>
-
-            {/* Quick Status Pills (When on By Site) */}
-            {timeView === 'sitewise' && (
-              <div style={{ display: 'inline-flex', gap: '5px', background: 'rgba(15, 23, 42, 0.6)', padding: '3px', borderRadius: '18px', border: '1px solid #1e293b' }}>
-                <button
-                  type="button"
-                  onClick={() => setSiteStatusFilter('ALL')}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: '14px',
-                    border: 'none',
-                    background: siteStatusFilter === 'ALL' ? 'rgba(255, 255, 255, 0.12)' : 'transparent',
-                    color: siteStatusFilter === 'ALL' ? '#fff' : '#94a3b8',
-                    fontWeight: siteStatusFilter === 'ALL' ? 800 : 600,
-                    fontSize: '11px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSiteStatusFilter('occupied')}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: '14px',
-                    border: 'none',
-                    background: siteStatusFilter === 'occupied' ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
-                    color: siteStatusFilter === 'occupied' ? '#4ade80' : '#94a3b8',
-                    fontWeight: siteStatusFilter === 'occupied' ? 800 : 600,
-                    fontSize: '11px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  🟢 Booked ({siteOccupiedCount})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSiteStatusFilter('vacant')}
-                  style={{
-                    padding: '4px 10px',
-                    borderRadius: '14px',
-                    border: 'none',
-                    background: siteStatusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.2)' : 'transparent',
-                    color: siteStatusFilter === 'vacant' ? '#fbbf24' : '#94a3b8',
-                    fontWeight: siteStatusFilter === 'vacant' ? 800 : 600,
-                    fontSize: '11px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  ⚪ Vacant ({siteVacantCount})
-                </button>
-              </div>
-            )}
-
-            {/* Month Filter Dropdown (When on All Campaigns) */}
-            {timeView === 'all' && (
-              <select
-                value={monthFilter}
-                onChange={e => setMonthFilter(e.target.value)}
-                style={{ padding: '6px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
-                title="Filter by campaign month"
-              >
-                <option value="ALL">All Months</option>
-                {months.map(m => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            )}
-
-            {/* Payment Filter Dropdown (When on All Campaigns) */}
-            {timeView === 'all' && (
-              <select
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value)}
-                style={{ padding: '6px 12px', borderRadius: '8px', background: '#111925', color: '#e2e8f0', border: '1px solid #334155', fontSize: '12px' }}
-                title="Filter by payment clearance"
-              >
-                <option value="ALL">All Payments</option>
-                <option value="Pending">Pending Payment</option>
-                <option value="Cleared">Cleared (₹0)</option>
-              </select>
-            )}
 
             {/* Search Input */}
             <input
               className="scooh-search"
-              style={{ minWidth: '180px', maxWidth: '280px', fontSize: '12px' }}
-              placeholder={timeView === 'sitewise' ? 'Search site, location, client…' : 'Search campaigns, PO, Bill…'}
+              style={{ minWidth: '220px', maxWidth: '320px', fontSize: '12px' }}
+              placeholder="Search site, location, client, display, PO, Bill…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
 
-            {(search || siteStatusFilter !== 'ALL' || monthFilter !== 'ALL' || statusFilter !== 'ALL') && (
+            {(search || statusFilter !== 'ALL') && (
               <button
                 type="button"
                 className="scooh-btn ghost"
                 style={{ fontSize: '11px', padding: '5px 9px' }}
                 onClick={() => {
                   setSearch('');
-                  setSiteStatusFilter('ALL');
-                  setMonthFilter('ALL');
                   setStatusFilter('ALL');
                   setSiteQueryParam('');
                   navigate('/campaigns', { replace: true });
                 }}
               >
                 ✕ Reset
+              </button>
+            )}
+
+            {canDelete && selectedIds.size > 0 && (
+              <button
+                type="button"
+                className="scooh-btn danger"
+                style={{ fontSize: '11.5px', padding: '5px 12px' }}
+                onClick={handleBatchDelete}
+              >
+                🗑 Delete Selected ({selectedIds.size})
               </button>
             )}
           </div>
@@ -6372,28 +6758,7 @@ function CampaignTrackerView() {
             <button
               type="button"
               className="scooh-btn ghost"
-              onClick={() => {
-                if (timeView === 'sitewise') {
-                  const exportRows = filteredSiteList.map(s => ({
-                    site_code: s.code,
-                    location: s.location,
-                    city: s.city,
-                    size: s.size,
-                    type: s.type,
-                    status: s.status.toUpperCase(),
-                    client: s.currentCampaign?.client || 'Vacant',
-                    display: s.currentCampaign?.display || '—',
-                    start_date: s.currentCampaign?.start_date || '',
-                    end_date: s.currentCampaign?.end_date || '',
-                    days: s.currentCampaign?.days || '',
-                    total_amount: s.totalAmount,
-                    pending: s.totalPending
-                  }));
-                  exportCampaignsExcel(exportRows, 'MediaBuzz_Sites_Directory.xlsx');
-                } else {
-                  exportCampaignsExcel(filtered, 'MediaBuzz_Campaigns.xlsx');
-                }
-              }}
+              onClick={() => exportCampaignsExcel(filteredLatest, 'MediaBuzz_Campaign_Tracker.xlsx')}
               title="Export table to Excel"
               style={{ fontSize: '11.5px', padding: '6px 12px' }}
             >
@@ -6413,242 +6778,83 @@ function CampaignTrackerView() {
           </div>
         </div>
 
-        {timeView === 'sitewise' ? (
-          /* By Site Directory Table */
-          <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
-            <table className="scooh-table">
+        {/* Unified Latest Bookings Table with Dual Synchronized Scrollers */}
+        <div>
+          {/* Top Synchronized Scroller Bar */}
+          <div
+            ref={topScrollRef}
+            onScroll={handleTopScroll}
+            className="scooh-tablewrap"
+            style={{
+              overflowX: 'auto',
+              overflowY: 'hidden',
+              maxHeight: '14px',
+              marginBottom: '4px',
+              background: 'rgba(15, 23, 42, 0.6)',
+              borderRadius: '6px',
+              border: '1px solid rgba(255, 255, 255, 0.08)'
+            }}
+          >
+            <div style={{ width: `${tableScrollWidth}px`, height: '1px' }} />
+          </div>
+
+          {/* Bottom Primary Table & Scroller */}
+          <div ref={bottomScrollRef} onScroll={handleBottomScroll} className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
+            <table ref={tableRef} className="scooh-table" style={{ minWidth: '2200px' }}>
               <thead>
                 <tr>
-                  <th style={{ minWidth: '100px' }}>Site Code</th>
-                  <th style={{ minWidth: '180px' }}>Location & Landmark</th>
-                  <th style={{ minWidth: '110px' }}>Size & Type</th>
-                  <th style={{ minWidth: '120px' }}>Occupancy Status</th>
-                  <th style={{ minWidth: '170px' }}>Current Client & Display</th>
-                  <th style={{ minWidth: '150px' }}>Booking Dates</th>
-                  <th style={{ minWidth: '110px', textAlign: 'right' }}>Total Rev.</th>
-                  <th style={{ minWidth: '100px', textAlign: 'right' }}>Pending</th>
-                  <th style={{ minWidth: '160px', textAlign: 'center' }}>Actions</th>
+                  {canDelete && (
+                    <th style={{ width: '40px', textAlign: 'center', padding: '10px 8px' }}>
+                      <input
+                        type="checkbox"
+                        checked={filteredLatest.length > 0 && filteredLatest.some(r => r.campaign_id) && filteredLatest.filter(r => r.campaign_id).every(r => selectedIds.has(r.campaign_id))}
+                        onChange={toggleSelectAll}
+                        title="Select all visible latest campaigns"
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </th>
+                  )}
+                  <SortHeader label="Site Code" sortKey="site_code" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                  <SortHeader label="Month" sortKey="month" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
+                  <SortHeader label="Occupancy" sortKey="occupancy" currentSort={sortState} onSort={handleSort} style={{ minWidth: '135px' }} />
+                  <SortHeader label="Date" sortKey="booking_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
+                  <SortHeader label="Client/Agency Name" sortKey="client" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
+                  <SortHeader label="Display" sortKey="display" currentSort={sortState} onSort={handleSort} style={{ minWidth: '160px' }} />
+                  <SortHeader label="Vendor Name" sortKey="vendor_name" currentSort={sortState} onSort={handleSort} style={{ minWidth: '140px' }} />
+                  <SortHeader label="Location" sortKey="location" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
+                  <th style={{ width: '55px', textAlign: 'center' }}>W</th>
+                  <th style={{ width: '55px', textAlign: 'center' }}>H</th>
+                  <SortHeader label="Size" sortKey="size" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
+                  <SortHeader label="Type" sortKey="type" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                  <SortHeader label="Start Date" sortKey="start_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                  <SortHeader label="End Date" sortKey="end_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
+                  <SortHeader label="Days" sortKey="days" currentSort={sortState} onSort={handleSort} align="center" style={{ width: '70px' }} />
+                  <SortHeader label="Advt. Fees" sortKey="advt_fees" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
+                  <SortHeader label="Prod/Mount" sortKey="printing_mounting_cost" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
+                  <SortHeader label="Total" sortKey="total_amount" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '135px' }} />
+                  <SortHeader label="PO" sortKey="po" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
+                  <SortHeader label="Bill" sortKey="bill" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
+                  <SortHeader label="Pending" sortKey="pending" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '110px' }} />
+                  <th style={{ minWidth: '180px', textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredSiteList.length === 0 ? (
+                {filteredLatest.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="scooh-empty" style={{ padding: '36px 20px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No sites found</div>
+                    <td colSpan={canDelete ? 23 : 22} className="scooh-empty" style={{ padding: '36px 20px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No sites match your query</div>
                       <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
                         Try adjusting your search or status filter.
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  filteredSiteList.map(s => {
-                    const isBooked = s.status === 'occupied';
-                    const isUpcoming = s.status === 'upcoming';
-                    const statusColor = isBooked ? '#4ade80' : isUpcoming ? '#facc15' : '#94a3b8';
-                    const statusBg = isBooked ? 'rgba(34, 197, 94, 0.16)' : isUpcoming ? 'rgba(234, 179, 8, 0.16)' : 'rgba(148, 163, 184, 0.1)';
-                    const statusBorder = isBooked ? 'rgba(34, 197, 94, 0.35)' : isUpcoming ? 'rgba(234, 179, 8, 0.35)' : 'rgba(148, 163, 184, 0.2)';
-
-                    return (
-                      <tr key={s.code}>
-                        <td>
-                          <span className="scooh-plate" style={{ fontSize: '12px', fontWeight: 800 }}>
-                            {s.code}
-                          </span>
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '12.5px', lineHeight: 1.3 }}>
-                            {s.location}
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-                            📍 {s.city}
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ fontSize: '12px', color: '#e2e8f0', fontWeight: 600 }}>
-                            {s.size}
-                          </div>
-                          <span className="scooh-badgechip" style={{ fontSize: '10px', marginTop: '2px' }}>
-                            {s.type}
-                          </span>
-                        </td>
-                        <td>
-                          <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '3px 10px',
-                            borderRadius: '8px',
-                            background: statusBg,
-                            color: statusColor,
-                            border: `1px solid ${statusBorder}`,
-                            fontSize: '11.5px',
-                            fontWeight: 800,
-                            whiteSpace: 'nowrap'
-                          }}>
-                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }} />
-                            {isBooked ? 'Occupied' : isUpcoming ? 'Upcoming' : 'Vacant'}
-                          </span>
-                        </td>
-                        <td>
-                          {s.currentCampaign ? (
-                            <div>
-                              <div style={{ fontWeight: 800, color: '#ffffff', fontSize: '12.5px' }}>
-                                {s.currentCampaign.client || s.currentCampaign.client_name || '—'}
-                              </div>
-                              {s.currentCampaign.display && (
-                                <div style={{ fontSize: '11.5px', color: '#38bdf8', marginTop: '2px' }}>
-                                  📢 {s.currentCampaign.display}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span style={{ color: '#64748b', fontSize: '12px', fontStyle: 'italic' }}>
-                              — Ready for Booking —
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ fontSize: '12px', color: s.currentCampaign ? '#cbd5e1' : '#64748b' }}>
-                          {s.currentCampaign ? (
-                            <div>
-                              <span>{formatDate(s.currentCampaign.start_date || s.currentCampaign.booking_date)}</span>
-                              <span style={{ color: '#64748b', margin: '0 4px' }}>→</span>
-                              <span>{formatDate(s.currentCampaign.end_date) || 'Ongoing'}</span>
-                            </div>
-                          ) : (
-                            <span style={{ color: '#10b981', fontWeight: 600 }}>Available now</span>
-                          )}
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 800, color: s.totalAmount > 0 ? '#4ade80' : '#64748b', fontSize: '12.5px' }}>
-                          {s.totalAmount > 0 ? money(s.totalAmount) : '—'}
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, color: s.totalPending > 0 ? '#f87171' : '#64748b', fontSize: '12px' }}>
-                          {s.totalPending > 0 ? money(s.totalPending) : '—'}
-                        </td>
-                        <td>
-                          <div className="scooh-rowactions" style={{ justifyContent: 'center', gap: '6px' }}>
-                            {canAdd && (
-                              <button
-                                type="button"
-                                className="scooh-btn purple-btn"
-                                style={{ fontSize: '11px', padding: '3px 9px', borderRadius: '6px' }}
-                                onClick={() => openNewCampaign(s.code)}
-                                title={`Book new campaign for ${s.code}`}
-                              >
-                                + Book
-                              </button>
-                            )}
-                            {s.activeCampaign && canEdit && (
-                              <button
-                                type="button"
-                                className="scooh-iconbtn scooh-text-action"
-                                style={{ fontSize: '11px', padding: '3px 8px' }}
-                                onClick={() => openEditCampaign(s.activeCampaign)}
-                                title="Edit active campaign"
-                              >
-                                Edit
-                              </button>
-                            )}
-                            {s.rows.length > 0 && (
-                              <button
-                                type="button"
-                                className="scooh-btn ghost"
-                                style={{ fontSize: '11px', padding: '3px 8px', color: '#38bdf8' }}
-                                onClick={() => {
-                                  setTimeView('all');
-                                  setSearch(s.code);
-                                }}
-                                title={`View all ${s.campaignCount} campaigns for ${s.code}`}
-                              >
-                                View ({s.campaignCount})
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
+                  filteredLatest.map(item => renderLatestSiteRow(item))
                 )}
               </tbody>
             </table>
           </div>
-        ) : (
-          /* All Campaigns Table with dual scrollbars */
-          <div>
-            {/* Top Synchronized Scroller Bar */}
-            <div
-              ref={scrollRefTop}
-              className="scooh-tablewrap"
-              style={{
-                overflowX: 'auto',
-                overflowY: 'hidden',
-                maxHeight: '14px',
-                marginBottom: '4px',
-                background: 'rgba(15, 23, 42, 0.6)',
-                borderRadius: '6px',
-                border: '1px solid rgba(255, 255, 255, 0.08)'
-              }}
-            >
-              <div style={{ width: `${topScrollWidth}px`, height: '1px' }} />
-            </div>
-
-            {/* Bottom Primary Table & Scroller */}
-            <div ref={scrollRefBottom} className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
-              <table ref={tableRef} className="scooh-table" style={{ minWidth: '1850px' }}>
-                <thead>
-                  <tr>
-                    {canDelete && (
-                      <th style={{ width: '40px', textAlign: 'center', padding: '10px 8px' }}>
-                        <input
-                          type="checkbox"
-                          checked={filtered.length > 0 && filtered.every(r => selectedIds.has(r.id))}
-                          onChange={toggleSelectAll}
-                          title="Select all visible campaigns"
-                          style={{ cursor: 'pointer' }}
-                        />
-                      </th>
-                    )}
-                    <SortHeader label="Site Code" sortKey="site_code" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
-                    <SortHeader label="Month" sortKey="month" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
-                    <SortHeader label="Occupancy" sortKey="occupancy" currentSort={sortState} onSort={handleSort} style={{ minWidth: '135px' }} />
-                    <SortHeader label="Date" sortKey="booking_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
-                    <SortHeader label="Client/Agency Name" sortKey="client" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
-                    <SortHeader label="Display" sortKey="display" currentSort={sortState} onSort={handleSort} style={{ minWidth: '160px' }} />
-                    <SortHeader label="Vendor Name" sortKey="vendor_name" currentSort={sortState} onSort={handleSort} style={{ minWidth: '140px' }} />
-                    <SortHeader label="Location" sortKey="location" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
-                    <th style={{ width: '55px', textAlign: 'center' }}>W</th>
-                    <th style={{ width: '55px', textAlign: 'center' }}>H</th>
-                    <SortHeader label="Size" sortKey="size" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
-                    <SortHeader label="Type" sortKey="type" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
-                    <SortHeader label="Start Date" sortKey="start_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
-                    <SortHeader label="End Date" sortKey="end_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
-                    <SortHeader label="Days" sortKey="days" currentSort={sortState} onSort={handleSort} align="center" style={{ width: '70px' }} />
-                    <SortHeader label="Advt. Fees" sortKey="advt_fees" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
-                    <SortHeader label="Prod/Mount" sortKey="printing_mounting_cost" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
-                    <SortHeader label="Total" sortKey="total_amount" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '135px' }} />
-                    <SortHeader label="PO" sortKey="po" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
-                    <SortHeader label="Bill" sortKey="bill" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
-                    <SortHeader label="Pending" sortKey="pending" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '110px' }} />
-                    <th style={{ minWidth: '110px', textAlign: 'center' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan={canDelete ? 23 : 22} className="scooh-empty" style={{ padding: '36px 20px', textAlign: 'center' }}>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No campaigns match your query</div>
-                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                          {canAdd ? 'Click "+ Add Campaign" or "Import Excel" to load outdoor media campaigns.' : 'No active campaigns found.'}
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    filtered.map(r => renderCampaignRow(r))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Add / Edit / View Campaign Modal */}
