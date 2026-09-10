@@ -2457,26 +2457,6 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
               b.site_code, location, location, site.size || size, client, client, display,
               month, startDate, endDate, days
             ]);
-
-            // Mirror into campaigns table
-            const match = existingCampaigns.find(ec =>
-              cleanStr(ec.site_code) === cleanC &&
-              String(ec.client || '').toLowerCase() === String(client).toLowerCase() &&
-              String(ec.start_date || '').slice(0, 10) === startDate &&
-              String(ec.end_date || '').slice(0, 10) === endDate
-            );
-            if (match) {
-              await q(
-                `UPDATE campaigns SET location=?, display=?, days=?, month=?, record_status='active', updated_at=NOW() WHERE id=?`,
-                [location, display, days, month, match.id]
-              );
-            } else {
-              await q(
-                `INSERT INTO campaigns (site_id, site_code, client, display, location, start_date, end_date, booking_date, days, month, status, record_status, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'active', NOW(), NOW())`,
-                [site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month]
-              );
-            }
             newCount++;
           }
 
@@ -2713,21 +2693,6 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
           pending, po, bill, status
         ]);
 
-        // Mirror into campaigns table so Campaign Tracker and Occupancy remain 100% linked
-        try {
-          await q(`INSERT INTO campaigns (
-            site_code, client, display, location, city, size,
-            month, start_date, end_date, days, total_amount,
-            pending, po, bill, status, record_status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
-            finalSiteCode, client || 'Standard Client', display, location, city, size,
-            month, startDate, endDate, days, totalAmount,
-            pending, po, bill, status
-          ]);
-        } catch (cErr) {
-          console.warn('Could not mirror occupancy record into campaigns:', cErr.message);
-        }
-
         importedCount++;
       }
     }
@@ -2782,7 +2747,7 @@ app.get('/api/occupancy', auth, async (req, res) => {
       KEY month(month),
       KEY record_status(record_status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
-    const rows = await q(`SELECT * FROM occupancy_records ORDER BY site_code ASC, start_date DESC`);
+    const rows = await q(`SELECT * FROM occupancy_records WHERE record_status="active" ORDER BY site_code ASC, start_date DESC`);
     res.json(rows);
   } catch (err) {
     console.error('GET /api/occupancy error:', err);

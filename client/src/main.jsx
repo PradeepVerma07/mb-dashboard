@@ -4531,13 +4531,13 @@ function OccupancyView() {
     }
   }, [location.search]);
 
-  // Load sites + campaigns (shared with Campaign Tracker)
+  // Load sites + occupancy records (independent from Campaign Tracker)
   const loadSystemData = useCallback(async () => {
     setLoading(true);
     try {
       const [sRes, cRes] = await Promise.all([
         api.get('/sites'),
-        api.get('/campaigns')
+        api.get('/occupancy')
       ]);
       setDbSites(Array.isArray(sRes.data) ? sRes.data : []);
       setDbOccupancy(Array.isArray(cRes.data) ? cRes.data : []);
@@ -4559,26 +4559,15 @@ function OccupancyView() {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      // Post to /import/campaigns-xlsx (which synchronizes both campaigns and occupancy)
-      const r = await api.post('/import/campaigns-xlsx', fd, {
+      // Post exclusively to /import/occupancy-xlsx (kept completely independent from Campaign Tracker)
+      const r = await api.post('/import/occupancy-xlsx', fd, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      alert(`✓ Excel Import Successful!\n\n${r.data?.message || 'Occupancy and campaign records updated successfully.'}`);
+      alert(`✓ Occupancy Excel Import Successful!\n\n${r.data?.message || 'Occupancy records imported successfully.'}`);
       await loadSystemData();
     } catch (err) {
-      console.warn('Campaign import attempt note, trying occupancy import:', err);
-      try {
-        const fd2 = new FormData();
-        fd2.append('file', file);
-        const r2 = await api.post('/import/occupancy-xlsx', fd2, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-        alert(`✓ Excel Import Successful!\n\n${r2.data?.message || 'Occupancy records imported successfully.'}`);
-        await loadSystemData();
-      } catch (err2) {
-        console.error('Occupancy Excel import error:', err2);
-        alert('Occupancy Excel Import failed: ' + (err2.response?.data?.message || err2.message || err.response?.data?.message || err.message));
-      }
+      console.error('Occupancy Excel import error:', err);
+      alert('Occupancy Excel Import failed: ' + (err.response?.data?.message || err.message));
     } finally {
       setImportingExcel(false);
       e.target.value = '';
@@ -4917,7 +4906,7 @@ function OccupancyView() {
 
     try {
       setDeleting(true);
-      await api.post('/campaigns/batch-delete', { ids: campIds, hard: true });
+      await api.post('/occupancy/batch-delete', { ids: campIds, hard: true });
       alert(`✓ Successfully deleted ${campCount} booking record${campCount > 1 ? 's' : ''} across ${siteCount} site${siteCount > 1 ? 's' : ''}. Occupancy reset to 0% (Vacant).`);
       setSelectedSiteCodes(new Set());
       await loadSystemData();
@@ -4943,7 +4932,7 @@ function OccupancyView() {
     try {
       setDeleting(true);
       if (campIds.length > 0) {
-        await api.post('/campaigns/batch-delete', { ids: campIds, hard: true });
+        await api.post('/occupancy/batch-delete', { ids: campIds, hard: true });
       }
       if (siteIds.length > 0) {
         await api.post('/sites/batch-delete', { ids: siteIds, hard: true });
@@ -4975,7 +4964,7 @@ function OccupancyView() {
 
     try {
       setDeleting(true);
-      await api.post('/campaigns/batch-delete', { ids: allCampIds, hard: true });
+      await api.post('/occupancy/batch-delete', { ids: allCampIds, hard: true });
       alert(`✓ Successfully cleared ${count} booking record${count > 1 ? 's' : ''}. Occupancy reset to 0% (Vacant).`);
       setSelectedSiteCodes(new Set());
       await loadSystemData();
