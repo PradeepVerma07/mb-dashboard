@@ -1536,7 +1536,27 @@ function parseFlexibleExcelDate(val) {
   if (!val) return null;
   if (val instanceof Date) {
     if (isNaN(val.getTime())) return null;
-    return val.toISOString().slice(0, 10);
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof val === 'number') {
+    try {
+      if (typeof XLSX !== 'undefined' && XLSX?.SSF) {
+        const parsed = XLSX.SSF.parse_date_code(val);
+        if (parsed) {
+          return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+        }
+      }
+    } catch {}
+    const d = new Date((val - 25569) * 86400000);
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dt = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${dt}`;
+    }
   }
   let s = String(val).trim();
   if (!s) return null;
@@ -1544,7 +1564,7 @@ function parseFlexibleExcelDate(val) {
   // Don't parse site codes like MB-72 as dates
   if (/^[a-zA-Z]{1,6}[-_ ]\d{1,4}/i.test(s)) return null;
 
-  // Numeric Excel serial date (e.g. 45000)
+  // Numeric Excel serial date in string (e.g. "45000")
   if (/^\d{5}$/.test(s)) {
     const d = new Date((Number(s) - 25569) * 86400000);
     if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
@@ -1605,36 +1625,48 @@ function parseSiteBlockFormat(rawRows) {
 
   for (let i = 0; i < rawRows.length; i++) {
     const row = rawRows[i] || [];
-    const col0 = String(row[0] !== undefined && row[0] !== null ? row[0] : '').trim();
-    const col1 = String(row[1] !== undefined && row[1] !== null ? row[1] : '').trim();
-    const col2 = String(row[2] !== undefined && row[2] !== null ? row[2] : '').trim();
+    // Clean string values of all cells in this row
+    const cells = row.map(c => (c !== undefined && c !== null ? String(c).trim() : ''));
+    if (cells.every(c => !c)) continue;
 
-    if (!col0 && !col1 && !col2) continue;
-
-    const c0Norm = col0.toLowerCase().replace(/[^a-z]/g, '');
-    const c1Norm = col1.toLowerCase().replace(/[^a-z]/g, '');
-
-    // Skip top header row (e.g. "Site Code")
-    if (c0Norm === 'sitecode' || c0Norm === 'site' || c0Norm === 'code' || c0Norm === 'sitename') {
+    // Check if this row is the top header (e.g. ["Site Code", ...])
+    const normRow = cells.map(c => c.toLowerCase().replace(/[^a-z]/g, ''));
+    if (normRow.includes('sitecode') && !normRow.some(c => /update|downdate/.test(c))) {
       continue;
     }
 
-    // Skip subheader row (Up Date / Down Date / Clienr Name / Display)
-    if ((c0Norm.includes('update') || c0Norm.includes('start') || c0Norm.includes('from')) &&
-        (c1Norm.includes('downdate') || c1Norm.includes('end') || c1Norm.includes('to'))) {
+    // Check if subheader row (Up Date / Down Date / Clienr Name / Display)
+    const isSubheader = normRow.some(c => c.includes('update') || c.includes('start') || c === 'from') &&
+                        normRow.some(c => c.includes('downdate') || c.includes('end') || c === 'to');
+    if (isSubheader) {
       continue;
     }
 
-    const isDate0 = parseFlexibleExcelDate(col0) !== null;
+    // Check if this row is a Site Header row (contains site code like MB-14, MB-72, etc.)
+    let siteCodeFound = null;
+    let siteLocFound = '';
+    for (let c = 0; c < Math.min(3, cells.length); c++) {
+      const val = cells[c];
+      const isSC = /^(?:MB|DEL|BOM|AHM|SUR|RAJ|SITE|HOARDING|H)[-_ ]?\d+/i.test(val) ||
+                   /^[A-Z]{1,6}[-_ ]?\d{1,4}[A-Z]?$/i.test(val);
+      const isDate = parseFlexibleExcelDate(val) !== null;
+      if (isSC && !isDate && !normRow[c].includes('date')) {
+        siteCodeFound = val;
+        // The location/description is the next non-empty cell in the row
+        for (let nextC = c + 1; nextC < cells.length; nextC++) {
+          if (cells[nextC]) {
+            siteLocFound = cells[nextC];
+            break;
+          }
+        }
+        break;
+      }
+    }
 
-    // Check if Site Header row (e.g. MB-14, MB-72, MB-73, MB-21, MB-45, etc.)
-    const isSiteCode = /^(?:MB|DEL|BOM|AHM|SUR|RAJ|SITE|HOARDING|H)[-_ ]?\d+/i.test(col0) || 
-                       /^[A-Z]{1,6}[-_ ]?\d{1,4}[A-Z]?$/i.test(col0);
-
-    if (isSiteCode && !isDate0 && !c0Norm.includes('date')) {
+    if (siteCodeFound) {
       currentSite = {
-        site_code: col0,
-        location: col1,
+        site_code: siteCodeFound,
+        location: siteLocFound,
         bookings: [],
         vacancies: []
       };
@@ -1642,26 +1674,37 @@ function parseSiteBlockFormat(rawRows) {
       continue;
     }
 
-    // Data row under current site
-    if (currentSite && isDate0) {
-      const startDate = parseFlexibleExcelDate(col0);
-      const endDate = parseFlexibleExcelDate(col1) || startDate;
-      const clientVal = col2 || col1;
-      const vacant = isVacantClient(clientVal);
+    // If we have a current site, check if this row has date cells
+    if (currentSite) {
+      // Find the first cell that has a valid date (could be col 0 or col 1)
+      let dateIdx = -1;
+      for (let c = 0; c < Math.min(4, cells.length); c++) {
+        if (parseFlexibleExcelDate(cells[c]) !== null) {
+          dateIdx = c;
+          break;
+        }
+      }
 
-      const item = {
-        site_code: currentSite.site_code,
-        location: currentSite.location,
-        start_date: startDate,
-        end_date: endDate,
-        client: vacant ? 'Blank' : clientVal,
-        is_vacant: vacant
-      };
+      if (dateIdx >= 0) {
+        const startDate = parseFlexibleExcelDate(cells[dateIdx]);
+        const endDate = parseFlexibleExcelDate(cells[dateIdx + 1]) || startDate;
+        const clientVal = cells[dateIdx + 2] || cells[dateIdx + 1] || '';
+        const vacant = isVacantClient(clientVal);
 
-      if (vacant) {
-        currentSite.vacancies.push(item);
-      } else {
-        currentSite.bookings.push(item);
+        const item = {
+          site_code: currentSite.site_code,
+          location: currentSite.location,
+          start_date: startDate,
+          end_date: endDate,
+          client: vacant ? 'Blank' : clientVal,
+          is_vacant: vacant
+        };
+
+        if (vacant) {
+          currentSite.vacancies.push(item);
+        } else {
+          currentSite.bookings.push(item);
+        }
       }
     }
   }

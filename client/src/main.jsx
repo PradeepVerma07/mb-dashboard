@@ -4574,6 +4574,66 @@ function OccupancyView() {
     }
   }
 
+  function downloadOccupancyDemoTemplate() {
+    try {
+      const wb = XLSX.utils.book_new();
+
+      // Sheet 1: Site Block Format (Matches exact format with Site Code header and Up/Down dates)
+      const blockData = [
+        ['Site Code', 'Location / Specifications', '', ''],
+        ['MB-14', "Shivranjani Junction traffic from SG Road - 14'x14' - B/L", '', ''],
+        ['', 'Up Date', 'Down Date', 'Client Name'],
+        ['', '01.04.2026', '30.04.2026', 'Swagat Group'],
+        ['', '01.05.2026', '31.05.2026', 'Swagat Group'],
+        ['', '01.06.2026', '30.06.2026', 'Swagat Group'],
+        ['', '01.07.2026', '31.07.2026', 'Swagat Group'],
+        ['', '01.08.2026', '31.08.2026', 'Swagat Group'],
+        ['', '', '', ''],
+        ['MB-72', "200ft Ring Road Junction – From YMCA Club Road to Club O7 - 30'x 15' - B/L", '', ''],
+        ['', 'Up Date', 'Down Date', 'Client Name'],
+        ['', '01.04.2026', '20.04.2026', 'B Safal'],
+        ['', '21.04.2026', '30.04.2026', 'Blank'],
+        ['', '01.05.2026', '11.05.2026', 'Blank'],
+        ['', '12.05.2026', '31.05.2026', 'Hocco'],
+        ['', '01.06.2026', '08.06.2026', 'Blank'],
+        ['', '09.06.2026', '24.06.2026', 'Gateway'],
+        ['', '25.06.2026', '30.06.2026', 'Contact'],
+        ['', '01.07.2026', '30.07.2026', 'Contact'],
+        ['', '01.08.2026', '30.08.2026', 'Contact'],
+        ['', '', '', ''],
+        ['MB-45', "Pakwan Cross Road to Sindhu Bhavan Road - 20'x10' - F/L", '', ''],
+        ['', 'Up Date', 'Down Date', 'Client Name'],
+        ['', '01.04.2026', '15.04.2026', 'Blank'],
+        ['', '16.04.2026', '30.04.2026', 'Zydus'],
+        ['', '01.05.2026', '31.05.2026', 'Zydus']
+      ];
+      const ws1 = XLSX.utils.aoa_to_sheet(blockData);
+      ws1['!cols'] = [{ wch: 15 }, { wch: 60 }, { wch: 16 }, { wch: 25 }];
+      XLSX.utils.book_append_sheet(wb, ws1, 'Site Block Format');
+
+      // Sheet 2: Tabular Format (Alternative simple columns)
+      const tableData = [
+        ['Site Code', 'Location', 'Up Date', 'Down Date', 'Client Name'],
+        ['MB-14', "Shivranjani Junction traffic from SG Road", '01/04/2026', '30/04/2026', 'Swagat Group'],
+        ['MB-14', "Shivranjani Junction traffic from SG Road", '01/05/2026', '31/05/2026', 'Swagat Group'],
+        ['MB-72', "200ft Ring Road Junction", '01/04/2026', '20/04/2026', 'B Safal'],
+        ['MB-72', "200ft Ring Road Junction", '21/04/2026', '30/04/2026', 'Blank'],
+        ['MB-72', "200ft Ring Road Junction", '01/05/2026', '11/05/2026', 'Blank'],
+        ['MB-72', "200ft Ring Road Junction", '12/05/2026', '31/05/2026', 'Hocco'],
+        ['MB-45', "Pakwan Cross Road to Sindhu Bhavan Road", '01/04/2026', '15/04/2026', 'Blank'],
+        ['MB-45', "Pakwan Cross Road to Sindhu Bhavan Road", '16/04/2026', '30/04/2026', 'Zydus']
+      ];
+      const ws2 = XLSX.utils.aoa_to_sheet(tableData);
+      ws2['!cols'] = [{ wch: 15 }, { wch: 45 }, { wch: 15 }, { wch: 15 }, { wch: 25 }];
+      XLSX.utils.book_append_sheet(wb, ws2, 'Tabular Format');
+
+      XLSX.writeFile(wb, 'Occupancy_Import_Demo_Template.xlsx');
+    } catch (err) {
+      console.error('Failed to export demo template:', err);
+      alert('Could not download demo template: ' + err.message);
+    }
+  }
+
   // ── Compute periods (6 Months, 12 Months, & Yearly) ──────────────────
   const { periods6M, periods12M, periodsYearly, period365 } = useMemo(() => {
     const now = new Date();
@@ -5445,6 +5505,25 @@ function OccupancyView() {
             <button
               type="button"
               className="scooh-btn ghost"
+              onClick={downloadOccupancyDemoTemplate}
+              title="Download sample Excel template format with Site Block and Tabular structures"
+              style={{
+                fontSize: '11.5px',
+                padding: '6px 12px',
+                color: '#38bdf8',
+                borderColor: 'rgba(56, 189, 248, 0.4)',
+                background: 'rgba(56, 189, 248, 0.08)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+            >
+              <span>📥 Demo Template</span>
+            </button>
+
+            <button
+              type="button"
+              className="scooh-btn ghost"
               onClick={loadSystemData}
               disabled={loading}
               title="Refresh database"
@@ -5555,6 +5634,26 @@ function OccupancyView() {
                 />
               </label>
             )}
+            <div style={{ marginTop: '10px' }}>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={downloadOccupancyDemoTemplate}
+                title="Download sample Excel template format with Site Block and Tabular structures"
+                style={{
+                  fontSize: '12px',
+                  padding: '7px 16px',
+                  color: '#38bdf8',
+                  borderColor: 'rgba(56, 189, 248, 0.4)',
+                  background: 'rgba(56, 189, 248, 0.08)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span>📥 Download Demo Excel Template</span>
+              </button>
+            </div>
           </div>
         ) : (
           <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
