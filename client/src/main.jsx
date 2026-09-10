@@ -4582,9 +4582,29 @@ function OccupancyView() {
         });
       }
 
+      // Mirror into campaigns table so Campaign Tracker has this booking immediately
+      try {
+        await api.post('/campaigns', {
+          site_code: record.site_code,
+          client: cleanClient,
+          display: cleanClient,
+          campaign_name: cleanClient,
+          start_date: record.start_date,
+          end_date: record.end_date,
+          booking_date: record.start_date,
+          days: record.days || 30,
+          month: record.month || '',
+          status: 'active',
+          record_status: 'active'
+        });
+      } catch (cErr) {
+        console.warn('Mirror booking to campaigns note:', cErr);
+      }
+
       setBookingRecordId(null);
       setBookingClientName('');
       await loadSystemData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
 
       if (modalData) {
         setModalData(prev => {
@@ -4616,6 +4636,9 @@ function OccupancyView() {
 
   useEffect(() => {
     loadSystemData();
+    const onCampUpdate = () => loadSystemData();
+    window.addEventListener('mb-campaigns-updated', onCampUpdate);
+    return () => window.removeEventListener('mb-campaigns-updated', onCampUpdate);
   }, [loadSystemData]);
 
   async function handleOccupancyExcelImport(e) {
@@ -4625,15 +4648,28 @@ function OccupancyView() {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      // Post exclusively to /import/occupancy-xlsx (kept completely independent from Campaign Tracker)
+      // Post to /import/occupancy-xlsx (which synchronizes both occupancy records and campaigns table)
       const r = await api.post('/import/occupancy-xlsx', fd, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      alert(`✓ Occupancy Excel Import Successful!\n\n${r.data?.message || 'Occupancy records imported successfully.'}`);
+      alert(`✓ Occupancy Excel Import Successful!\n\n${r.data?.message || 'Occupancy and campaign records updated successfully.'}`);
       await loadSystemData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
     } catch (err) {
-      console.error('Occupancy Excel import error:', err);
-      alert('Occupancy Excel Import failed: ' + (err.response?.data?.message || err.message));
+      console.warn('Occupancy import attempt note, trying campaigns import fallback:', err);
+      try {
+        const fd2 = new FormData();
+        fd2.append('file', file);
+        const r2 = await api.post('/import/campaigns-xlsx', fd2, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        alert(`✓ Excel Import Successful!\n\n${r2.data?.message || 'Records imported successfully.'}`);
+        await loadSystemData();
+        window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
+      } catch (err2) {
+        console.error('Occupancy Excel import error:', err2);
+        alert('Occupancy Excel Import failed: ' + (err2.response?.data?.message || err2.message || err.response?.data?.message || err.message));
+      }
     } finally {
       setImportingExcel(false);
       e.target.value = '';
@@ -4818,9 +4854,9 @@ function OccupancyView() {
         return cCode && overlappingCodes.has(cCode);
       });
 
-      // Merge: when a campaign exists, it automatically overrides and changes any overlapping vacant record to occupied!
+      // Merge: when a campaign exists, it automatically overrides any overlapping vacant or mirrored occupancy record
       const mergedRecords = [];
-      const usedVacantIds = new Set();
+      const usedOccIds = new Set();
 
       siteCampaigns.forEach(cmp => {
         const cmpStart = parseFlexibleDate(cmp.start_date || cmp.booking_date);
@@ -4829,16 +4865,13 @@ function OccupancyView() {
         const cmpEndTs = cmpEnd ? cmpEnd.getTime() : cmpStartTs;
 
         rawOccs.forEach(occ => {
-          const isVac = occ.status === 'vacant' || occ.is_vacant || isVacantClient(occ.client || occ.client_name);
-          if (isVac) {
-            const occStart = parseFlexibleDate(occ.start_date || occ.booking_date);
-            const occEnd = parseFlexibleDate(occ.end_date) || occStart;
-            if (occStart && occEnd) {
-              const occStartTs = occStart.getTime();
-              const occEndTs = occEnd.getTime();
-              if (cmpStartTs <= occEndTs && cmpEndTs >= occStartTs) {
-                usedVacantIds.add(occ.id);
-              }
+          const occStart = parseFlexibleDate(occ.start_date || occ.booking_date);
+          const occEnd = parseFlexibleDate(occ.end_date) || occStart;
+          if (occStart && occEnd) {
+            const occStartTs = occStart.getTime();
+            const occEndTs = occEnd.getTime();
+            if (cmpStartTs <= occEndTs && cmpEndTs >= occStartTs) {
+              usedOccIds.add(occ.id);
             }
           }
         });
@@ -4847,7 +4880,7 @@ function OccupancyView() {
       });
 
       rawOccs.forEach(occ => {
-        if (!usedVacantIds.has(occ.id)) {
+        if (!usedOccIds.has(occ.id)) {
           mergedRecords.push(occ);
         }
       });
@@ -5157,10 +5190,14 @@ function OccupancyView() {
 
     try {
       setDeleting(true);
-      await api.post('/occupancy/batch-delete', { ids: campIds, hard: true });
+      await Promise.allSettled([
+        api.post('/occupancy/batch-delete', { ids: campIds, hard: true }),
+        api.post('/campaigns/batch-delete', { ids: campIds, hard: true })
+      ]);
       alert(`✓ Successfully deleted ${campCount} booking record${campCount > 1 ? 's' : ''} across ${siteCount} site${siteCount > 1 ? 's' : ''}. Occupancy reset to 0% (Vacant).`);
       setSelectedSiteCodes(new Set());
       await loadSystemData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
     } catch (err) {
       console.error('Failed to delete occupancy bookings:', err);
       alert('Failed to delete bookings: ' + (err.response?.data?.message || err.message));
@@ -5183,7 +5220,10 @@ function OccupancyView() {
     try {
       setDeleting(true);
       if (campIds.length > 0) {
-        await api.post('/occupancy/batch-delete', { ids: campIds, hard: true });
+        await Promise.allSettled([
+          api.post('/occupancy/batch-delete', { ids: campIds, hard: true }),
+          api.post('/campaigns/batch-delete', { ids: campIds, hard: true })
+        ]);
       }
       if (siteIds.length > 0) {
         await api.post('/sites/batch-delete', { ids: siteIds, hard: true });
@@ -5192,6 +5232,7 @@ function OccupancyView() {
       setSelectedSiteCodes(new Set());
       await loadSystemData();
       window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
     } catch (err) {
       console.error('Failed to delete sites:', err);
       alert('Failed to delete sites: ' + (err.response?.data?.message || err.message));
@@ -5215,10 +5256,14 @@ function OccupancyView() {
 
     try {
       setDeleting(true);
-      await api.post('/occupancy/batch-delete', { ids: allCampIds, hard: true });
+      await Promise.allSettled([
+        api.post('/occupancy/batch-delete', { ids: allCampIds, hard: true }),
+        api.post('/campaigns/batch-delete', { ids: allCampIds, hard: true })
+      ]);
       alert(`✓ Successfully cleared ${count} booking record${count > 1 ? 's' : ''}. Occupancy reset to 0% (Vacant).`);
       setSelectedSiteCodes(new Set());
       await loadSystemData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
     } catch (err) {
       console.error('Failed to clear all occupancy:', err);
       alert('Failed to clear bookings: ' + (err.response?.data?.message || err.message));
@@ -11496,7 +11541,15 @@ function Crud({ entity, title }) {
   useEffect(() => {
     load();
     const interval = setInterval(load, 30000); // 30s auto-refresh
-    return () => clearInterval(interval);
+    const onCampUpdate = () => { if (entity === 'campaigns') load(); };
+    const onSiteUpdate = () => { if (entity === 'sites') load(); };
+    window.addEventListener('mb-campaigns-updated', onCampUpdate);
+    window.addEventListener('mb-sites-updated', onSiteUpdate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('mb-campaigns-updated', onCampUpdate);
+      window.removeEventListener('mb-sites-updated', onSiteUpdate);
+    };
   }, [entity]);
 
   function handleSort(key) {
@@ -11559,6 +11612,7 @@ function Crud({ entity, title }) {
       setSaveBanner(`✓ ${count} record${count > 1 ? 's' : ''} deleted successfully.`);
       setSelectedIds(new Set());
       await load();
+      if (isCampaign) window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
       setTimeout(() => setSaveBanner(''), 3500);
     } catch (err) {
       alert('Failed to delete records: ' + (err.response?.data?.message || err.message));
@@ -11578,6 +11632,7 @@ function Crud({ entity, title }) {
       }
       setEdit(null);
       await load();
+      if (entity === 'campaigns') window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
       setSaveBanner(`✓ ${title.replace(/s$/, '')} saved successfully!`);
       setTimeout(() => setSaveBanner(''), 3500);
     } catch (err) {
@@ -11599,6 +11654,7 @@ function Crud({ entity, title }) {
           return next;
         });
         await load();
+        if (isCampaign) window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
         setSaveBanner(`✓ ${isCampaign ? 'Campaign record deleted successfully.' : 'Record archived.'}`);
         setTimeout(() => setSaveBanner(''), 3500);
       } catch (err) {

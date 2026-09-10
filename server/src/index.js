@@ -2429,6 +2429,7 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
     }
 
     let existingSites = await q('SELECT id, site_code, address, area, city, size, width, height FROM sites WHERE record_status="active"');
+    let existingCampaigns = await q('SELECT id, site_id, site_code, client, display, location, start_date, end_date, booking_date FROM campaigns WHERE record_status="active"');
 
     // Check if the workbook contains the Site Block format (Site Code + Location header, followed by Up Date / Down Date / Client rows)
     for (const name of wb.SheetNames) {
@@ -2504,6 +2505,39 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
               b.site_code, location, location, site.size || size, client, client, display,
               month, startDate, endDate, days
             ]);
+
+            // Mirror into campaigns table so Campaign Tracker and Occupancy remain 100% linked
+            try {
+              const match = existingCampaigns.find(ec =>
+                cleanStr(ec.site_code) === cleanC &&
+                String(ec.client || '').toLowerCase() === String(client).toLowerCase() &&
+                String(ec.start_date || '').slice(0, 10) === startDate &&
+                String(ec.end_date || '').slice(0, 10) === endDate
+              );
+              if (match) {
+                await q(
+                  `UPDATE campaigns SET location=?, display=?, days=?, month=?, record_status='active', updated_at=NOW() WHERE id=?`,
+                  [location, display, days, month, match.id]
+                );
+              } else {
+                const insCamp = await q(
+                  `INSERT INTO campaigns (site_id, site_code, client, display, location, start_date, end_date, booking_date, days, month, status, record_status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'active', NOW(), NOW())`,
+                  [site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month]
+                );
+                existingCampaigns.push({
+                  id: insCamp.insertId,
+                  site_id: site.id,
+                  site_code: b.site_code,
+                  client,
+                  start_date: startDate,
+                  end_date: endDate
+                });
+              }
+            } catch (cErr) {
+              console.warn('Could not mirror occupancy booking into campaigns:', cErr.message);
+            }
+
             newCount++;
           }
 
@@ -2531,7 +2565,10 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
           }
         }
 
-        await syncSiteAvailability();
+        try {
+          await syncAllLinkedCampaigns(q);
+          await syncSiteAvailability();
+        } catch (_) {}
 
         return res.json({
           message: `✓ Successfully imported ${newCount} booking records across ${blocks.length} sites (${vacantCount} vacant periods recognized as vacant).`,
@@ -2739,6 +2776,21 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
           month, startDate, endDate, days, occPct, totalAmount,
           pending, po, bill, status
         ]);
+
+        // Mirror into campaigns table so Campaign Tracker and Occupancy remain 100% linked
+        try {
+          await q(`INSERT INTO campaigns (
+            site_code, client, display, location, city, size,
+            month, start_date, end_date, days, total_amount,
+            pending, po, bill, status, record_status, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
+            finalSiteCode, client || 'Standard Client', display, location, city, size,
+            month, startDate, endDate, days, totalAmount,
+            pending, po, bill, status
+          ]);
+        } catch (cErr) {
+          console.warn('Could not mirror occupancy record into campaigns:', cErr.message);
+        }
 
         importedCount++;
       }
