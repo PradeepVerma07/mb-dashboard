@@ -4275,28 +4275,97 @@ function ProposalsView() {
 
 // ── Helpers for Occupancy Excel import & Date Parsing ───────────────────
 
+// Helper to recognize vacant / blank client indicators
+function isVacantClient(val) {
+  if (!val) return true;
+  const s = String(val).trim().toLowerCase();
+  return (
+    s === '' ||
+    s === '-' ||
+    s === '—' ||
+    s === 'nil' ||
+    s === 'none' ||
+    s === 'na' ||
+    s === 'n/a' ||
+    s === 'blank' ||
+    s.startsWith('blank') ||
+    s.includes('blank due to') ||
+    s.includes('corporation issue') ||
+    s === 'vacant' ||
+    s.startsWith('vacant') ||
+    s === 'available' ||
+    s.startsWith('available')
+  );
+}
+
 // Parse Excel serial / JS Date / string → JS Date
 function parseFlexibleDate(val) {
   if (!val) return null;
   if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
   if (typeof val === 'number') {
     try {
-      const d = XLSX.SSF.parse_date_code(val);
-      if (d) return new Date(d.y, d.m - 1, d.d);
+      if (typeof XLSX !== 'undefined' && XLSX?.SSF) {
+        const d = XLSX.SSF.parse_date_code(val);
+        if (d) return new Date(d.y, d.m - 1, d.d);
+      }
+      const d = new Date((val - 25569) * 86400000);
+      if (!isNaN(d.getTime())) return d;
     } catch {}
     return null;
   }
   const str = String(val).trim();
   if (!str) return null;
 
-  // Match DD-MM-YYYY or DD/MM/YYYY
-  const dmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  // Reject site codes (e.g. 'MB-72' or 'SITE-01') which JavaScript Date would interpret as year 1972
+  if (/^[a-zA-Z]{1,6}[-_ ]\d{1,4}/i.test(str)) return null;
+
+  // DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY, D.M.YY, D.M.YYYY (including typo recovery like 206 -> 2026)
+  const dmy = str.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
   if (dmy) {
-    const day = parseInt(dmy[1], 10);
-    const month = parseInt(dmy[2], 10) - 1;
-    const year = parseInt(dmy[3], 10);
-    const d = new Date(year, month, day);
-    if (!isNaN(d.getTime())) return d;
+    let day = parseInt(dmy[1], 10);
+    let month = parseInt(dmy[2], 10) - 1;
+    let yearStr = dmy[3];
+    let year = parseInt(yearStr, 10);
+    if (yearStr.length === 2) year = 2000 + year;
+    else if (yearStr.length === 3 && yearStr.startsWith('20')) year = parseInt('20' + yearStr.slice(2).padStart(2, '2'), 10);
+
+    if (month >= 0 && month <= 11) {
+      const maxDays = new Date(year, month + 1, 0).getDate();
+      day = Math.min(day, maxDays);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+
+  // YYYY-MM-DD or YYYY/MM/DD
+  const ymd = str.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+  if (ymd) {
+    let year = parseInt(ymd[1], 10);
+    let month = parseInt(ymd[2], 10) - 1;
+    let day = parseInt(ymd[3], 10);
+    if (month >= 0 && month <= 11) {
+      const maxDays = new Date(year, month + 1, 0).getDate();
+      day = Math.min(day, maxDays);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+
+  // DD-MMM-YYYY (e.g. 15-Jan-2026)
+  const monthNames = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+  const dMmmY = str.match(/^(\d{1,2})[\s./-]+([A-Za-z]{3,9})[\s./-]+(\d{2,4})$/);
+  if (dMmmY) {
+    let day = parseInt(dMmmY[1], 10);
+    const mKey = dMmmY[2].toLowerCase().slice(0, 3);
+    const month = monthNames[mKey];
+    let year = parseInt(dMmmY[3], 10);
+    if (dMmmY[3].length === 2) year = 2000 + year;
+    if (month !== undefined) {
+      const maxDays = new Date(year, month + 1, 0).getDate();
+      day = Math.min(day, maxDays);
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) return d;
+    }
   }
 
   const d = new Date(str);
@@ -4620,6 +4689,7 @@ function OccupancyView() {
       overlappingCodes.add(siteCode);
 
       const siteCamps = activeOccupancies.filter(c => {
+        if (c.status === 'vacant' || c.is_vacant || isVacantClient(c.client || c.client_name)) return false;
         if (c.site_id && site.id && String(c.site_id) === String(site.id)) return true;
         const cCode = canonicalSiteCode(c.site_code);
         return cCode && overlappingCodes.has(cCode);
