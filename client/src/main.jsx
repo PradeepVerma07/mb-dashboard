@@ -5685,6 +5685,15 @@ function CampaignTrackerView() {
   const [importingExcel, setImportingExcel] = useState(false);
   const [isViewingOnly, setIsViewingOnly] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [expandedHistorySites, setExpandedHistorySites] = useState(new Set());
+
+  function toggleHistoryExpand(siteCode) {
+    setExpandedHistorySites(prev => {
+      const next = new Set(prev);
+      if (next.has(siteCode)) next.delete(siteCode); else next.add(siteCode);
+      return next;
+    });
+  }
 
   const topScrollRef = useRef(null);
   const bottomScrollRef = useRef(null);
@@ -6272,8 +6281,13 @@ function CampaignTrackerView() {
     const statusColor = isBooked ? '#4ade80' : isUpcoming ? '#facc15' : '#94a3b8';
     const statusBorder = isBooked ? 'rgba(34, 197, 94, 0.35)' : isUpcoming ? 'rgba(234, 179, 8, 0.35)' : 'rgba(148, 163, 184, 0.25)';
 
+    const prevCampaigns = (item.allCampaigns || []).filter(c => c.id !== item.campaign_id);
+    const isExpanded = expandedHistorySites.has(item.site_code);
+    const colSpan = canDelete ? 23 : 22;
+
     return (
-      <tr key={item.site_code}>
+      <React.Fragment key={item.site_code}>
+        <tr>
         {canDelete && (
           <td style={{ textAlign: 'center', padding: '10px 8px' }}>
             {item.campaign_id ? (
@@ -6323,6 +6337,24 @@ function CampaignTrackerView() {
               >
                 {getSiteTypeTag(item.site_code)}
               </span>
+            )}
+            {/* History expand toggle */}
+            {prevCampaigns.length > 0 && (
+              <button
+                type="button"
+                onClick={() => toggleHistoryExpand(item.site_code)}
+                title={isExpanded ? 'Hide booking history' : `Show ${prevCampaigns.length} previous booking${prevCampaigns.length > 1 ? 's' : ''}`}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '3px',
+                  padding: '2px 7px', borderRadius: '10px',
+                  border: `1px solid ${isExpanded ? 'rgba(168,85,247,0.6)' : 'rgba(168,85,247,0.3)'}`,
+                  background: isExpanded ? 'rgba(168,85,247,0.2)' : 'rgba(168,85,247,0.06)',
+                  color: '#c084fc', fontSize: '10px', fontWeight: 700,
+                  cursor: 'pointer', whiteSpace: 'nowrap', marginTop: '3px'
+                }}
+              >
+                {isExpanded ? '▼' : '▶'} {prevCampaigns.length} prev
+              </button>
             )}
           </div>
         </td>
@@ -6499,6 +6531,71 @@ function CampaignTrackerView() {
           </div>
         </td>
       </tr>
+
+        {/* Expandable Previous Bookings sub-table */}
+        {isExpanded && prevCampaigns.length > 0 && (
+          <tr>
+            <td colSpan={colSpan} style={{ padding: 0, background: 'rgba(8,12,28,0.9)', borderBottom: '2px solid rgba(168,85,247,0.3)' }}>
+              <div style={{ padding: '8px 16px 14px 40px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: '#a78bfa', marginBottom: '7px', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                  📌 {item.site_code} — Historical Records ({prevCampaigns.length})
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', minWidth: '900px' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                        {['Month', 'Client / Agency', 'Display', 'Start Date', 'End Date', 'Days', 'Total', 'PO', 'Bill', 'Pending', 'Actions'].map(h => (
+                          <th key={h} style={{ padding: '5px 10px', textAlign: ['Total','Pending'].includes(h) ? 'right' : 'left', color: '#64748b', fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {prevCampaigns.map((c, idx) => (
+                        <tr key={c.id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                          <td style={{ padding: '5px 10px', color: '#94a3b8' }}>{c.month || '—'}</td>
+                          <td style={{ padding: '5px 10px', color: '#e2e8f0', fontWeight: 600 }}>{c.client || c.client_name || '—'}</td>
+                          <td style={{ padding: '5px 10px', color: '#38bdf8' }}>{cleanDisplayTitle(c.display || c.campaign_name || '—')}</td>
+                          <td style={{ padding: '5px 10px', color: '#94a3b8' }}>{formatDate(c.start_date) || '—'}</td>
+                          <td style={{ padding: '5px 10px', color: '#94a3b8' }}>{formatDate(c.end_date) || '—'}</td>
+                          <td style={{ padding: '5px 10px', color: '#94a3b8', textAlign: 'center' }}>{c.days ? `${c.days}d` : '—'}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', color: '#4ade80', fontWeight: 700 }}>
+                            {Number(c.total_amount || c.revenue || 0) > 0 ? money(Number(c.total_amount || c.revenue || 0)) : '—'}
+                          </td>
+                          <td style={{ padding: '5px 10px', color: '#94a3b8' }}>{c.po || '—'}</td>
+                          <td style={{ padding: '5px 10px', color: '#93c5fd' }}>{c.bill || c.invoice_no || '—'}</td>
+                          <td style={{ padding: '5px 10px', textAlign: 'right', fontWeight: 700, color: Number(c.pending || 0) > 0 ? '#f87171' : '#4ade80' }}>
+                            {Number(c.pending || 0) > 0 ? money(Number(c.pending)) : '—'}
+                          </td>
+                          <td style={{ padding: '5px 10px' }}>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <button type="button" className="scooh-btn ghost"
+                                style={{ fontSize: '10px', padding: '2px 7px', color: '#38bdf8', borderColor: 'rgba(56,189,248,0.3)' }}
+                                onClick={() => openViewCampaign(c)} title="View details"
+                              >👁 View</button>
+                              {canEdit && !isReadOnly && (
+                                <button type="button" className="scooh-iconbtn scooh-text-action"
+                                  style={{ fontSize: '10px', padding: '2px 7px' }}
+                                  onClick={() => openEditCampaign(c)} title="Edit booking"
+                                >✏️ Edit</button>
+                              )}
+                              {canDelete && (
+                                <button type="button" className="scooh-iconbtn danger-icon"
+                                  style={{ fontSize: '10px', padding: '2px 6px' }}
+                                  onClick={() => deleteRecord(c.id)} title="Delete booking"
+                                >×</button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </td>
+          </tr>
+        )}
+      </React.Fragment>
     );
   }
 
@@ -6608,7 +6705,7 @@ function CampaignTrackerView() {
               Live Sites & Latest Campaigns
             </h2>
             <p style={{ margin: '3px 0 0', fontSize: '12px', color: '#94a3b8' }}>
-              Showing latest booking per site ({filteredLatest.length} of {totalSites} sites). To see full previous booking records, visit Occupancy.
+              Showing latest booking per site ({filteredLatest.length} of {totalSites} sites). Click <strong style={{ color: '#c084fc' }}>▶ N prev</strong> on any site to expand its full booking history inline.
             </p>
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
