@@ -408,25 +408,37 @@ function matchSiteByLocationAndSize(location, size, width, height, siteList) {
   return bestScore >= 20 ? bestSite : null;
 }
 
+/** Safely parse any date string to a local-midnight Date (strips time/TZ so day comparisons are exact) */
+function parseDay(d) {
+  if (!d) return null;
+  const s = String(d).slice(0, 10); // take 'YYYY-MM-DD' only
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const dt = new Date(s + 'T00:00:00');
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
 /**
- * Returns true if the site is still booked/occupied ON OR AFTER dateStr.
- * Used to filter: hide sites whose campaign hasn't ended by the selected date.
- * A site is "available from dateStr" only if ALL its campaigns end before dateStr.
+ * Returns true if the site has an active campaign running ON the exact given date.
+ * A site booked until Sept 20 → selecting Sept 21 shows it as available.
  * campaignsBySiteCode: { [UPPERCASE_SITE_CODE]: campaign[] }
  */
 function isSiteOccupiedOnDate(campaignsBySiteCode, siteCode, dateStr) {
   if (!dateStr || !siteCode) return false;
-  const fromDate = new Date(dateStr + 'T00:00:00');
-  if (isNaN(fromDate.getTime())) return false;
+  const check = parseDay(dateStr);
+  if (!check) return false;
   const key = String(siteCode).toUpperCase().trim();
   const camps = campaignsBySiteCode[key] || [];
   return camps.some(c => {
     if (c.record_status && c.record_status !== 'active') return false;
-    const end = c.end_date ? new Date(c.end_date + 'T00:00:00') : null;
-    // No end date = campaign runs indefinitely = still occupied
-    if (!end) return true;
-    // Campaign end >= selected date → site is still occupied on/after that date
-    return end >= fromDate;
+    const start = parseDay(c.start_date);
+    const end = parseDay(c.end_date);
+    if (!start && !end) return false;
+    // Campaign started but no end date = runs indefinitely
+    if (start && !end) return check >= start;
+    // No start but has end = occupied up to end date (inclusive)
+    if (!start && end) return check <= end;
+    // Both present: occupied if check falls within [start, end] inclusive
+    return check >= start && check <= end;
   });
 }
 
@@ -1997,13 +2009,13 @@ function SitesView() {
           )}
           {/* Date availability filter */}
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: dateFilter ? 'rgba(56,189,248,0.1)' : 'rgba(15,23,42,0.6)', border: `1px solid ${dateFilter ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '8px', padding: '4px 10px' }}>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: dateFilter ? '#38bdf8' : '#64748b', whiteSpace: 'nowrap' }}>📅 Available from:</span>
+            <span style={{ fontSize: '11px', fontWeight: 700, color: dateFilter ? '#38bdf8' : '#64748b', whiteSpace: 'nowrap' }}>📅 Available on:</span>
             <input
               type="date"
               value={dateFilter}
               onChange={e => setDateFilter(e.target.value)}
               style={{ background: 'transparent', border: 'none', color: dateFilter ? '#e2e8f0' : '#94a3b8', fontSize: '12px', fontWeight: 600, outline: 'none', cursor: 'pointer', padding: '2px 0' }}
-              title="Show only sites whose current campaign ends before this date (will be free from this date)"
+              title="Show only sites with no active campaign on this date"
             />
             {dateFilter && (
               <button type="button" onClick={() => setDateFilter('')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 2px' }} title="Clear date filter">×</button>
@@ -3195,22 +3207,22 @@ function PptView() {
             </select>
           </div>
           <div className="scooh-field">
-            <label>📅 Available from date</label>
+            <label>📅 Available on date</label>
             <input
               id="scooh-ppt-date-filter"
               type="date"
               value={dateFilter}
               onChange={e => setDateFilter(e.target.value)}
-              title="Shows only sites whose current campaign ends before this date — they will be free from this date onward"
+              title="Show only sites with no active campaign on this date"
             />
             {dateFilter && (
               <span style={{ fontSize: '11px', color: '#4ade80', fontWeight: 600, marginTop: '4px', display: 'block' }}>
-                ✓ Showing sites available from {new Date(dateFilter + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                ✓ Showing sites available on {new Date(dateFilter + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
               </span>
             )}
           </div>
           <div className="scooh-note">
-            Sites whose active campaign ends before the selected date are shown as available. Occupied sites are automatically hidden.
+            Sites with an active campaign booking on the selected date are automatically hidden.
 
           </div>
         </div>
@@ -6561,6 +6573,7 @@ function CampaignTrackerView() {
   const [modalSelectedSites, setModalSelectedSites] = useState([]);
   const [siteFilterText, setSiteFilterText] = useState('');
   const [onlyVacantFilter, setOnlyVacantFilter] = useState(false);
+  const [dateFilter, setDateFilter] = useState(''); // available from this date
 
   function toggleHistoryExpand(siteCode) {
     setExpandedHistorySites(prev => {
@@ -6971,6 +6984,25 @@ function CampaignTrackerView() {
       if (statusFilter === 'vacant' && item.siteStatus !== 'vacant') return false;
       if (statusFilter === 'pending' && item.pending <= 0) return false;
 
+      // Date filter: show only sites FREE on the exact selected date
+      // Example: site booked till Sept 20 → selecting Sept 21 shows it as available
+      if (dateFilter) {
+        const check = parseDay(dateFilter);
+        if (check) {
+          // Vacant sites have no campaign — always free
+          if (item.siteStatus !== 'vacant') {
+            const start = parseDay(item.start_date);
+            const end = parseDay(item.end_date);
+            // No end date = campaign runs indefinitely = occupied on any future date
+            if (start && !end && check >= start) return false;
+            // Campaign covers the selected date [start, end] inclusive → occupied → hide
+            if (start && end && check >= start && check <= end) return false;
+            // No start but has end: occupied up to end
+            if (!start && end && check <= end) return false;
+          }
+        }
+      }
+
       if (!search.trim()) return true;
       const q = search.trim().toLowerCase();
       return (
@@ -7005,7 +7037,7 @@ function CampaignTrackerView() {
       list.sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
     }
     return list;
-  }, [latestSiteCampaigns, statusFilter, search, sortState]);
+  }, [latestSiteCampaigns, statusFilter, dateFilter, search, sortState]);
 
   function toggleSelect(id) {
     if (!id) return;
@@ -7849,7 +7881,22 @@ function CampaignTrackerView() {
               onChange={e => setSearch(e.target.value)}
             />
 
-            {(search || statusFilter !== 'ALL') && (
+            {/* Date availability filter */}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: dateFilter ? 'rgba(56,189,248,0.1)' : 'rgba(15,23,42,0.6)', border: `1px solid ${dateFilter ? 'rgba(56,189,248,0.45)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '8px', padding: '5px 10px' }}>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: dateFilter ? '#38bdf8' : '#64748b', whiteSpace: 'nowrap' }}>📅 Available on:</span>
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={e => setDateFilter(e.target.value)}
+                style={{ background: 'transparent', border: 'none', color: dateFilter ? '#e2e8f0' : '#94a3b8', fontSize: '12px', fontWeight: 600, outline: 'none', cursor: 'pointer', padding: '2px 0' }}
+                title="Show only sites with no active campaign running on this date"
+              />
+              {dateFilter && (
+                <button type="button" onClick={() => setDateFilter('')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '0 2px' }} title="Clear date filter">×</button>
+              )}
+            </div>
+
+            {(search || statusFilter !== 'ALL' || dateFilter) && (
               <button
                 type="button"
                 className="scooh-btn ghost"
@@ -7857,6 +7904,7 @@ function CampaignTrackerView() {
                 onClick={() => {
                   setSearch('');
                   setStatusFilter('ALL');
+                  setDateFilter('');
                   setSiteQueryParam('');
                   navigate('/campaigns', { replace: true });
                 }}
