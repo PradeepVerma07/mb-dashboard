@@ -3164,11 +3164,11 @@ app.get('/api/:entity', auth, async (req, res) => {
       `);
     } else {
       const cols = await tableColumns(e.table);
-      if (cols.has('record_status')) {
-        rows = await q(`SELECT * FROM \`${e.table}\` WHERE record_status != 'archived' ORDER BY ${e.order} LIMIT ${limit}`);
-      } else {
-        rows = await q(`SELECT * FROM \`${e.table}\` ORDER BY ${e.order} LIMIT ${limit}`);
+      let where = cols.has('record_status') ? "record_status != 'archived'" : "1=1";
+      if (e.table === 'campaigns') {
+        where += " AND LOWER(TRIM(COALESCE(client, ''))) NOT IN ('blank', 'vacant', 'unassigned', '', '-') AND LOWER(TRIM(COALESCE(client, ''))) NOT LIKE 'blank%' AND LOWER(TRIM(COALESCE(client, ''))) NOT LIKE 'vacant%'";
       }
+      rows = await q(`SELECT * FROM \`${e.table}\` WHERE ${where} ORDER BY ${e.order} LIMIT ${limit}`);
     }
     
     // Auto-seed sites if table is empty
@@ -3650,6 +3650,11 @@ async function initDb() {
           ('occupancy', 'June 2026 Site Occupancy Snapshot', 'Occupancy_June_2026.json', '', '14 KB', 'json', '{"month":"June 2026","totalSites":22,"occupiedSites":15,"vacantSites":7,"occupancyPct":68,"revenue":1020000,"activeCampaignsCount":4}', 'active', DATE_SUB(NOW(), INTERVAL 99 DAY), NOW())`);
         console.log('Seeded initial storage archives with generated PPTs, Excels, and historical occupancy snapshots.');
       }
+      // Remove any accidental vacant / blank rows from campaigns table (blank shows in Occupancy only!)
+      try {
+        await q(`DELETE FROM campaigns WHERE LOWER(TRIM(COALESCE(client, ''))) IN ('blank', 'vacant', 'unassigned', '', '-') OR LOWER(TRIM(COALESCE(client, ''))) LIKE 'blank%' OR LOWER(TRIM(COALESCE(client, ''))) LIKE 'vacant%'`);
+      } catch (_) {}
+
       // Synchronize linked campaigns and site availability on startup
       await syncAllLinkedCampaigns(q);
       await syncSiteAvailability();

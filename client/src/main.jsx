@@ -6337,6 +6337,9 @@ function getCampaignOccupancy(r) {
   if (end && !isNaN(end.getTime())) {
     end.setHours(23, 59, 59, 999);
     if (end < today) {
+      if (r.status === 'active' || r.status === 'occupied' || r.occupancy_pct === 100) {
+        return { pct: 100, label: '100% Occupied', status: 'occupied' };
+      }
       return { pct: 0, label: '0% Vacant', sub: 'Past', status: 'vacant' };
     }
     if (start && !isNaN(start.getTime()) && start > today) {
@@ -6344,13 +6347,13 @@ function getCampaignOccupancy(r) {
         pct: 100,
         label: '100% Booked',
         sub: `Starts ${start.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`,
-        status: 'upcoming'
+        status: 'occupied'
       };
     }
     return { pct: 100, label: '100% Occupied', status: 'occupied' };
   }
 
-  if (r.record_status === 'active') {
+  if (r.record_status === 'active' || r.status === 'active' || r.status === 'occupied') {
     return { pct: 100, label: '100% Occupied', status: 'occupied' };
   }
   return { pct: 0, label: '0% Vacant', status: 'vacant' };
@@ -6618,7 +6621,12 @@ function CampaignTrackerView() {
   useEffect(() => {
     loadData();
     const interval = setInterval(loadData, 35000);
-    return () => clearInterval(interval);
+    const onCampUpdate = () => loadData();
+    window.addEventListener('mb-campaigns-updated', onCampUpdate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('mb-campaigns-updated', onCampUpdate);
+    };
   }, []);
 
   // Auto-detect site code from location and size as user types or edits
@@ -6681,7 +6689,7 @@ function CampaignTrackerView() {
     }
   }, [location.search]);
 
-  // Master directory — only sites that have campaign records (DB sites used for auto-match only)
+  // Master directory — only sites that have valid campaign records (Blank rows show in Occupancy only!)
   const siteMasterList = useMemo(() => {
     // Build a lookup from DB sites for enriching campaign rows with site metadata
     const siteDbLookup = new Map();
@@ -6692,8 +6700,9 @@ function CampaignTrackerView() {
 
     const siteMap = new Map();
 
-    // Only add sites that have campaign rows
+    // Only add sites that have real campaign rows (Blank belongs in Occupancy only!)
     rows.forEach(r => {
+      if (isVacantClient(r.client || r.client_name || r.display)) return;
       const code = String(r.site_code || 'UNASSIGNED').trim().toUpperCase();
       if (!siteMap.has(code)) {
         const dbSite = siteDbLookup.get(code);
@@ -6741,17 +6750,19 @@ function CampaignTrackerView() {
       const totalAmount = site.rows.reduce((sum, r) => sum + Number(r.total_amount || r.revenue || 0), 0);
       const totalPending = site.rows.reduce((sum, r) => sum + Number(r.pending || 0), 0);
 
+      // When a booking is done, status automatically changes from vacant to occupied!
       let status = 'vacant';
       let currentCampaign = null;
       if (activeCampaign) {
         status = 'occupied';
         currentCampaign = activeCampaign;
       } else if (upcomingCampaign) {
-        status = 'upcoming';
+        status = 'occupied';
         currentCampaign = upcomingCampaign;
       } else if (latestCampaign) {
         currentCampaign = latestCampaign;
-        status = 'vacant';
+        const isCampActive = latestCampaign.status === 'active' || latestCampaign.status === 'occupied' || latestCampaign.record_status === 'active';
+        status = isCampActive ? 'occupied' : 'vacant';
       }
 
       return {
@@ -6916,6 +6927,8 @@ function CampaignTrackerView() {
       setBanner(`✓ ${count} campaign record${count > 1 ? 's' : ''} deleted successfully.`);
       setSelectedIds(new Set());
       await loadData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
       setTimeout(() => setBanner(''), 4000);
     } catch (err) {
       alert('Failed to delete selected campaigns: ' + (err.response?.data?.message || err.message));
@@ -6938,6 +6951,8 @@ function CampaignTrackerView() {
       setBanner(`✓ All ${count} campaign records deleted successfully.`);
       setSelectedIds(new Set());
       await loadData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
       setTimeout(() => setBanner(''), 5000);
     } catch (err) {
       alert('Failed to delete all campaigns: ' + (err.response?.data?.message || err.message));
@@ -6956,6 +6971,8 @@ function CampaignTrackerView() {
           return next;
         });
         await loadData();
+        window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
+        window.dispatchEvent(new CustomEvent('mb-sites-updated'));
         setTimeout(() => setBanner(''), 3000);
       } catch (err) {
         alert('Failed to delete campaign: ' + (err.response?.data?.message || err.message));
@@ -6976,6 +6993,8 @@ function CampaignTrackerView() {
       setBanner(`✓ ${msg}`);
       alert(`✓ Campaigns Import Successful!\n\n${msg}`);
       await loadData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
       setTimeout(() => setBanner(''), 6000);
     } catch (err) {
       alert('Campaign Excel Import failed: ' + (err.response?.data?.message || err.message));
@@ -7093,6 +7112,8 @@ function CampaignTrackerView() {
       }
       setEditModal(null);
       await loadData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
       setTimeout(() => setBanner(''), 4000);
     } catch (err) {
       alert('Failed to save campaign: ' + (err.response?.data?.message || err.message));
