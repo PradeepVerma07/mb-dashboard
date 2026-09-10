@@ -4631,7 +4631,6 @@ function OccupancyView() {
         { header: 'Site Code', key: 'site_code', width: 14 },
         { header: 'Location / Area', key: 'area', width: 28 },
         { header: 'City', key: 'city', width: 16 },
-        { header: 'Current Client', key: 'client', width: 26 },
         { header: 'Current Status', key: 'status', width: 14 }
       ];
 
@@ -4653,7 +4652,6 @@ function OccupancyView() {
           site_code: s.site_code,
           area: s.area,
           city: s.city,
-          client: s.currentClient ? `${s.currentClient}${s.currentBrand ? ` (${s.currentBrand})` : ''}` : 'Vacant',
           status: s.currentStatus ? s.currentStatus.toUpperCase() : 'VACANT'
         };
 
@@ -5196,13 +5194,12 @@ function OccupancyView() {
                   )}
                   <th style={{ position: 'sticky', left: canDelete ? '42px' : 0, zIndex: 3, background: '#10161e', minWidth: '110px' }}>Site ID</th>
                   <th style={{ minWidth: '140px' }}>Location / Area</th>
-                  <th style={{ minWidth: '160px' }}>Client / Brand</th>
 
                   {/* 6 Months View Columns */}
                   {viewTab === '6months' && periods6M.map(p => (
                     <th key={p.key} style={{ minWidth: '130px', textAlign: 'center' }}>
                       <div>{p.label}</div>
-                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 500 }}>Client & Occ %</div>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 500 }}>Bookings & Occ %</div>
                     </th>
                   ))}
 
@@ -5210,7 +5207,7 @@ function OccupancyView() {
                   {viewTab === '12months' && periods12M.map(p => (
                     <th key={p.key} style={{ minWidth: '130px', textAlign: 'center' }}>
                       <div>{p.label}</div>
-                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 500 }}>Client & Occ %</div>
+                      <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 500 }}>Bookings & Occ %</div>
                     </th>
                   ))}
 
@@ -5234,40 +5231,6 @@ function OccupancyView() {
               </thead>
               <tbody>
                 {filteredSites.map((s, idx) => {
-                  const clientCell = (
-                    <td>
-                      {s.currentClient ? (
-                        <div>
-                          <div style={{ fontWeight: 800, color: '#f1f5f9', fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                            <span style={{ color: '#38bdf8' }}>👤</span>
-                            <span>{s.currentClient}</span>
-                          </div>
-                          {s.currentBrand && s.currentBrand !== s.currentClient && (
-                            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-                              🏷️ {s.currentBrand}
-                            </div>
-                          )}
-                          <div style={{ marginTop: '4px' }}>
-                            <span 
-                              className="scooh-badgechip" 
-                              style={{ 
-                                fontSize: '9.5px', 
-                                padding: '1px 6px',
-                                background: s.currentStatus === 'active' ? 'rgba(16, 185, 129, 0.15)' : s.currentStatus === 'upcoming' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(100, 116, 139, 0.15)',
-                                color: s.currentStatus === 'active' ? '#10b981' : s.currentStatus === 'upcoming' ? '#f59e0b' : '#94a3b8',
-                                border: s.currentStatus === 'active' ? '1px solid rgba(16, 185, 129, 0.3)' : s.currentStatus === 'upcoming' ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(100, 116, 139, 0.3)'
-                              }}
-                            >
-                              {s.currentStatus === 'active' ? '● Active' : s.currentStatus === 'upcoming' ? '⏳ Upcoming' : '⏱ Past Client'}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <span style={{ color: '#475569', fontSize: '12px' }}>— Available —</span>
-                      )}
-                    </td>
-                  );
-
                   if (viewTab === 'overview') {
                     const statusText = s.pct365 >= 75 ? 'Full' : s.pct365 >= 40 ? 'High' : s.pct365 > 0 ? 'Partial' : 'Vacant';
                     const badgeBg = s.pct365 >= 75 ? 'rgba(16, 185, 129, 0.15)' : s.pct365 >= 40 ? 'rgba(56, 189, 248, 0.15)' : s.pct365 > 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(100, 116, 139, 0.15)';
@@ -5315,7 +5278,6 @@ function OccupancyView() {
                           </div>
                         </td>
                         <td><b>{s.area}</b></td>
-                        {clientCell}
                         <td>{s.city}</td>
                         <td>
                           <span style={{ fontWeight: 700, color: s.days365 > 0 ? '#f1f5f9' : '#64748b' }}>
@@ -5397,7 +5359,6 @@ function OccupancyView() {
                         </div>
                       </td>
                       <td><b>{s.area}</b></td>
-                      {clientCell}
 
                       {periods.map(p => {
                         const entry = dataMap?.[p.key];
