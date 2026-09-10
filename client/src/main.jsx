@@ -4119,7 +4119,7 @@ function OccupancyView() {
   const [dbOccupancy, setDbOccupancy] = useState([]); // fed from /campaigns (same as Campaign Tracker)
   const [loading, setLoading] = useState(true);
   const [importingExcel, setImportingExcel] = useState(false);
-  const [viewTab, setViewTab] = useState('history'); // 'history' | '6months' | 'overview'
+  const [viewTab, setViewTab] = useState('6months'); // '6months' | '12months' | 'overview'
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'occupied' | 'vacant'
   const [siteTypeFilter, setSiteTypeFilter] = useState(new Set(['ALL', 'Combined', 'Split Face'])); // multi-select
   const [search, setSearch] = useState('');
@@ -4134,7 +4134,7 @@ function OccupancyView() {
     const siteParam = (params.get('site') || params.get('search') || '').trim();
     if (siteParam) {
       setSearch(siteParam);
-      setViewTab('history');
+      setViewTab('6months');
     }
   }, [location.search]);
 
@@ -4192,8 +4192,8 @@ function OccupancyView() {
     }
   }
 
-  // ── Compute periods (6 Months & Yearly) ──────────────────────────────
-  const { periods6M, periodsYearly, period365 } = useMemo(() => {
+  // ── Compute periods (6 Months, 12 Months, & Yearly) ──────────────────
+  const { periods6M, periods12M, periodsYearly, period365 } = useMemo(() => {
     const now = new Date();
     
     // 6 Months periods
@@ -4203,6 +4203,21 @@ function OccupancyView() {
       const dEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
       const totalDays = Math.round((dEnd - dStart) / 86400000) + 1;
       p6.push({
+        key: `${dStart.getFullYear()}-${String(dStart.getMonth() + 1).padStart(2, '0')}`,
+        label: fmtMonthYear(dStart),
+        start: dStart,
+        end: dEnd,
+        totalDays
+      });
+    }
+
+    // 12 Months periods (rolling 12 months)
+    const p12 = [];
+    for (let i = 11; i >= 0; i--) {
+      const dStart = new Date(now.getFullYear(), now.getMonth() - i, 1, 0, 0, 0);
+      const dEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
+      const totalDays = Math.round((dEnd - dStart) / 86400000) + 1;
+      p12.push({
         key: `${dStart.getFullYear()}-${String(dStart.getMonth() + 1).padStart(2, '0')}`,
         label: fmtMonthYear(dStart),
         start: dStart,
@@ -4236,7 +4251,7 @@ function OccupancyView() {
       totalDays: 365
     };
 
-    return { periods6M: p6, periodsYearly: pY, period365: p365 };
+    return { periods6M: p6, periods12M: p12, periodsYearly: pY, period365: p365 };
   }, []);
 
   // ── Calculate Site History with Client Tracking ───────────────────────
@@ -4382,6 +4397,14 @@ function OccupancyView() {
         by6M[p.key] = { days: res.days, totalDays: p.totalDays, pct, clients: res.clients, brands: res.brands, campaigns: res.campaigns };
       });
 
+      // 12 Months breakdown
+      const by12M = {};
+      periods12M.forEach(p => {
+        const res = getDaysAndClientsInWindow(p.start, p.end);
+        const pct = Math.min(100, Math.round((res.days / p.totalDays) * 100));
+        by12M[p.key] = { days: res.days, totalDays: p.totalDays, pct, clients: res.clients, brands: res.brands, campaigns: res.campaigns };
+      });
+
       // Yearly breakdown
       const byYearly = {};
       periodsYearly.forEach(p => {
@@ -4405,13 +4428,14 @@ function OccupancyView() {
         currentStatus,
         allCampaigns: siteCamps,
         by6M,
+        by12M,
         byYearly,
         days365: res365.days,
         pct365,
         clients365: res365.clients
       };
     }).sort((a, b) => a.site_code.localeCompare(b.site_code, undefined, { numeric: true }));
-  }, [dbSites, dbOccupancy, periods6M, periodsYearly, period365]);
+  }, [dbSites, dbOccupancy, periods6M, periods12M, periodsYearly, period365]);
 
   // ── Filtered sites with simple Status Filter (All / Occupied / Vacant) and Site Type Filter ──
   const filteredSites = useMemo(() => {
@@ -4436,87 +4460,6 @@ function OccupancyView() {
       );
     });
   }, [siteHistory, search, statusFilter, siteTypeFilter]);
-
-  // ── Complete Chronological Bookings Ledger (All Previous, Current, Upcoming) ──
-  const allBookings = useMemo(() => {
-    const list = [];
-    const now = new Date();
-
-    const activeSitesMap = new Map();
-    dbSites.forEach(s => activeSitesMap.set(canonicalSiteCode(s.site_code), s));
-
-    dbOccupancy
-      .filter(c => c.record_status !== 'archived')
-      .forEach(c => {
-        const sCode = canonicalSiteCode(c.site_code);
-        const site = activeSitesMap.get(sCode);
-        const sDate = parseFlexibleDate(c.start_date || c.booking_date || c.month);
-        const eDate = parseFlexibleDate(c.end_date) || (sDate ? new Date(sDate.getFullYear(), sDate.getMonth() + 1, 0, 23, 59, 59) : null);
-        const isAct = c.status === 'active' || (sDate && eDate && sDate <= now && eDate >= now);
-        const isUpc = c.status === 'upcoming' || (sDate && sDate > now);
-
-        list.push({
-          id: c.id,
-          site_code: sCode || '—',
-          siteType: getSiteTypeTag(sCode),
-          location: c.location || site?.address || site?.area || '—',
-          city: c.city || site?.city || 'Ahmedabad',
-          client: c.client || c.client_name || '—',
-          brand: c.brand || '—',
-          display: cleanDisplayTitle(c.display || c.campaign_name || '—'),
-          vendor_name: c.vendor_name || '—',
-          month: c.month || (sDate ? fmtMonthYear(sDate) : '—'),
-          start_date: c.start_date || c.booking_date,
-          end_date: c.end_date,
-          days: c.days ?? (sDate && eDate ? Math.round((eDate - sDate) / 86400000) + 1 : '—'),
-          total_amount: Number(c.total_amount || c.revenue || 0),
-          pending: Number(c.pending || 0),
-          po: c.po || '',
-          bill: c.bill || '',
-          sDate,
-          eDate,
-          status: isAct ? 'active' : isUpc ? 'upcoming' : 'past'
-        });
-      });
-
-    return list.sort((a, b) => {
-      const siteComp = String(a.site_code || '').localeCompare(String(b.site_code || ''), undefined, { numeric: true });
-      if (siteComp !== 0) return siteComp;
-      const tA = a.sDate ? a.sDate.getTime() : 0;
-      const tB = b.sDate ? b.sDate.getTime() : 0;
-      return tB - tA;
-    });
-  }, [dbSites, dbOccupancy, siteHistory]);
-
-  const filteredBookings = useMemo(() => {
-    return allBookings.filter(b => {
-      if (!siteTypeFilter.has('Combined') && b.siteType === 'Combined') return false;
-      if (!siteTypeFilter.has('Split Face') && b.siteType === 'Split Face') return false;
-      if (!siteTypeFilter.has('ALL') && b.siteType !== 'Combined' && b.siteType !== 'Split Face') return false;
-
-      if (statusFilter === 'occupied' && b.status !== 'active') return false;
-      if (statusFilter === 'past' && b.status !== 'past') return false;
-      if (statusFilter === 'upcoming' && b.status !== 'upcoming') return false;
-      if (statusFilter === 'vacant') return false;
-
-      if (!search.trim()) return true;
-      const q = search.trim().toLowerCase();
-      return (
-        b.site_code.toLowerCase().includes(q) ||
-        b.location.toLowerCase().includes(q) ||
-        b.client.toLowerCase().includes(q) ||
-        b.display.toLowerCase().includes(q) ||
-        b.month.toLowerCase().includes(q) ||
-        (b.po && b.po.toLowerCase().includes(q)) ||
-        (b.bill && b.bill.toLowerCase().includes(q))
-      );
-    });
-  }, [allBookings, statusFilter, siteTypeFilter, search]);
-
-  const activeBookingsCount = useMemo(() => allBookings.filter(b => b.status === 'active').length, [allBookings]);
-  const pastBookingsCount = useMemo(() => allBookings.filter(b => b.status === 'past').length, [allBookings]);
-  const upcomingBookingsCount = useMemo(() => allBookings.filter(b => b.status === 'upcoming').length, [allBookings]);
-  const totalHistoricalRev = useMemo(() => allBookings.reduce((sum, b) => sum + b.total_amount, 0), [allBookings]);
 
   // ── Overall Stats ─────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -4545,97 +4488,59 @@ function OccupancyView() {
   async function exportOccupancyExcel() {
     try {
       const workbook = new ExcelJS.Workbook();
-      const ws = workbook.addWorksheet(viewTab === 'history' ? 'Bookings History' : 'Occupancy History');
+      const ws = workbook.addWorksheet(viewTab === 'overview' ? '365-Day Overview' : 'Monthly Occupancy');
       
-      if (viewTab === 'history') {
-        ws.columns = [
-          { header: 'Site Code', key: 'site_code', width: 14 },
-          { header: 'Location / Area', key: 'location', width: 28 },
-          { header: 'City', key: 'city', width: 16 },
-          { header: 'Client / Agency', key: 'client', width: 26 },
-          { header: 'Display / Campaign', key: 'display', width: 24 },
-          { header: 'Month', key: 'month', width: 16 },
-          { header: 'Start Date', key: 'start_date', width: 14 },
-          { header: 'End Date', key: 'end_date', width: 14 },
-          { header: 'Days', key: 'days', width: 10 },
-          { header: 'Status', key: 'status', width: 14 },
-          { header: 'Total Amount', key: 'total_amount', width: 16 },
-          { header: 'Pending', key: 'pending', width: 14 },
-          { header: 'PO Number', key: 'po', width: 16 },
-          { header: 'Bill Number', key: 'bill', width: 16 }
-        ];
+      const periods = viewTab === '12months' ? periods12M : periods6M;
+      
+      const columns = [
+        { header: 'Site Code', key: 'site_code', width: 14 },
+        { header: 'Location / Area', key: 'area', width: 28 },
+        { header: 'City', key: 'city', width: 16 },
+        { header: 'Current Client', key: 'client', width: 26 },
+        { header: 'Current Status', key: 'status', width: 14 }
+      ];
 
-        filteredBookings.forEach(b => {
-          ws.addRow({
-            site_code: b.site_code,
-            location: b.location,
-            city: b.city,
-            client: b.client,
-            display: b.display,
-            month: b.month,
-            start_date: b.start_date ? formatDate(b.start_date) : '',
-            end_date: b.end_date ? formatDate(b.end_date) : '',
-            days: b.days,
-            status: b.status.toUpperCase(),
-            total_amount: b.total_amount,
-            pending: b.pending,
-            po: b.po,
-            bill: b.bill
-          });
-        });
+      if (viewTab === 'overview') {
+        columns.push({ header: 'Occupied Days (365d)', key: 'days', width: 20 });
+        columns.push({ header: 'Occupancy Rate %', key: 'pct', width: 18 });
       } else {
-        const periods = viewTab === '6months' ? periods6M : [];
-        
-        const columns = [
-          { header: 'Site Code', key: 'site_code', width: 14 },
-          { header: 'Location / Area', key: 'area', width: 28 },
-          { header: 'City', key: 'city', width: 16 },
-          { header: 'Client / Brand', key: 'client', width: 26 },
-          { header: 'Status', key: 'status', width: 14 }
-        ];
+        periods.forEach(p => {
+          columns.push({ header: `${p.label} (Occ %)`, key: `pct_${p.key}`, width: 16 });
+          columns.push({ header: `${p.label} (Booked Client)`, key: `client_${p.key}`, width: 24 });
+        });
+        columns.push({ header: 'Average %', key: 'avg', width: 14 });
+      }
+
+      ws.columns = columns;
+
+      filteredSites.forEach(s => {
+        const rowData = {
+          site_code: s.site_code,
+          area: s.area,
+          city: s.city,
+          client: s.currentClient ? `${s.currentClient}${s.currentBrand ? ` (${s.currentBrand})` : ''}` : 'Vacant',
+          status: s.currentStatus ? s.currentStatus.toUpperCase() : 'VACANT'
+        };
 
         if (viewTab === 'overview') {
-          columns.push({ header: 'Occupied Days (365d)', key: 'days', width: 20 });
-          columns.push({ header: 'Occupancy Rate %', key: 'pct', width: 18 });
+          rowData.days = s.days365;
+          rowData.pct = `${s.pct365}%`;
         } else {
+          const dataMap = viewTab === '12months' ? s.by12M : s.by6M;
+          let sum = 0;
           periods.forEach(p => {
-            columns.push({ header: `${p.label} (Occ %)`, key: `pct_${p.key}`, width: 16 });
-            columns.push({ header: `${p.label} (Booked Client)`, key: `client_${p.key}`, width: 24 });
+            const entry = dataMap?.[p.key];
+            const pct = typeof entry === 'object' ? (entry?.pct ?? 0) : (Number(entry) || 0);
+            const clients = typeof entry === 'object' && entry?.clients ? entry.clients.join(', ') : '';
+            rowData[`pct_${p.key}`] = `${pct}%`;
+            rowData[`client_${p.key}`] = clients || (pct > 0 ? 'Occupied' : 'Vacant');
+            sum += pct;
           });
-          columns.push({ header: 'Average %', key: 'avg', width: 14 });
+          rowData.avg = `${Math.round(sum / (periods.length || 1))}%`;
         }
 
-        ws.columns = columns;
-
-        filteredSites.forEach(s => {
-          const rowData = {
-            site_code: s.site_code,
-            area: s.area,
-            city: s.city,
-            client: s.currentClient ? `${s.currentClient}${s.currentBrand ? ` (${s.currentBrand})` : ''}` : 'Vacant',
-            status: s.currentStatus ? s.currentStatus.toUpperCase() : 'VACANT'
-          };
-
-          if (viewTab === 'overview') {
-            rowData.days = s.days365;
-            rowData.pct = `${s.pct365}%`;
-          } else {
-            const dataMap = s.by6M;
-            let sum = 0;
-            periods.forEach(p => {
-              const entry = dataMap?.[p.key];
-              const pct = typeof entry === 'object' ? (entry?.pct ?? 0) : (Number(entry) || 0);
-              const clients = typeof entry === 'object' && entry?.clients ? entry.clients.join(', ') : '';
-              rowData[`pct_${p.key}`] = `${pct}%`;
-              rowData[`client_${p.key}`] = clients || (pct > 0 ? 'Occupied' : 'Vacant');
-              sum += pct;
-            });
-            rowData.avg = `${Math.round(sum / (periods.length || 1))}%`;
-          }
-
-          ws.addRow(rowData);
-        });
-      }
+        ws.addRow(rowData);
+      });
 
       // Style header
       const headerRow = ws.getRow(1);
@@ -4662,158 +4567,84 @@ function OccupancyView() {
   return (
     <>
       <PageHead 
-        title="Site Occupancy History" 
-        desc="Simple & clear site-wise occupancy tracker with live utilization, booked clients, and vacant availability." 
+        title="Site Occupancy & Utilization" 
+        desc="Monthly utilization, client bookings, and availability across your site inventory." 
       />
 
       {/* ── Top Summary & KPI Cards (Click to filter) ────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '16px' }}>
-        {viewTab === 'history' ? (
-          <>
-            <div 
-              className="scooh-panel" 
-              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.08)' }}
-              onClick={() => setStatusFilter('ALL')}
-              title="Click to view all booking records"
-            >
-              <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Total Bookings History
-              </div>
-              <div style={{ fontSize: '28px', fontWeight: 900, color: '#f1f5f9', lineHeight: 1.1 }}>
-                {allBookings.length}
-              </div>
-              <div style={{ fontSize: '12px', color: '#64748b' }}>
-                All previous & active campaigns
-              </div>
-            </div>
+        <div 
+          className="scooh-panel" 
+          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.08)' }}
+          onClick={() => setStatusFilter('ALL')}
+          title="Click to view all sites"
+        >
+          <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Average Occupancy
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ fontSize: '28px', fontWeight: 900, color: stats.avgPct >= 60 ? '#10b981' : stats.avgPct >= 30 ? '#38bdf8' : '#f59e0b', lineHeight: 1 }}>
+              {stats.avgPct}%
+            </span>
+            <span style={{ fontSize: '12px', color: '#64748b' }}>across portfolio</span>
+          </div>
+          <div style={{ height: '6px', background: '#0b1016', borderRadius: '999px', overflow: 'hidden', border: '1px solid #222c37' }}>
+            <div style={{ height: '100%', width: `${stats.avgPct}%`, background: stats.avgPct >= 60 ? '#10b981' : '#38bdf8', borderRadius: '999px' }} />
+          </div>
+        </div>
 
-            <div 
-              className="scooh-panel" 
-              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'occupied' ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'occupied' ? 'rgba(16, 185, 129, 0.08)' : undefined }}
-              onClick={() => setStatusFilter(prev => prev === 'occupied' ? 'ALL' : 'occupied')}
-              title="Click to filter currently active bookings"
-            >
-              <div style={{ fontSize: '11px', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>🟢 Currently Active</span>
-                {statusFilter === 'occupied' && <span style={{ fontSize: '10px', background: '#10b981', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active</span>}
-              </div>
-              <div style={{ fontSize: '28px', fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>
-                {activeBookingsCount}
-              </div>
-              <div style={{ fontSize: '12px', color: '#64748b' }}>
-                Currently running on sites
-              </div>
-            </div>
+        <div 
+          className="scooh-panel" 
+          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'occupied' ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'occupied' ? 'rgba(16, 185, 129, 0.08)' : undefined }}
+          onClick={() => setStatusFilter(prev => prev === 'occupied' ? 'ALL' : 'occupied')}
+          title="Click to filter only occupied sites"
+        >
+          <div style={{ fontSize: '11px', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>🟢 Occupied Sites</span>
+            {statusFilter === 'occupied' && <span style={{ fontSize: '10px', background: '#10b981', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active Filter</span>}
+          </div>
+          <div style={{ fontSize: '28px', fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>
+            {stats.occupied}
+          </div>
+          <div style={{ fontSize: '12px', color: '#64748b' }}>
+            {stats.total > 0 ? `${Math.round((stats.occupied / stats.total) * 100)}% active campaigns` : 'No sites'}
+          </div>
+        </div>
 
-            <div 
-              className="scooh-panel" 
-              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'past' ? '2px solid #a855f7' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'past' ? 'rgba(168, 85, 247, 0.08)' : undefined }}
-              onClick={() => setStatusFilter(prev => prev === 'past' ? 'ALL' : 'past')}
-              title="Click to filter previous completed bookings"
-            >
-              <div style={{ fontSize: '11px', fontWeight: 800, color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>⏱ Previous / Completed</span>
-                {statusFilter === 'past' && <span style={{ fontSize: '10px', background: '#a855f7', color: '#fff', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active</span>}
-              </div>
-              <div style={{ fontSize: '28px', fontWeight: 900, color: '#c084fc', lineHeight: 1.1 }}>
-                {pastBookingsCount}
-              </div>
-              <div style={{ fontSize: '12px', color: '#64748b' }}>
-                Archived & completed bookings
-              </div>
-            </div>
+        <div 
+          className="scooh-panel" 
+          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'vacant' ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.08)' : undefined }}
+          onClick={() => setStatusFilter(prev => prev === 'vacant' ? 'ALL' : 'vacant')}
+          title="Click to filter only vacant sites"
+        >
+          <div style={{ fontSize: '11px', fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>⚪ Vacant Sites</span>
+            {statusFilter === 'vacant' && <span style={{ fontSize: '10px', background: '#f59e0b', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active Filter</span>}
+          </div>
+          <div style={{ fontSize: '28px', fontWeight: 900, color: stats.vacant > 0 ? '#f59e0b' : '#10b981', lineHeight: 1.1 }}>
+            {stats.vacant}
+          </div>
+          <div style={{ fontSize: '12px', color: '#64748b' }}>
+            Ready for booking
+          </div>
+        </div>
 
-            <div 
-              className="scooh-panel" 
-              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', border: '1px solid rgba(255,255,255,0.08)' }}
-            >
-              <div style={{ fontSize: '11px', fontWeight: 800, color: '#4ade80', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Total Revenue
-              </div>
-              <div style={{ fontSize: '28px', fontWeight: 900, color: '#4ade80', lineHeight: 1.1 }}>
-                {money(totalHistoricalRev)}
-              </div>
-              <div style={{ fontSize: '12px', color: '#64748b' }}>
-                Cumulative booking revenue
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div 
-              className="scooh-panel" 
-              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '8px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.08)' }}
-              onClick={() => setStatusFilter('ALL')}
-              title="Click to view all sites"
-            >
-              <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Average Occupancy
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                <span style={{ fontSize: '28px', fontWeight: 900, color: stats.avgPct >= 60 ? '#10b981' : stats.avgPct >= 30 ? '#38bdf8' : '#f59e0b', lineHeight: 1 }}>
-                  {stats.avgPct}%
-                </span>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>across portfolio</span>
-              </div>
-              <div style={{ height: '6px', background: '#0b1016', borderRadius: '999px', overflow: 'hidden', border: '1px solid #222c37' }}>
-                <div style={{ height: '100%', width: `${stats.avgPct}%`, background: stats.avgPct >= 60 ? '#10b981' : '#38bdf8', borderRadius: '999px' }} />
-              </div>
-            </div>
-
-            <div 
-              className="scooh-panel" 
-              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'occupied' ? '2px solid #10b981' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'occupied' ? 'rgba(16, 185, 129, 0.08)' : undefined }}
-              onClick={() => setStatusFilter(prev => prev === 'occupied' ? 'ALL' : 'occupied')}
-              title="Click to filter only occupied sites"
-            >
-              <div style={{ fontSize: '11px', fontWeight: 800, color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>🟢 Occupied Sites</span>
-                {statusFilter === 'occupied' && <span style={{ fontSize: '10px', background: '#10b981', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active Filter</span>}
-              </div>
-              <div style={{ fontSize: '28px', fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>
-                {stats.occupied}
-              </div>
-              <div style={{ fontSize: '12px', color: '#64748b' }}>
-                {stats.total > 0 ? `${Math.round((stats.occupied / stats.total) * 100)}% active campaigns` : 'No sites'}
-              </div>
-            </div>
-
-            <div 
-              className="scooh-panel" 
-              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'vacant' ? '2px solid #f59e0b' : '1px solid rgba(255,255,255,0.08)', background: statusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.08)' : undefined }}
-              onClick={() => setStatusFilter(prev => prev === 'vacant' ? 'ALL' : 'vacant')}
-              title="Click to filter only vacant sites"
-            >
-              <div style={{ fontSize: '11px', fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>⚪ Vacant Sites</span>
-                {statusFilter === 'vacant' && <span style={{ fontSize: '10px', background: '#f59e0b', color: '#000', padding: '1px 6px', borderRadius: '10px', fontWeight: 900 }}>Active Filter</span>}
-              </div>
-              <div style={{ fontSize: '28px', fontWeight: 900, color: stats.vacant > 0 ? '#f59e0b' : '#10b981', lineHeight: 1.1 }}>
-                {stats.vacant}
-              </div>
-              <div style={{ fontSize: '12px', color: '#64748b' }}>
-                Ready for booking
-              </div>
-            </div>
-
-            <div 
-              className="scooh-panel" 
-              style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid #38bdf8' : '1px solid rgba(255,255,255,0.08)' }}
-              onClick={() => setStatusFilter('ALL')}
-              title="Click to show all sites"
-            >
-              <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Total Sites Tracked
-              </div>
-              <div style={{ fontSize: '28px', fontWeight: 900, color: '#f1f5f9', lineHeight: 1.1 }}>
-                {stats.total}
-              </div>
-              <div style={{ fontSize: '12px', color: '#64748b' }}>
-                Live from Campaign Tracker
-              </div>
-            </div>
-          </>
-        )}
+        <div 
+          className="scooh-panel" 
+          style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '4px', cursor: 'pointer', border: statusFilter === 'ALL' ? '2px solid #38bdf8' : '1px solid rgba(255,255,255,0.08)' }}
+          onClick={() => setStatusFilter('ALL')}
+          title="Click to show all sites"
+        >
+          <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Total Sites Tracked
+          </div>
+          <div style={{ fontSize: '28px', fontWeight: 900, color: '#f1f5f9', lineHeight: 1.1 }}>
+            {stats.total}
+          </div>
+          <div style={{ fontSize: '12px', color: '#64748b' }}>
+            Live from Campaign Tracker
+          </div>
+        </div>
       </div>
 
       {/* ── Unified Clean Controls Toolbar ───────────────────────────────── */}
@@ -4825,7 +4656,7 @@ function OccupancyView() {
             <input
               className="scooh-search"
               style={{ minWidth: '220px', maxWidth: '320px', fontSize: '12px' }}
-              placeholder={viewTab === 'history' ? "Search client, display, site code, PO…" : "Search site, client, area…"}
+              placeholder="Search site, client, area…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -4846,7 +4677,7 @@ function OccupancyView() {
                   cursor: 'pointer'
                 }}
               >
-                All ({viewTab === 'history' ? allBookings.length : siteHistory.length})
+                All ({siteHistory.length})
               </button>
               <button
                 type="button"
@@ -4862,61 +4693,24 @@ function OccupancyView() {
                   cursor: 'pointer'
                 }}
               >
-                🟢 Active ({viewTab === 'history' ? activeBookingsCount : stats.occupied})
+                🟢 Occupied ({stats.occupied})
               </button>
-              {viewTab === 'history' ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('past')}
-                    style={{
-                      padding: '4px 12px',
-                      borderRadius: '16px',
-                      border: 'none',
-                      background: statusFilter === 'past' ? 'rgba(168, 85, 247, 0.25)' : 'transparent',
-                      color: statusFilter === 'past' ? '#c084fc' : '#94a3b8',
-                      fontWeight: statusFilter === 'past' ? 800 : 600,
-                      fontSize: '11.5px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    ⏱ Previous ({pastBookingsCount})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStatusFilter('upcoming')}
-                    style={{
-                      padding: '4px 12px',
-                      borderRadius: '16px',
-                      border: 'none',
-                      background: statusFilter === 'upcoming' ? 'rgba(234, 179, 8, 0.25)' : 'transparent',
-                      color: statusFilter === 'upcoming' ? '#facc15' : '#94a3b8',
-                      fontWeight: statusFilter === 'upcoming' ? 800 : 600,
-                      fontSize: '11.5px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    ⏳ Upcoming ({upcomingBookingsCount})
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter('vacant')}
-                  style={{
-                    padding: '4px 12px',
-                    borderRadius: '16px',
-                    border: 'none',
-                    background: statusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.25)' : 'transparent',
-                    color: statusFilter === 'vacant' ? '#fbbf24' : '#94a3b8',
-                    fontWeight: statusFilter === 'vacant' ? 800 : 600,
-                    fontSize: '11.5px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  ⚪ Vacant ({stats.vacant})
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setStatusFilter('vacant')}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: statusFilter === 'vacant' ? 'rgba(245, 158, 11, 0.25)' : 'transparent',
+                  color: statusFilter === 'vacant' ? '#fbbf24' : '#94a3b8',
+                  fontWeight: statusFilter === 'vacant' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                ⚪ Vacant ({stats.vacant})
+              </button>
             </div>
 
             {/* Site Hierarchy Filter: multi-select — all toggled independently */}
@@ -4989,24 +4783,8 @@ function OccupancyView() {
 
           {/* Right: Clean View Switcher & Action Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            {/* View Mode Toggle: 3 Clear Views */}
+            {/* View Mode Toggle: 6M, 12M, 365-Day */}
             <div style={{ display: 'inline-flex', gap: '4px', background: 'rgba(15, 23, 42, 0.6)', padding: '3px', borderRadius: '20px', border: '1px solid #1e293b' }}>
-              <button
-                type="button"
-                onClick={() => setViewTab('history')}
-                style={{
-                  padding: '5px 14px',
-                  borderRadius: '16px',
-                  border: 'none',
-                  background: viewTab === 'history' ? 'rgba(56, 189, 248, 0.25)' : 'transparent',
-                  color: viewTab === 'history' ? '#38bdf8' : '#94a3b8',
-                  fontWeight: viewTab === 'history' ? 800 : 600,
-                  fontSize: '11.5px',
-                  cursor: 'pointer'
-                }}
-              >
-                📋 All Bookings History ({allBookings.length})
-              </button>
               <button
                 type="button"
                 onClick={() => setViewTab('6months')}
@@ -5014,14 +4792,30 @@ function OccupancyView() {
                   padding: '5px 14px',
                   borderRadius: '16px',
                   border: 'none',
-                  background: viewTab === '6months' ? 'rgba(242, 201, 76, 0.18)' : 'transparent',
-                  color: viewTab === '6months' ? '#f2c94c' : '#94a3b8',
+                  background: viewTab === '6months' ? 'rgba(56, 189, 248, 0.25)' : 'transparent',
+                  color: viewTab === '6months' ? '#38bdf8' : '#94a3b8',
                   fontWeight: viewTab === '6months' ? 800 : 600,
                   fontSize: '11.5px',
                   cursor: 'pointer'
                 }}
               >
                 🗓️ 6 Months Timeline
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewTab('12months')}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: '16px',
+                  border: 'none',
+                  background: viewTab === '12months' ? 'rgba(168, 85, 247, 0.25)' : 'transparent',
+                  color: viewTab === '12months' ? '#c084fc' : '#94a3b8',
+                  fontWeight: viewTab === '12months' ? 800 : 600,
+                  fontSize: '11.5px',
+                  cursor: 'pointer'
+                }}
+              >
+                📅 12 Months Timeline
               </button>
               <button
                 type="button"
@@ -5099,139 +4893,6 @@ function OccupancyView() {
             <div style={{ fontSize: '32px', marginBottom: '12px' }}>🔄</div>
             <b>Loading occupancy history...</b>
           </div>
-        ) : viewTab === 'history' ? (
-          /* ── Dedicated All Bookings History Table (Zero Confusion) ── */
-          filteredBookings.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
-              <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔍</div>
-              <h4 style={{ margin: '0 0 6px', color: '#f1f5f9' }}>No booking history records found</h4>
-              <p style={{ margin: 0, fontSize: '12px' }}>Try adjusting your search filter or status pill.</p>
-            </div>
-          ) : (
-            <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
-              <table className="scooh-table" style={{ width: '100%', minWidth: '1100px' }}>
-                <thead>
-                  <tr>
-                    <th style={{ minWidth: '100px' }}>Site Code</th>
-                    <th style={{ minWidth: '160px' }}>Location / Area</th>
-                    <th style={{ minWidth: '160px' }}>Client / Agency</th>
-                    <th style={{ minWidth: '150px' }}>Display / Brand</th>
-                    <th style={{ minWidth: '100px' }}>Month</th>
-                    <th style={{ minWidth: '180px' }}>Booking Dates</th>
-                    <th style={{ minWidth: '70px', textAlign: 'center' }}>Days</th>
-                    <th style={{ minWidth: '130px', textAlign: 'center' }}>Status</th>
-                    <th style={{ minWidth: '120px', textAlign: 'right' }}>Total Amount</th>
-                    <th style={{ minWidth: '110px', textAlign: 'right' }}>Pending</th>
-                    <th style={{ minWidth: '110px' }}>PO / Bill</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredBookings.map((b, bIdx) => {
-                    const isAct = b.status === 'active';
-                    const isUpc = b.status === 'upcoming';
-                    const statusColor = isAct ? '#4ade80' : isUpc ? '#facc15' : '#94a3b8';
-                    const statusBg = isAct ? 'rgba(34, 197, 94, 0.16)' : isUpc ? 'rgba(234, 179, 8, 0.16)' : 'rgba(148, 163, 184, 0.12)';
-                    const statusBorder = isAct ? 'rgba(34, 197, 94, 0.35)' : isUpc ? 'rgba(234, 179, 8, 0.35)' : 'rgba(148, 163, 184, 0.25)';
-                    const statusLabel = isAct ? '● Active' : isUpc ? '⏳ Upcoming' : '⏱ Completed';
-
-                    return (
-                      <tr key={b.id || bIdx}>
-                        <td>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                            <span className="scooh-plate" style={{ fontSize: '11.5px', fontWeight: 800 }}>
-                              {b.site_code}
-                            </span>
-                            {b.siteType && b.siteType !== 'Single' && (
-                              <span
-                                style={{
-                                  fontSize: '9.5px',
-                                  padding: '1px 5px',
-                                  borderRadius: '4px',
-                                  background: b.siteType === 'Combined' ? 'rgba(168,85,247,0.2)' : 'rgba(56,189,248,0.2)',
-                                  color: b.siteType === 'Combined' ? '#c084fc' : '#38bdf8',
-                                  border: `1px solid ${b.siteType === 'Combined' ? 'rgba(168,85,247,0.4)' : 'rgba(56,189,248,0.4)'}`,
-                                  fontWeight: 700
-                                }}
-                              >
-                                {b.siteType}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '12.5px', lineHeight: 1.3 }}>
-                            {b.location}
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-                            📍 {b.city}
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 800, color: '#ffffff', fontSize: '13px' }}>
-                            {b.client}
-                          </div>
-                        </td>
-                        <td>
-                          <div style={{ color: '#38bdf8', fontWeight: 600, fontSize: '12px' }}>
-                            {b.display}
-                          </div>
-                          {b.brand && b.brand !== '—' && b.brand !== b.client && (
-                            <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '1px' }}>
-                              Brand: {b.brand}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          <span style={{ fontSize: '11.5px', color: '#cbd5e1', background: 'rgba(56,189,248,0.1)', padding: '2px 7px', borderRadius: '5px', border: '1px solid rgba(56,189,248,0.25)' }}>
-                            {b.month}
-                          </span>
-                        </td>
-                        <td style={{ fontSize: '12px', color: '#cbd5e1' }}>
-                          <div>
-                            <span>{formatDate(b.start_date)}</span>
-                            <span style={{ color: '#64748b', margin: '0 4px' }}>→</span>
-                            <span>{formatDate(b.end_date) || 'Ongoing'}</span>
-                          </div>
-                        </td>
-                        <td style={{ textAlign: 'center', fontWeight: 700, color: '#e2e8f0', fontSize: '12px' }}>
-                          {b.days}
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '5px',
-                            padding: '2px 8px',
-                            borderRadius: '6px',
-                            background: statusBg,
-                            color: statusColor,
-                            border: `1px solid ${statusBorder}`,
-                            fontSize: '11px',
-                            fontWeight: 800,
-                            whiteSpace: 'nowrap'
-                          }}>
-                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }} />
-                            {statusLabel}
-                          </span>
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 800, color: b.total_amount > 0 ? '#4ade80' : '#64748b', fontSize: '12.5px' }}>
-                          {b.total_amount > 0 ? money(b.total_amount) : '—'}
-                        </td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, color: b.pending > 0 ? '#f87171' : '#64748b', fontSize: '12px' }}>
-                          {b.pending > 0 ? money(b.pending) : '—'}
-                        </td>
-                        <td>
-                          {b.po ? <span className="scooh-plate" style={{ fontSize: '10.5px' }}>{b.po}</span> : ''}
-                          {b.bill ? <span style={{ color: '#93c5fd', fontSize: '11px', marginLeft: b.po ? '4px' : 0 }}>{b.bill}</span> : ''}
-                          {!b.po && !b.bill && <span style={{ color: '#64748b', fontSize: '11px' }}>—</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )
         ) : filteredSites.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
             <div style={{ fontSize: '36px', marginBottom: '12px' }}>🔍</div>
@@ -5282,8 +4943,8 @@ function OccupancyView() {
                     </th>
                   ))}
 
-                  {/* Yearly View Columns */}
-                  {viewTab === 'yearly' && periodsYearly.map(p => (
+                  {/* 12 Months View Columns */}
+                  {viewTab === '12months' && periods12M.map(p => (
                     <th key={p.key} style={{ minWidth: '130px', textAlign: 'center' }}>
                       <div>{p.label}</div>
                       <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 500 }}>Client & Occ %</div>
@@ -5300,7 +4961,7 @@ function OccupancyView() {
                     </>
                   )}
 
-                  {/* Average Column for 6M and Yearly */}
+                  {/* Average Column for 6M and 12M */}
                   {viewTab !== 'overview' && (
                     <th style={{ minWidth: '125px', textAlign: 'center', background: '#0d1a2e', color: '#7dd3fc', borderLeft: '2px solid #1e3a5f' }}>
                       Average %
@@ -5410,9 +5071,9 @@ function OccupancyView() {
                     );
                   }
 
-                  // 6 Months or Yearly View
-                  const periods = viewTab === '6months' ? periods6M : periodsYearly;
-                  const dataMap = viewTab === '6months' ? s.by6M : s.byYearly;
+                  // Monthly (6 Months / 12 Months) View
+                  const periods = viewTab === '12months' ? periods12M : periods6M;
+                  const dataMap = viewTab === '12months' ? s.by12M : s.by6M;
                   const pcts = periods.map(p => {
                     const entry = dataMap?.[p.key];
                     return typeof entry === 'object' ? (entry?.pct ?? 0) : (Number(entry) || 0);
