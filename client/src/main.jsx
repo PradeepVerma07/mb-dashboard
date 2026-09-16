@@ -1962,10 +1962,10 @@ function SitesView() {
     }
   }
 
-  async function handleImageUpload(siteId, files) {
+  async function handleImageUpload(siteId, files, replace = false) {
     const fd = new FormData();
     [...files].forEach(f => fd.append('files', f));
-    await api.post(`/sites/${siteId}/images`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    await api.post(`/sites/${siteId}/images${replace ? '?replace=true' : ''}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
     await load();
     window.dispatchEvent(new CustomEvent('mb-sites-updated'));
   }
@@ -2443,21 +2443,38 @@ function SitesView() {
                   </div>
                 ))}
               </div>
-              <label className="scooh-btn primary" style={{ display: 'inline-flex', cursor: 'pointer' }}>
-                + Upload Images
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  hidden
-                  onChange={async e => {
-                    if (e.target.files.length) {
-                      await handleImageUpload(imageModalSite.id, e.target.files);
-                      setImageModalSite(null);
-                    }
-                  }}
-                />
-              </label>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <label className="scooh-btn primary" style={{ display: 'inline-flex', cursor: 'pointer' }}>
+                  + Upload Images
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    hidden
+                    onChange={async e => {
+                      if (e.target.files.length) {
+                        await handleImageUpload(imageModalSite.id, e.target.files, false);
+                        setImageModalSite(null);
+                      }
+                    }}
+                  />
+                </label>
+                <label className="scooh-btn secondary" style={{ display: 'inline-flex', cursor: 'pointer' }} title="Replace all current images for this site with new ones">
+                  🔄 Replace All Photos
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    hidden
+                    onChange={async e => {
+                      if (e.target.files.length) {
+                        await handleImageUpload(imageModalSite.id, e.target.files, true);
+                        setImageModalSite(null);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
             </div>
             <div className="scooh-modalfoot">
               <button type="button" className="scooh-btn ghost" onClick={() => setImageModalSite(null)}>Close</button>
@@ -2701,16 +2718,16 @@ function PptView() {
     });
   }
 
-  async function addImages(site, files) {
+  async function addImages(site, files, replace = false) {
     try {
       if (site.id) {
         const fd = new FormData();
         Array.from(files).forEach(f => fd.append('files', f));
-        const res = await api.post(`/sites/${site.id}/images`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        const res = await api.post(`/sites/${site.id}/images${replace ? '?replace=true' : ''}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
         setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: res.data.images } : s));
       } else {
         const urls = Array.from(files).map(f => URL.createObjectURL(f));
-        setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: [...(s.ppt_images || []), ...urls] } : s));
+        setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: replace ? urls : [...(s.ppt_images || []), ...urls] } : s));
       }
     } catch (e) {
       alert('Failed to upload images: ' + (e.response?.data?.message || e.message));
@@ -2732,6 +2749,7 @@ function PptView() {
   }
 
   const [folderImportStatus, setFolderImportStatus] = useState(null);
+  const [replaceExistingFolderPhotos, setReplaceExistingFolderPhotos] = useState(true);
 
   function matchFileToSite(file, allSites) {
     const relPath = file.webkitRelativePath || file.name || '';
@@ -2822,7 +2840,8 @@ function PptView() {
       donePhotos: 0,
       unmatched: unmatchedFiles,
       siteResults: [],
-      finished: false
+      finished: false,
+      replaceMode: replaceExistingFolderPhotos
     });
 
     let doneSites = 0;
@@ -2836,20 +2855,21 @@ function PptView() {
       }));
 
       try {
+        const replaceQuery = replaceExistingFolderPhotos ? '?replace=true' : '';
         if (site.id) {
           const fd = new FormData();
           fileList.forEach(f => fd.append('files', f));
-          const res = await api.post(`/sites/${site.id}/images`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+          const res = await api.post(`/sites/${site.id}/images${replaceQuery}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
           const newImages = res.data.images;
           setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: newImages } : s));
-          siteResults.push({ site_code: site.site_code, count: fileList.length, success: true });
+          siteResults.push({ site_code: site.site_code, count: fileList.length, success: true, replaced: replaceExistingFolderPhotos });
         } else {
           const fd = new FormData();
           fileList.forEach(f => fd.append('files', f));
-          const res = await api.post(`/sites/code/${encodeURIComponent(site.site_code)}/images`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+          const res = await api.post(`/sites/code/${encodeURIComponent(site.site_code)}/images${replaceQuery}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
           const newImages = res.data.images;
           setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: newImages } : s));
-          siteResults.push({ site_code: site.site_code, count: fileList.length, success: true });
+          siteResults.push({ site_code: site.site_code, count: fileList.length, success: true, replaced: replaceExistingFolderPhotos });
         }
       } catch (err) {
         console.error(`Error uploading photos for ${site.site_code}:`, err);
@@ -3370,7 +3390,7 @@ function PptView() {
                 border: 'none',
                 boxShadow: '0 4px 14px rgba(2, 132, 199, 0.35)'
               }}
-              title="Import a folder containing site photos (folders or files named by site code e.g. MB-01) to automatically store photos in their matching sites"
+              title="Import a folder containing site photos (folders or files named by site code e.g. MB-01). Newly imported photos replace old photos in automated PPT."
             >
               <span>📂 {folderImportStatus && !folderImportStatus.finished ? 'Importing Photos…' : 'Import Photo Folder'}</span>
               <input
@@ -3380,6 +3400,33 @@ function PptView() {
                 disabled={Boolean(folderImportStatus && !folderImportStatus.finished)}
                 onChange={handleFolderPhotoImport}
               />
+            </label>
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '7px',
+                cursor: 'pointer',
+                userSelect: 'none',
+                fontSize: '12px',
+                fontWeight: 600,
+                color: replaceExistingFolderPhotos ? '#38bdf8' : '#94a3b8',
+                background: replaceExistingFolderPhotos ? 'rgba(56, 189, 248, 0.12)' : 'rgba(10, 25, 45, 0.85)',
+                padding: '0 12px',
+                borderRadius: '8px',
+                border: replaceExistingFolderPhotos ? '1px solid #38bdf8' : '1px solid #1c3b60',
+                transition: 'all 0.2s ease',
+                minHeight: '44px'
+              }}
+              title="When enabled, importing photos replaces old photos for matched sites instead of appending"
+            >
+              <input
+                type="checkbox"
+                checked={replaceExistingFolderPhotos}
+                onChange={e => setReplaceExistingFolderPhotos(e.target.checked)}
+                style={{ accentColor: '#38bdf8', width: '15px', height: '15px', cursor: 'pointer' }}
+              />
+              <span>Replace old photos</span>
             </label>
             <button
               type="button"
@@ -3521,7 +3568,7 @@ function PptView() {
                       onChange={e => e.target.files.length && addImages(s, e.target.files)}
                     />
                   </label>
-                  <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 8px' }} onClick={e => e.stopPropagation()} title={`Import a folder of photos specifically for ${s.site_code}`}>
+                  <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 8px' }} onClick={e => e.stopPropagation()} title={`Import a folder of photos specifically for ${s.site_code} (replaces old photos)`}>
                     📁 Folder
                     <input
                       type="file"
@@ -3529,7 +3576,7 @@ function PptView() {
                       hidden
                       onChange={e => {
                         const imgFiles = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|gif|bmp)$/i.test(f.name));
-                        if (imgFiles.length) addImages(s, imgFiles);
+                        if (imgFiles.length) addImages(s, imgFiles, true);
                         else alert('No image files found in folder.');
                         e.target.value = '';
                       }}
@@ -3705,7 +3752,9 @@ function PptView() {
                   <span>{folderImportStatus.finished ? 'Folder Photo Import Complete' : 'Auto-Importing Site Photos from Folder'}</span>
                 </h3>
                 <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
-                  Photos are automatically matched by folder / file names to your inventory site codes
+                  {folderImportStatus.replaceMode
+                    ? 'Photos are matched by folder/file names to site codes. Newly imported photos replace old photos for matched sites.'
+                    : 'Photos are automatically matched by folder / file names to your inventory site codes.'}
                 </p>
               </div>
               {folderImportStatus.finished && (
@@ -3725,7 +3774,9 @@ function PptView() {
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 700, marginBottom: '6px' }}>
                 <span style={{ color: folderImportStatus.finished ? '#10b981' : '#38bdf8' }}>
                   {folderImportStatus.finished 
-                    ? `✓ Successfully stored ${folderImportStatus.donePhotos} photos across ${folderImportStatus.doneSites} sites!` 
+                    ? (folderImportStatus.replaceMode
+                        ? `✓ Successfully replaced old photos with ${folderImportStatus.donePhotos} new photo${folderImportStatus.donePhotos > 1 ? 's' : ''} across ${folderImportStatus.doneSites} sites!`
+                        : `✓ Successfully stored ${folderImportStatus.donePhotos} photos across ${folderImportStatus.doneSites} sites!`) 
                     : `Uploading: ${folderImportStatus.currentSite || 'Preparing…'}`}
                 </span>
                 <span style={{ color: '#94a3b8' }}>
@@ -3772,7 +3823,7 @@ function PptView() {
                     <strong style={{ color: '#f1f5f9' }}>{res.site_code}</strong>
                   </div>
                   <span style={{ fontSize: '11.5px', color: res.success ? '#10b981' : '#f87171', fontWeight: 600 }}>
-                    {res.success ? `+${res.count} photo${res.count > 1 ? 's' : ''} stored` : (res.error || 'Failed')}
+                    {res.success ? `${res.count} photo${res.count > 1 ? 's' : ''} ${res.replaced ? '(replaced old)' : 'stored'}` : (res.error || 'Failed')}
                   </span>
                 </div>
               ))}

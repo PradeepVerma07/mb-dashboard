@@ -401,16 +401,17 @@ app.post('/api/sites/:id/images', auth, upload.array('files', 100), async (req, 
     let flags = {};
     try { flags = JSON.parse(site.flags || '{}') || {}; } catch {};
     if (Array.isArray(flags)) flags = { tags: flags };
-    const existing = Array.isArray(flags.ppt_images) ? flags.ppt_images : [];
+    const shouldReplace = req.query.replace === 'true' || req.query.replace === '1' || req.body?.replace === 'true' || req.body?.replace === true;
+    const existing = shouldReplace ? [] : (Array.isArray(flags.ppt_images) ? flags.ppt_images : []);
     const urls = (req.files || []).map(f => {
       const ext = path.extname(f.originalname || '');
       const final = f.path + ext;
       fs.renameSync(f.path, final);
       return `/uploads/${path.basename(final)}`;
     });
-    flags.ppt_images = [...existing, ...urls];
+    flags.ppt_images = shouldReplace ? urls : [...existing, ...urls];
     await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), req.params.id]);
-    res.json({ site_id: site.id, site_code: site.site_code, images: flags.ppt_images });
+    res.json({ site_id: site.id, site_code: site.site_code, images: flags.ppt_images, replaced: shouldReplace });
   } catch (err) {
     console.error('Image upload error:', err);
     res.status(500).json({ message: 'Upload error: ' + err.message });
@@ -426,16 +427,17 @@ app.post('/api/sites/code/:site_code/images', auth, upload.array('files', 100), 
     let flags = {};
     try { flags = JSON.parse(site.flags || '{}') || {}; } catch {};
     if (Array.isArray(flags)) flags = { tags: flags };
-    const existing = Array.isArray(flags.ppt_images) ? flags.ppt_images : [];
+    const shouldReplace = req.query.replace === 'true' || req.query.replace === '1' || req.body?.replace === 'true' || req.body?.replace === true;
+    const existing = shouldReplace ? [] : (Array.isArray(flags.ppt_images) ? flags.ppt_images : []);
     const urls = (req.files || []).map(f => {
       const ext = path.extname(f.originalname || '');
       const final = f.path + ext;
       fs.renameSync(f.path, final);
       return `/uploads/${path.basename(final)}`;
     });
-    flags.ppt_images = [...existing, ...urls];
+    flags.ppt_images = shouldReplace ? urls : [...existing, ...urls];
     await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), site.id]);
-    res.json({ site_id: site.id, site_code: site.site_code, images: flags.ppt_images });
+    res.json({ site_id: site.id, site_code: site.site_code, images: flags.ppt_images, replaced: shouldReplace });
   } catch (err) {
     console.error('Image upload by code error:', err);
     res.status(500).json({ message: 'Upload error: ' + err.message });
