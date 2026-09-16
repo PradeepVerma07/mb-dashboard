@@ -279,7 +279,8 @@ function matchSiteSearch(site, rawQuery) {
   if (siteCode.includes(q) || siteCode.replace(/[^a-z0-9]/g, '').includes(q.replace(/[^a-z0-9]/g, ''))) return true;
 
   // 3. Descriptive fields
-  if (area.includes(q) || address.includes(q) || city.includes(q) || mediaType.includes(q) || lighting.includes(q)) {
+  const size = String(site.size || (site.width && site.height ? `${site.width}x${site.height}` : '')).toLowerCase();
+  if (area.includes(q) || address.includes(q) || city.includes(q) || mediaType.includes(q) || lighting.includes(q) || size.includes(q)) {
     return true;
   }
   return false;
@@ -3423,6 +3424,7 @@ function PptView() {
               <option value="monthly_rate:asc">Sort: Rate (Low to High)</option>
               <option value="monthly_rate:desc">Sort: Rate (High to Low)</option>
               <option value="availability:asc">Sort: Availability</option>
+              <option value="size:asc">Sort: Size</option>
             </select>
             <button
               type="button"
@@ -3618,6 +3620,7 @@ function PptView() {
                   ) : null}
                 </div>
                 <small>{s.location || s.address || s.area || s.city || ''}</small>
+                <small className="scooh-ppt-size">Size: {s.size || (s.width && s.height ? `${s.width}x${s.height}` : '') || '—'}</small>
                 <small className="scooh-ppt-coordinates">Latitude: {s.latitude ?? '—'}</small>
                 <small className="scooh-ppt-coordinates">Longitude: {s.longitude ?? '—'}</small>
 
