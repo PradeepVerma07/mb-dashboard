@@ -3494,7 +3494,7 @@ function PptView() {
             }
 
             return (
-              <label
+              <div
                 key={siteKey}
                 className="scooh-ppt-site"
                 style={{
@@ -3508,6 +3508,7 @@ function PptView() {
                   className="scooh-ppt-site-check"
                   checked={isChecked}
                   onChange={e => setSel({ ...sel, [siteKey]: { ...v, checked: e.target.checked } })}
+                  style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#a78bfa' }}
                 />
                 <div className="scooh-ppt-card-actions" style={{ display: 'flex', gap: '6px' }}>
                   <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 9px' }} onClick={e => e.stopPropagation()} title="Upload one or more photo files">
@@ -3679,7 +3680,7 @@ function PptView() {
                     onChange={e => setSel({ ...sel, [siteKey]: { ...v, rate: e.target.value } })}
                   />
                 </div>
-              </label>
+              </div>
             );
           })}
         </div>

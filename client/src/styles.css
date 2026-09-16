@@ -647,9 +647,10 @@ body {
 
 /* Automated PPT */
 .scooh-ppt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding:8px 0}
-.scooh-ppt-site{display:block;background:var(--mb-surface);border:1px solid var(--mb-border);border-radius:14px;padding:12px;cursor:pointer;color:var(--mb-text);transition:all .18s ease}
-.scooh-ppt-site:hover{border-color:var(--mb-accent);transform:translateY(-1px)}
-.scooh-ppt-site:has(input:checked){border-color:#9c8cff;box-shadow:0 0 0 1px #9c8cff}
+.scooh-ppt-site{display:block;background:var(--mb-surface);border:1px solid var(--mb-border);border-radius:14px;padding:12px;cursor:default;color:var(--mb-text);transition:all .18s ease}
+.scooh-ppt-site:hover{border-color:var(--mb-accent)}
+.scooh-ppt-site:has(input.scooh-ppt-site-check:checked){border-color:#9c8cff;box-shadow:0 0 0 1px #9c8cff}
+.scooh-ppt-site-check{cursor:pointer!important;margin-bottom:8px}
 .scooh-ppt-site input{margin-bottom:8px}
 .scooh-ppt-site strong{display:block;color:var(--mb-text);font-size:13px}
 .scooh-ppt-site small{display:block;color:var(--mb-muted);margin-top:4px}
