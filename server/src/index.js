@@ -1702,6 +1702,7 @@ function parseFlexibleExcelDate(val) {
 function parseSiteBlockFormat(rawRows) {
   const blocks = [];
   let currentSite = null;
+  let colMapping = null;
 
   for (let i = 0; i < rawRows.length; i++) {
     const row = rawRows[i] || [];
@@ -1715,19 +1716,28 @@ function parseSiteBlockFormat(rawRows) {
       continue;
     }
 
-    // Check if subheader row (Up Date / Down Date / Clienr Name / Display)
+    // Check if subheader row (Up Date / Down Date / Display / Client)
     const isSubheader = normRow.some(c => c.includes('update') || c.includes('start') || c === 'from') &&
                         normRow.some(c => c.includes('downdate') || c.includes('end') || c === 'to');
     if (isSubheader) {
+      let upCol = -1, downCol = -1, dispCol = -1, clientCol = -1;
+      cells.forEach((c, idx) => {
+        const nc = normRow[idx] || '';
+        if (nc.includes('update') || nc.includes('start') || nc === 'from') upCol = idx;
+        else if (nc.includes('downdate') || nc.includes('end') || nc === 'to') downCol = idx;
+        else if (nc.includes('display') || nc.includes('campaign') || nc.includes('brand')) dispCol = idx;
+        else if (nc.includes('client') || nc.includes('party') || nc.includes('agency')) clientCol = idx;
+      });
+      colMapping = { upCol, downCol, dispCol, clientCol };
       continue;
     }
 
-    // Check if this row is a Site Header row (contains site code like MB-14, MB-72, etc.)
+    // Check if this row is a Site Header row (contains site code like MB-01, MB-14, etc.)
     let siteCodeFound = null;
     let siteLocFound = '';
     for (let c = 0; c < Math.min(3, cells.length); c++) {
       const val = cells[c];
-      const isSC = /^(?:MB|DEL|BOM|AHM|SUR|RAJ|SITE|HOARDING|H)[-_ ]?\d+/i.test(val) ||
+      const isSC = /^(?:MB|DEL|BOM|AHM|SUR|RAJ|SITE|HOARDING|H)[\s_-]*\d+[A-Z]?$/i.test(val) ||
                    /^[A-Z]{1,6}[-_ ]?\d{1,4}[A-Z]?$/i.test(val);
       const isDate = parseFlexibleExcelDate(val) !== null;
       if (isSC && !isDate && !normRow[c].includes('date')) {
@@ -1756,26 +1766,54 @@ function parseSiteBlockFormat(rawRows) {
 
     // If we have a current site, check if this row has date cells
     if (currentSite) {
-      // Find the first cell that has a valid date (could be col 0 or col 1)
-      let dateIdx = -1;
-      for (let c = 0; c < Math.min(4, cells.length); c++) {
-        if (parseFlexibleExcelDate(cells[c]) !== null) {
-          dateIdx = c;
-          break;
+      let upDateVal = null, downDateVal = null, clientVal = '';
+
+      if (colMapping && colMapping.upCol >= 0 && colMapping.downCol >= 0) {
+        upDateVal = parseFlexibleExcelDate(cells[colMapping.upCol]);
+        downDateVal = parseFlexibleExcelDate(cells[colMapping.downCol]) || upDateVal;
+
+        if (colMapping.dispCol >= 0 && cells[colMapping.dispCol]) {
+          clientVal = cells[colMapping.dispCol];
+        } else if (colMapping.clientCol >= 0 && cells[colMapping.clientCol]) {
+          clientVal = cells[colMapping.clientCol];
+        } else {
+          for (let nextC = Math.max(colMapping.upCol, colMapping.downCol) + 1; nextC < cells.length; nextC++) {
+            if (cells[nextC] && parseFlexibleExcelDate(cells[nextC]) === null) {
+              clientVal = cells[nextC];
+              break;
+            }
+          }
+        }
+      } else {
+        // Fallback: search for first cell that has a valid date
+        let dateIdx = -1;
+        for (let c = 0; c < Math.min(4, cells.length); c++) {
+          if (parseFlexibleExcelDate(cells[c]) !== null) {
+            dateIdx = c;
+            break;
+          }
+        }
+
+        if (dateIdx >= 0) {
+          upDateVal = parseFlexibleExcelDate(cells[dateIdx]);
+          downDateVal = parseFlexibleExcelDate(cells[dateIdx + 1]) || upDateVal;
+          for (let nextC = dateIdx + 2; nextC < cells.length; nextC++) {
+            if (cells[nextC] && parseFlexibleExcelDate(cells[nextC]) === null) {
+              clientVal = cells[nextC];
+              break;
+            }
+          }
+          if (!clientVal) clientVal = cells[dateIdx + 2] || cells[dateIdx + 1] || '';
         }
       }
 
-      if (dateIdx >= 0) {
-        const startDate = parseFlexibleExcelDate(cells[dateIdx]);
-        const endDate = parseFlexibleExcelDate(cells[dateIdx + 1]) || startDate;
-        const clientVal = cells[dateIdx + 2] || cells[dateIdx + 1] || '';
+      if (upDateVal) {
         const vacant = isVacantClient(clientVal);
-
         const item = {
           site_code: currentSite.site_code,
           location: currentSite.location,
-          start_date: startDate,
-          end_date: endDate,
+          start_date: upDateVal,
+          end_date: downDateVal || upDateVal,
           client: vacant ? 'Blank' : clientVal,
           is_vacant: vacant
         };
@@ -1804,111 +1842,134 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
     }
 
     let existingSites = await q('SELECT id, site_code, address, area, width, height, size FROM sites WHERE record_status="active"');
-    let existingCampaigns = await q('SELECT id, site_code, client, start_date, end_date FROM campaigns WHERE record_status="active"');
+    let existingCampaigns = await q('SELECT id, site_code, client, display, start_date, end_date FROM campaigns WHERE record_status="active"');
 
-    // Check if the workbook contains the Site Block format (Site Code + Location header, followed by Up Date / Down Date / Client rows)
+    // Check if the workbook contains the Site Block format (Site Code + Location header, followed by Up Date / Down Date / Display rows)
+    const allBlocks = [];
     for (const name of wb.SheetNames) {
       const sheet = wb.Sheets[name];
       if (!sheet || !sheet['!ref']) continue;
       const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
       const blocks = parseSiteBlockFormat(rawRows);
-
       if (blocks.length > 0 && blocks.some(b => b.bookings.length > 0 || b.vacancies.length > 0)) {
-        let newCount = 0;
-        let updatedCount = 0;
-        let vacantCount = 0;
+        allBlocks.push(...blocks);
+      }
+    }
 
-        for (const b of blocks) {
-          const cleanC = cleanStr(b.site_code);
-          let site = existingSites.find(s => cleanStr(s.site_code) === cleanC);
+    if (allBlocks.length > 0) {
+      let newCount = 0;
+      let updatedCount = 0;
+      let vacantCount = 0;
 
-          let width = null, height = null, size = '';
-          if (b.location) {
-            const dimMatch = b.location.match(/(\d+(?:\.\d+)?)\s*['"]?\s*[xX*×]\s*['"]?\s*(\d+(?:\.\d+)?)/);
-            if (dimMatch) {
-              width = parseFloat(dimMatch[1]);
-              height = parseFloat(dimMatch[2]);
-              size = `${width}x${height}`;
-            }
+      for (const b of allBlocks) {
+        const cleanC = cleanStr(b.site_code);
+        let site = existingSites.find(s => cleanStr(s.site_code) === cleanC);
+
+        let width = null, height = null, size = '';
+        let lighting = 'BL';
+        if (b.location) {
+          const dimMatch = b.location.match(/(\d+(?:\.\d+)?)\s*['"]?\s*[xX*×]\s*['"]?\s*(\d+(?:\.\d+)?)/);
+          if (dimMatch) {
+            width = parseFloat(dimMatch[1]);
+            height = parseFloat(dimMatch[2]);
+            size = `${width}x${height}`;
           }
-
-          if (!site) {
-            const loc = b.location || `Site ${b.site_code}`;
-            const ins = await q(
-              `INSERT INTO sites (site_code, address, area, city, media_type, lighting, width, height, size, ownership, availability, record_status, created_at, updated_at)
-               VALUES (?, ?, ?, 'Ahmedabad', 'Hoarding', 'BL', ?, ?, ?, 'Owned', 'Available', 'active', NOW(), NOW())`,
-              [b.site_code, loc, loc, width, height, size]
-            );
-            site = { id: ins.insertId, site_code: b.site_code, address: loc, area: loc, width, height, size };
-            existingSites.push(site);
-          } else {
-            const updateFields = [];
-            const updateVals = [];
-            if (b.location && (!site.address || site.address.startsWith('Site '))) {
-              updateFields.push('address = ?', 'area = ?');
-              updateVals.push(b.location, b.location);
-            }
-            if (size && !site.size) {
-              updateFields.push('size = ?', 'width = ?', 'height = ?');
-              updateVals.push(size, width, height);
-            }
-            if (updateFields.length > 0) {
-              updateFields.push('updated_at = NOW()');
-              updateVals.push(site.id);
-              await q(`UPDATE sites SET ${updateFields.join(', ')} WHERE id = ?`, updateVals);
-            }
-          }
-
-          // Process booked campaigns (real clients only, "Blank" means vacant)
-          for (const bk of b.bookings) {
-            const startDate = bk.start_date;
-            const endDate = bk.end_date || startDate;
-            const client = bk.client;
-            const display = client;
-            const location = b.location || site.address || '';
-            const diffMs = new Date(endDate).getTime() - new Date(startDate).getTime();
-            const days = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1);
-            let month = '';
-            try {
-              month = new Date(startDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-            } catch {}
-
-            const match = existingCampaigns.find(ec =>
-              cleanStr(ec.site_code) === cleanC &&
-              String(ec.client || '').toLowerCase() === String(client).toLowerCase() &&
-              String(ec.start_date || '').slice(0, 10) === startDate &&
-              String(ec.end_date || '').slice(0, 10) === endDate
-            );
-
-            if (match) {
-              await q(
-                `UPDATE campaigns SET location=?, display=?, days=?, month=?, record_status='active', updated_at=NOW() WHERE id=?`,
-                [location, display, days, month, match.id]
-              );
-              updatedCount++;
-            } else {
-              await q(
-                `INSERT INTO campaigns (site_id, site_code, client, display, location, start_date, end_date, booking_date, days, month, status, record_status, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'active', NOW(), NOW())`,
-                [site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month]
-              );
-              newCount++;
-            }
-          }
-
-          vacantCount += b.vacancies.length;
+          if (/\b(?:FL|Front\s*Lit)\b/i.test(b.location)) lighting = 'FL';
+          else if (/\b(?:NL|Non\s*Lit)\b/i.test(b.location)) lighting = 'Non Lit';
+          else if (/\b(?:BL|Back\s*Lit)\b/i.test(b.location)) lighting = 'BL';
         }
 
-        await syncSiteAvailability();
+        if (!site) {
+          const loc = b.location || `Site ${b.site_code}`;
+          const ins = await q(
+            `INSERT INTO sites (site_code, address, area, city, media_type, lighting, width, height, size, ownership, availability, record_status, created_at, updated_at)
+             VALUES (?, ?, ?, 'Ahmedabad', 'Hoarding', ?, ?, ?, ?, 'Owned', 'Available', 'active', NOW(), NOW())`,
+            [b.site_code, loc, loc, lighting, width, height, size]
+          );
+          site = { id: ins.insertId, site_code: b.site_code, address: loc, area: loc, width, height, size };
+          existingSites.push(site);
+        } else {
+          const updateFields = [];
+          const updateVals = [];
+          if (b.location && (!site.address || site.address.startsWith('Site '))) {
+            updateFields.push('address = ?', 'area = ?');
+            updateVals.push(b.location, b.location);
+          }
+          if (size && !site.size) {
+            updateFields.push('size = ?', 'width = ?', 'height = ?');
+            updateVals.push(size, width, height);
+          }
+          if (updateFields.length > 0) {
+            updateFields.push('updated_at = NOW()');
+            updateVals.push(site.id);
+            await q(`UPDATE sites SET ${updateFields.join(', ')} WHERE id = ?`, updateVals);
+          }
+        }
 
-        return res.json({
-          message: `✓ Successfully imported ${newCount + updatedCount} booking records across ${blocks.length} sites (${vacantCount} vacant periods recognized as vacant).`,
-          blocks: blocks.length,
-          created: newCount,
-          updated: updatedCount,
-          vacancies: vacantCount
-        });
+        // Process booked campaigns (real clients only, "Blank" means vacant)
+        for (const bk of b.bookings) {
+          const startDate = bk.start_date;
+          const endDate = bk.end_date || startDate;
+          let client = bk.client || '';
+          let display = client;
+
+          // Intelligently parse client and display/brand (e.g. Swagat Group (Renewal))
+          if (client) {
+            const parenMatch = client.match(/^([^(]+)\s*\(([^)]+)\)$/);
+            if (parenMatch) {
+              client = parenMatch[1].trim();
+              display = parenMatch[2].trim();
+            } else if (client.includes(' / ')) {
+              const parts = client.split(' / ');
+              client = parts[0].trim();
+              display = parts.slice(1).join(' / ').trim();
+            }
+          }
+
+          const location = b.location || site.address || '';
+          const diffMs = new Date(endDate).getTime() - new Date(startDate).getTime();
+          const days = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1);
+          let month = '';
+          try {
+            month = new Date(startDate).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+          } catch {}
+
+          const match = existingCampaigns.find(ec =>
+            cleanStr(ec.site_code) === cleanC &&
+            (String(ec.client || '').toLowerCase() === String(client).toLowerCase() ||
+             String(ec.display || '').toLowerCase() === String(display).toLowerCase()) &&
+            String(ec.start_date || '').slice(0, 10) === startDate &&
+            String(ec.end_date || '').slice(0, 10) === endDate
+          );
+
+          if (match) {
+            await q(
+              `UPDATE campaigns SET location=?, client=?, display=?, days=?, month=?, record_status='active', updated_at=NOW() WHERE id=?`,
+              [location, client, display, days, month, match.id]
+            );
+            updatedCount++;
+          } else {
+            await q(
+              `INSERT INTO campaigns (site_id, site_code, client, display, location, start_date, end_date, booking_date, days, month, status, record_status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'active', NOW(), NOW())`,
+              [site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month]
+            );
+            newCount++;
+          }
+        }
+
+        vacantCount += b.vacancies.length;
       }
+
+      await syncSiteAvailability();
+
+      return res.json({
+        message: `✓ Successfully imported ${newCount + updatedCount} campaign booking records across ${allBlocks.length} site schedule blocks (${vacantCount} vacant periods recognized).`,
+        blocks: allBlocks.length,
+        created: newCount,
+        updated: updatedCount,
+        vacancies: vacantCount
+      });
     }
 
     const headerKeywords = [

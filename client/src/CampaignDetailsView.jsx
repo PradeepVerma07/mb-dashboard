@@ -164,94 +164,117 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
 // ── Download Sample Template for Campaign Excel Import ───────────────────────
 export async function downloadSampleCampaignExcel() {
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet('Campaign Template', {
-    views: [{ state: 'frozen', ySplit: 2 }]
+  workbook.creator = 'Media Buzz';
+  workbook.lastModifiedBy = 'Media Buzz Operations';
+  workbook.created = new Date();
+
+  const worksheet = workbook.addWorksheet('Campaign Schedule', {
+    views: [{ state: 'normal' }],
+    properties: { defaultRowHeight: 20 }
   });
 
-  const cols = [
-    { key: 'site_code', width: 14 },
-    { key: 'location', width: 34 },
-    { key: 'client_display', width: 34 },
-    { key: 'start_date', width: 16 },
-    { key: 'end_date', width: 16 }
-  ];
-  worksheet.columns = cols;
-
-  attachMediaBuzzExcelHeader(workbook, worksheet, {
-    title: 'MEDIA BUZZ — CAMPAIGN DETAILS IMPORT TEMPLATE',
-    columns: cols,
-    totalColumns: 5
-  });
-
-  const headers = [
-    'SITE CODE',
-    'LOCATION',
-    'CLIENT / DISPLAY',
-    'START DATE (YYYY-MM-DD)',
-    'END DATE (YYYY-MM-DD)'
+  worksheet.columns = [
+    { key: 'colA', width: 14 },
+    { key: 'colB', width: 22 },
+    { key: 'colC', width: 22 },
+    { key: 'colD', width: 44 }
   ];
 
-  const headerRow = worksheet.getRow(2);
-  headerRow.height = 28;
-  headers.forEach((h, idx) => {
-    headerRow.getCell(idx + 1).value = h;
-  });
+  const navyDark = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B2A4A' } };
+  const yellowFont = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFF00' } };
+  const subheadFont = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+  const dataFont = { name: 'Calibri', size: 10.5, color: { argb: 'FF000000' } };
+  const thinBorder = {
+    top: { style: 'thin', color: { argb: 'FF000000' } },
+    left: { style: 'thin', color: { argb: 'FF000000' } },
+    bottom: { style: 'thin', color: { argb: 'FF000000' } },
+    right: { style: 'thin', color: { argb: 'FF000000' } }
+  };
 
-  headerRow.eachCell((cell, colNum) => {
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFFFFF00' }
-    };
-    cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
-    cell.alignment = {
-      vertical: 'middle',
-      horizontal: [1, 5, 6].includes(colNum) ? 'center' : [7, 8, 9].includes(colNum) ? 'right' : 'left'
-    };
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FFC0C0C0' } },
-      left: { style: 'thin', color: { argb: 'FFC0C0C0' } },
-      bottom: { style: 'medium', color: { argb: 'FF808080' } },
-      right: { style: 'thin', color: { argb: 'FFC0C0C0' } }
-    };
-  });
+  // Helper to add a site block matching the exact user format
+  function addSiteBlock(siteCode, locationTitle, bookings) {
+    // 1. Site Header Row (Dark navy background, yellow bold text)
+    const headerRow = worksheet.addRow([siteCode, locationTitle, '', '']);
+    headerRow.height = 26;
+    headerRow.getCell(1).fill = navyDark;
+    headerRow.getCell(1).font = yellowFont;
+    headerRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    headerRow.getCell(1).border = thinBorder;
 
-  const sampleRows = [
-    {
-      site_code: 'MB-01',
-      location: 'Shivranjani Cross Roads, Ahmedabad',
-      client_display: 'Tata Motors (Tata Punch EV Launch)',
-      start_date: '2026-03-01',
-      end_date: '2026-03-31'
-    },
-    {
-      site_code: 'MB-02',
-      location: 'Iskcon Cross Roads, SG Highway',
-      client_display: 'HDFC Bank (Festive Home Loan Campaign)',
-      start_date: '2026-04-01',
-      end_date: '2026-04-30'
-    }
-  ];
+    headerRow.getCell(2).fill = navyDark;
+    headerRow.getCell(2).font = yellowFont;
+    headerRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'left' };
+    headerRow.getCell(2).border = thinBorder;
 
-  sampleRows.forEach(r => {
-    const row = worksheet.addRow(r);
-    row.height = 22;
-    row.eachCell((cell, colNum) => {
-      cell.font = { name: 'Calibri', size: 10.5 };
-      cell.alignment = {
-        vertical: 'middle',
-        horizontal: [1, 4, 5].includes(colNum) ? 'center' : 'left'
-      };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'FFE8E8E8' } },
-        left: { style: 'thin', color: { argb: 'FFE8E8E8' } },
-        bottom: { style: 'thin', color: { argb: 'FFE8E8E8' } },
-        right: { style: 'thin', color: { argb: 'FFE8E8E8' } }
-      };
+    headerRow.getCell(3).fill = navyDark;
+    headerRow.getCell(3).border = thinBorder;
+    headerRow.getCell(4).fill = navyDark;
+    headerRow.getCell(4).border = thinBorder;
+
+    // Merge B, C, D for wide location title
+    const headerRowNum = headerRow.number;
+    worksheet.mergeCells(`B${headerRowNum}:D${headerRowNum}`);
+
+    // 2. Subheader Row (Up Date | Down Date | Display)
+    const subheadRow = worksheet.addRow(['', 'Up Date', 'Down Date', 'Display']);
+    subheadRow.height = 22;
+    subheadRow.getCell(1).border = thinBorder;
+
+    [2, 3].forEach(col => {
+      const cell = subheadRow.getCell(col);
+      cell.font = subheadFont;
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.border = thinBorder;
     });
-  });
+    const dispCell = subheadRow.getCell(4);
+    dispCell.font = subheadFont;
+    dispCell.alignment = { vertical: 'middle', horizontal: 'left' };
+    dispCell.border = thinBorder;
 
-  attachMediaBuzzTermsAndConditions(worksheet, { totalColumns: 5 });
+    // 3. Booking Rows
+    bookings.forEach(bk => {
+      const bRow = worksheet.addRow(['', bk.upDate, bk.downDate, bk.display]);
+      bRow.height = 21;
+      bRow.getCell(1).border = thinBorder;
+
+      [2, 3].forEach(col => {
+        const cell = bRow.getCell(col);
+        cell.font = dataFont;
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.border = thinBorder;
+      });
+
+      const dCell = bRow.getCell(4);
+      dCell.font = dataFont;
+      dCell.alignment = { vertical: 'middle', horizontal: 'left' };
+      dCell.border = thinBorder;
+    });
+
+    // Blank separator row
+    const emptyRow = worksheet.addRow(['', '', '', '']);
+    emptyRow.height = 14;
+  }
+
+  // Site 1 (From User Screenshot)
+  addSiteBlock(
+    'MB-01',
+    'Shivranjani Bridge- Nr.D Mart Junction - Left (1) - 30X10 BL',
+    [
+      { upDate: '28.07.2026', downDate: '31.07.2026', display: 'Swagat Group (Renewal)' },
+      { upDate: '01.08.2026', downDate: '30.08.2026', display: 'Swagat Group (Renewal)' },
+      { upDate: '01.09.2026', downDate: '30.09.2026', display: 'Swagat Group (Renewal)' }
+    ]
+  );
+
+  // Site 2 (Example multi-site block)
+  addSiteBlock(
+    'MB-02',
+    'Iskcon Cross Roads - SG Highway - 40X20 BL',
+    [
+      { upDate: '01.08.2026', downDate: '31.08.2026', display: 'Tata Motors (Tata Punch EV)' },
+      { upDate: '01.09.2026', downDate: '30.09.2026', display: 'Tata Motors (Tata Punch EV)' }
+    ]
+  );
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1001,7 +1024,8 @@ export default function CampaignDetailsView() {
                         <div style={{ fontWeight: 800, color: '#f8fafc', fontSize: '13.5px' }}>
                           {c.client || c.client_name || '—'}
                         </div>
-                        {(c.display || c.campaign_name || c.brand) && (
+                        {Boolean((c.display || c.campaign_name || c.brand) &&
+                          String(c.display || c.campaign_name || c.brand).trim().toLowerCase() !== String(c.client || c.client_name || '').trim().toLowerCase()) && (
                           <div style={{ marginTop: '3px' }}>
                             <span style={{ display: 'inline-block', padding: '2px 7px', background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.35)', color: '#c084fc', borderRadius: '4px', fontSize: '11.5px', fontWeight: 700 }}>
                               📢 {c.display || c.campaign_name || c.brand}
