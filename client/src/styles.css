@@ -727,6 +727,165 @@ body {
 .scooh-ppt-output-option{display:flex;align-items:center;gap:7px;color:var(--mb-text);font-size:10.5px;line-height:1.3;cursor:pointer}
 .scooh-ppt-output-option input{margin:0;flex:0 0 auto}
 
+/* Automated PPT Booked Site Card Details */
+.scooh-ppt-booked-card {
+  margin: 10px 0 8px;
+  padding: 10px 11px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  cursor: default;
+}
+.scooh-ppt-booked-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.22);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+.scooh-ppt-booked-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.scooh-ppt-booked-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
+.scooh-ppt-booked-link {
+  background: none;
+  border: none;
+  color: #38bdf8;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: color 0.15s ease;
+}
+.scooh-ppt-booked-link:hover {
+  color: #7dd3fc;
+  text-decoration: underline;
+}
+.scooh-ppt-booked-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.scooh-ppt-booked-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.scooh-ppt-booked-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #94a3b8;
+}
+.scooh-ppt-booked-val {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f1f5f9;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.scooh-ppt-booked-val.camp-val {
+  color: #38bdf8;
+  font-weight: 800;
+}
+.scooh-ppt-booked-val.client-val {
+  color: #ffffff;
+  font-weight: 800;
+}
+.scooh-ppt-booked-val.duration-val {
+  color: #c084fc;
+  font-weight: 700;
+  font-size: 11.5px;
+}
+.scooh-ppt-booked-dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 3px;
+  padding-top: 5px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+.scooh-ppt-booked-date-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.scooh-ppt-booked-val.date-val {
+  font-size: 11px;
+  color: #e2e8f0;
+  font-weight: 600;
+}
+.scooh-ppt-booked-val.end-date-val {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+/* Light Mode Overrides for Booked Card */
+[data-theme="light"] .scooh-ppt-booked-card {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border-color: #f59e0b;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.12);
+}
+[data-theme="light"] .scooh-ppt-booked-header {
+  border-bottom-color: rgba(217, 119, 6, 0.25);
+}
+[data-theme="light"] .scooh-ppt-booked-tag {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.18);
+  border-color: #f59e0b;
+}
+[data-theme="light"] .scooh-ppt-booked-label {
+  color: #64748b;
+}
+[data-theme="light"] .scooh-ppt-booked-val {
+  color: #0f172a;
+}
+[data-theme="light"] .scooh-ppt-booked-val.camp-val {
+  color: #0284c7;
+}
+[data-theme="light"] .scooh-ppt-booked-val.client-val {
+  color: #0f172a;
+}
+[data-theme="light"] .scooh-ppt-booked-val.duration-val {
+  color: #7c3aed;
+}
+[data-theme="light"] .scooh-ppt-booked-dates {
+  border-top-color: rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .scooh-ppt-booked-val.date-val {
+  color: #334155;
+}
+[data-theme="light"] .scooh-ppt-booked-val.end-date-val {
+  color: #b45309;
+}
+
 /* Theme Toggle Button */
 .scooh-theme-toggle-btn{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border:1px solid var(--mb-border-2);border-radius:10px;background:var(--mb-surface);color:var(--mb-text);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .16s ease}
 .scooh-theme-toggle-btn:hover{background:var(--mb-surface-2);border-color:var(--mb-accent)}

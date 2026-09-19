@@ -1019,8 +1019,34 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
       fit: 'shrink'
     });
 
-    // 6b. Campaign End Date (Only shown if availability pill does not already include it)
-    if (site._endDate && !availText.includes(site._endDate)) {
+    // 6b. Campaign & Booking Details (shown when site is booked)
+    if (isBooked || site._isBooked) {
+      const parts = [];
+      if (site._clientName) parts.push(`Client: ${site._clientName}`);
+      if (site._campaignName) parts.push(`Campaign: ${site._campaignName}`);
+      const campInfo = parts.join('  |  ');
+
+      let dateInfo = '';
+      if (site._startDate && site._endDate) {
+        dateInfo = `📅 ${site._startDate} – ${site._endDate}${site._duration ? ` (${site._duration})` : ''}`;
+      } else if (site._endDate) {
+        dateInfo = `📅 End Date: ${site._endDate}${site._duration ? ` (${site._duration})` : ''}`;
+      } else if (site._duration) {
+        dateInfo = `⏱️ Duration: ${site._duration}`;
+      }
+
+      if (campInfo && dateInfo) {
+        s.addText(`${campInfo}\n${dateInfo}`, {
+          x: 9.03, y: 6.42, w: 4.10, h: 0.36,
+          fontFace: 'Arial', fontSize: 9, bold: false, color: 'FFC870', margin: 0, align: 'left'
+        });
+      } else if (campInfo || dateInfo) {
+        s.addText(campInfo || dateInfo, {
+          x: 9.03, y: 6.48, w: 4.10, h: 0.26,
+          fontFace: 'Arial', fontSize: 10, bold: false, color: 'FFC870', margin: 0, align: 'left'
+        });
+      }
+    } else if (site._endDate && !availText.includes(site._endDate)) {
       s.addText(`📅 End Date: ${site._endDate}`, {
         x: 9.55, y: 6.48, w: 3.60, h: 0.26,
         fontFace: 'Arial', fontSize: 10.5, bold: false, color: 'FFC870', margin: 0, align: 'left'
@@ -2526,6 +2552,18 @@ function PptView() {
     } catch { return iso; }
   }
 
+  function getCampaignDurationString(camp) {
+    if (!camp) return '';
+    if (camp.days) return `${camp.days} day${Number(camp.days) === 1 ? '' : 's'}`;
+    const s = parseDay(camp.start_date || camp.booking_date);
+    const e = parseDay(camp.end_date);
+    if (s && e) {
+      const diff = Math.max(1, Math.round((e.getTime() - s.getTime()) / 86400000) + 1);
+      return `${diff} day${diff === 1 ? '' : 's'}`;
+    }
+    return '';
+  }
+
   async function load() {
     try {
       const [sRes, pRes, cRes] = await Promise.all([
@@ -2924,6 +2962,10 @@ function PptView() {
       const rows = targetSites.map((x, idx) => {
         const v = sel[x.id || x.site_code] || {};
         const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, x.site_code, dateFilter);
+        const todayCamp = !dateFilter ? getActiveCampaignOnDate(campaignsBySiteCode, x.site_code, '') : null;
+        const latestCamp = campaignMap[String(x.site_code || '').toUpperCase().trim()] || (campaignsBySiteCode[String(x.site_code || '').toUpperCase().trim()] || [])[0];
+        const bookedCamp = activeCamp || todayCamp || latestCamp;
+
         let autoAvail = v.availability ?? (dateFilter ? undefined : (x.ppt_availability ?? x.availability)) ?? 'Available';
         let endDateFmt = '';
         if (activeCamp && activeCamp.end_date) {
@@ -2935,6 +2977,28 @@ function PptView() {
         } else {
           if (!v.availability) autoAvail = 'Available';
         }
+
+        const isSiteBooked = !!activeCamp ||
+          (activeCamp === null && !dateFilter && !!todayCamp) ||
+          String(autoAvail || '').toLowerCase().startsWith('booked') ||
+          String(autoAvail || '').toLowerCase().startsWith('occupied') ||
+          String(x.availability || '').toLowerCase() === 'booked';
+
+        let campName = '';
+        let clientName = '';
+        let startFmt = '';
+        let durationStr = '';
+
+        if (isSiteBooked && bookedCamp) {
+          campName = bookedCamp.display || bookedCamp.campaign_name || bookedCamp.brand || bookedCamp.parent_campaign || '';
+          clientName = bookedCamp.client || bookedCamp.client_name || '';
+          startFmt = bookedCamp.start_date ? fmtDate(bookedCamp.start_date) : (bookedCamp.booking_date ? fmtDate(bookedCamp.booking_date) : '');
+          if (bookedCamp.end_date && !endDateFmt) {
+            endDateFmt = fmtDate(bookedCamp.end_date);
+          }
+          durationStr = getCampaignDurationString(bookedCamp);
+        }
+
         let w = x.width || '', h = x.height || '';
         if ((!w || !h) && x.size) {
           const parts = String(x.size).toLowerCase().split('x');
@@ -2954,6 +3018,10 @@ function PptView() {
           'H': h || '',
           'SQ FT': sqft,
           'AVAILABLITY': autoAvail,
+          'Campaign Name': campName,
+          'Client Name': clientName,
+          'Duration': durationStr,
+          'Start Date': startFmt,
           'End Date': endDateFmt,
           'Selling Amount': Number(v.rate ?? x.ppt_rate ?? x.monthly_rate ?? 0),
           'Latitude Longitude': coords
@@ -2973,6 +3041,10 @@ function PptView() {
         const v = sel[s.id || s.site_code] || {};
         // Look up active campaign from Campaign Tracker for this site as of dateFilter
         const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, dateFilter);
+        const todayCamp = !dateFilter ? getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, '') : null;
+        const latestCamp = campaignMap[String(s.site_code || '').toUpperCase().trim()] || (campaignsBySiteCode[String(s.site_code || '').toUpperCase().trim()] || [])[0];
+        const bookedCamp = activeCamp || todayCamp || latestCamp;
+
         let autoAvail = v.availability ?? s.ppt_availability ?? s.availability;
         let endDateFmt = '';
         if (activeCamp && activeCamp.end_date) {
@@ -2985,12 +3057,39 @@ function PptView() {
         } else {
           if (!v.availability) autoAvail = 'Available';
         }
+
+        const isSiteBooked = !!activeCamp ||
+          (activeCamp === null && !dateFilter && !!todayCamp) ||
+          String(autoAvail || '').toLowerCase().startsWith('booked') ||
+          String(autoAvail || '').toLowerCase().startsWith('occupied') ||
+          String(s.availability || '').toLowerCase() === 'booked';
+
+        let campName = '';
+        let clientName = '';
+        let startFmt = '';
+        let durationStr = '';
+
+        if (isSiteBooked && bookedCamp) {
+          campName = bookedCamp.display || bookedCamp.campaign_name || bookedCamp.brand || bookedCamp.parent_campaign || '';
+          clientName = bookedCamp.client || bookedCamp.client_name || '';
+          startFmt = bookedCamp.start_date ? fmtDate(bookedCamp.start_date) : (bookedCamp.booking_date ? fmtDate(bookedCamp.booking_date) : '');
+          if (bookedCamp.end_date && !endDateFmt) {
+            endDateFmt = fmtDate(bookedCamp.end_date);
+          }
+          durationStr = getCampaignDurationString(bookedCamp);
+        }
+
         return {
           ...s,
           _availability: autoAvail,
           _rate: v.rate ?? s.ppt_rate ?? s.monthly_rate,
           _showRate: !!v.showRate,
-          _endDate: endDateFmt
+          _endDate: endDateFmt,
+          _isBooked: isSiteBooked,
+          _campaignName: campName,
+          _clientName: clientName,
+          _startDate: startFmt,
+          _duration: durationStr
         };
       });
 
@@ -3026,6 +3125,10 @@ function PptView() {
             'H': h || '',
             'SQ FT': sqft,
             'AVAILABLITY': x._availability ?? 'Available',
+            'Campaign Name': x._campaignName || '',
+            'Client Name': x._clientName || '',
+            'Duration': x._duration || '',
+            'Start Date': x._startDate || '',
             'End Date': x._endDate || '',
             'Selling Amount': Number(x._rate ?? 0),
             'Latitude Longitude': coords
@@ -3519,6 +3622,10 @@ function PptView() {
             const isChecked = !!v.checked;
             const imgs = s.ppt_images || [];
             const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, dateFilter);
+            const todayCamp = !dateFilter ? getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, '') : null;
+            const latestCamp = campaignMap[String(s.site_code || '').toUpperCase().trim()] || (campaignsBySiteCode[String(s.site_code || '').toUpperCase().trim()] || [])[0];
+            const bookedCamp = activeCamp || todayCamp || latestCamp;
+
             let autoAvail = '';
             let endDateText = '';
             if (activeCamp && activeCamp.end_date) {
@@ -3529,7 +3636,6 @@ function PptView() {
               autoAvail = 'Available';
               endDateText = '';
             } else {
-              const todayCamp = getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, '');
               if (todayCamp && todayCamp.end_date) {
                 const endFmt = fmtDate(todayCamp.end_date);
                 autoAvail = `Booked till ${endFmt}`;
@@ -3539,6 +3645,20 @@ function PptView() {
                 endDateText = '';
               }
             }
+
+            const currentAvail = v.availability !== undefined ? v.availability : autoAvail;
+            const isBooked = !!activeCamp ||
+              (activeCamp === null && !dateFilter && !!todayCamp) ||
+              String(currentAvail || '').toLowerCase().startsWith('booked') ||
+              String(currentAvail || '').toLowerCase().startsWith('occupied') ||
+              String(s.availability || '').toLowerCase() === 'booked';
+
+            // Extract campaign details for booked site card
+            const campaignName = bookedCamp?.display || bookedCamp?.campaign_name || bookedCamp?.brand || bookedCamp?.parent_campaign || (isBooked ? 'Active Campaign' : '');
+            const clientName = bookedCamp?.client || bookedCamp?.client_name || (isBooked ? 'Booked Client' : '');
+            const startDateText = bookedCamp?.start_date ? fmtDate(bookedCamp.start_date) : (bookedCamp?.booking_date ? fmtDate(bookedCamp.booking_date) : '');
+            const finalEndDateText = (bookedCamp?.end_date ? fmtDate(bookedCamp.end_date) : '') || endDateText || '';
+            const durationText = getCampaignDurationString(bookedCamp) || '';
 
             return (
               <div
@@ -3627,11 +3747,11 @@ function PptView() {
                     <span>{s.site_code || 'Site'}</span>
                     <span style={{ fontSize: '10px', opacity: 0.8 }}>↗ Tracker</span>
                   </button>
-                  {endDateText ? (
+                  {finalEndDateText && isBooked ? (
                     <button
                       type="button"
                       onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
-                      title={`Active Campaign End Date: ${endDateText}\nClick to view in Campaign Tracker`}
+                      title={`Active Campaign End Date: ${finalEndDateText}\nClick to view in Campaign Tracker`}
                       style={{
                         fontSize: '11px',
                         fontWeight: 700,
@@ -3646,7 +3766,28 @@ function PptView() {
                         gap: '4px'
                       }}
                     >
-                      <span>📅 End Date: {endDateText}</span>
+                      <span>📅 Booked till {finalEndDateText}</span>
+                    </button>
+                  ) : isBooked ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
+                      title={`Site is booked\nClick to view in Campaign Tracker`}
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: '5px',
+                        background: 'rgba(245, 158, 11, 0.2)',
+                        color: '#fbbf24',
+                        border: '1px solid rgba(245, 158, 11, 0.45)',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>🔒 Booked</span>
                     </button>
                   ) : dateFilter ? (
                     <span
@@ -3672,6 +3813,68 @@ function PptView() {
                 <small className="scooh-ppt-coordinates">Latitude: {s.latitude ?? '—'}</small>
                 <small className="scooh-ppt-coordinates">Longitude: {s.longitude ?? '—'}</small>
 
+                {/* Booked Campaign Details Card */}
+                {isBooked && (
+                  <div className="scooh-ppt-booked-card" onClick={e => e.stopPropagation()}>
+                    <div className="scooh-ppt-booked-header">
+                      <span className="scooh-ppt-booked-tag">
+                        <span className="scooh-ppt-booked-dot" />
+                        Booked / Active Campaign
+                      </span>
+                      <button
+                        type="button"
+                        className="scooh-ppt-booked-link"
+                        onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
+                        title={`View campaign details for ${s.site_code} in Campaign Tracker`}
+                      >
+                        ↗ Tracker
+                      </button>
+                    </div>
+
+                    <div className="scooh-ppt-booked-body">
+                      {/* Campaign Name */}
+                      <div className="scooh-ppt-booked-row">
+                        <span className="scooh-ppt-booked-label">Campaign Name</span>
+                        <span className="scooh-ppt-booked-val camp-val" title={campaignName || 'Active Campaign'}>
+                          📢 {campaignName || '—'}
+                        </span>
+                      </div>
+
+                      {/* Client Name */}
+                      <div className="scooh-ppt-booked-row">
+                        <span className="scooh-ppt-booked-label">Client Name</span>
+                        <span className="scooh-ppt-booked-val client-val" title={clientName || 'Booked Client'}>
+                          🏢 {clientName || '—'}
+                        </span>
+                      </div>
+
+                      {/* Duration */}
+                      <div className="scooh-ppt-booked-row">
+                        <span className="scooh-ppt-booked-label">Duration</span>
+                        <span className="scooh-ppt-booked-val duration-val">
+                          ⏱️ {durationText || '—'}
+                        </span>
+                      </div>
+
+                      {/* Start Date & End Date */}
+                      <div className="scooh-ppt-booked-dates">
+                        <div className="scooh-ppt-booked-date-col">
+                          <span className="scooh-ppt-booked-label">Start Date</span>
+                          <span className="scooh-ppt-booked-val date-val">
+                            📅 {startDateText || '—'}
+                          </span>
+                        </div>
+                        <div className="scooh-ppt-booked-date-col">
+                          <span className="scooh-ppt-booked-label">End Date</span>
+                          <span className="scooh-ppt-booked-val date-val end-date-val">
+                            🏁 {finalEndDateText || '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="scooh-ppt-availability" onClick={e => e.stopPropagation()}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <label style={{ margin: 0 }}>Availability for PPT</label>
@@ -3692,10 +3895,10 @@ function PptView() {
                     placeholder={autoAvail || "Immediate or DD.MM.YYYY"}
                     onChange={e => setSel({ ...sel, [siteKey]: { ...v, availability: e.target.value } })}
                   />
-                  {endDateText ? (
+                  {finalEndDateText && isBooked ? (
                     <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span>📅 End Date:</span>
-                      <span style={{ fontWeight: 600 }}>{endDateText}</span>
+                      <span>📅 Booked End Date:</span>
+                      <span style={{ fontWeight: 600 }}>{finalEndDateText}</span>
                     </div>
                   ) : dateFilter ? (
                     <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
