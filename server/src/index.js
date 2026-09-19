@@ -156,6 +156,19 @@ export async function ensureCampaignColumns() {
         }
       }
     }
+
+    // Ensure booking_code is NOT a unique constraint (different clients or bookings can repeat codes)
+    try {
+      const indexes = await q('SHOW INDEX FROM campaigns');
+      const uniqueBookingCodeIdx = indexes.find(idx => idx.Key_name === 'booking_code' && (idx.Non_unique === 0 || idx.Non_unique === '0'));
+      if (uniqueBookingCodeIdx) {
+        await q('ALTER TABLE campaigns DROP INDEX booking_code');
+        await q('ALTER TABLE campaigns ADD KEY booking_code (booking_code)');
+        console.log('[Schema Migration] Relaxed campaigns.booking_code from UNIQUE constraint to non-unique KEY.');
+      }
+    } catch (idxErr) {
+      console.warn('[Schema Migration] booking_code index relaxation notice:', idxErr.message);
+    }
   } catch (err) {
     console.warn('[Schema Migration] ensureCampaignColumns notice:', err.message);
   }
@@ -1998,11 +2011,20 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
             );
             updatedCount++;
           } else {
-            const insertCols = ['site_id', 'site_code', 'client', 'display', 'location', 'start_date', 'end_date', 'booking_date', 'days', 'month', 'record_status'];
-            const insertVals = [site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month, 'active'];
+            const bookingCode = `MB-BK-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+            const insertCols = ['booking_code', 'site_id', 'site_code', 'client', 'display', 'location', 'start_date', 'end_date', 'booking_date', 'days', 'month', 'record_status'];
+            const insertVals = [bookingCode, site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month, 'active'];
             if (campTableCols.has('status')) {
               insertCols.push('status');
               insertVals.push('active');
+            }
+            if (campTableCols.has('campaign_name')) {
+              insertCols.push('campaign_name');
+              insertVals.push(display || client || b.site_code);
+            }
+            if (campTableCols.has('brand')) {
+              insertCols.push('brand');
+              insertVals.push(client || display || '');
             }
             const placeholders = insertCols.map(() => '?').join(', ');
             await q(
@@ -2731,8 +2753,9 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
                 );
               } else {
                 const campCols = await tableColumns('campaigns');
-                const insertCols = ['site_id', 'site_code', 'client', 'display', 'location', 'start_date', 'end_date', 'booking_date', 'days', 'month', 'record_status'];
-                const insertVals = [site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month, 'active'];
+                const bookingCode = `MB-BK-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+                const insertCols = ['booking_code', 'site_id', 'site_code', 'client', 'display', 'location', 'start_date', 'end_date', 'booking_date', 'days', 'month', 'record_status'];
+                const insertVals = [bookingCode, site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month, 'active'];
                 if (campCols.has('status')) {
                   insertCols.push('status');
                   insertVals.push('active');
@@ -2996,12 +3019,13 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
 
         // Mirror into campaigns table so Campaign Tracker and Occupancy remain 100% linked
         try {
+          const bookingCode = `MB-BK-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
           await q(`INSERT INTO campaigns (
-            site_code, client, display, location, city, size,
+            booking_code, site_code, client, display, location, city, size,
             month, start_date, end_date, days, total_amount,
             pending, po, bill, status, record_status, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
-            finalSiteCode, client || 'Standard Client', display, location, city, size,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
+            bookingCode, finalSiteCode, client || 'Standard Client', display, location, city, size,
             month, startDate, endDate, days, totalAmount,
             pending, po, bill, status
           ]);
@@ -3470,7 +3494,7 @@ app.post('/api/:entity', auth, notViewer, async (req, res) => {
       }
     }
     if (req.params.entity === 'campaigns') {
-      if (!data.booking_code) data.booking_code = `MB-BK-${Date.now()}`;
+      if (!data.booking_code) data.booking_code = `MB-BK-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       if (!data.start_date) data.start_date = new Date().toISOString().slice(0, 10);
       if (!data.end_date) {
         const d = new Date();
