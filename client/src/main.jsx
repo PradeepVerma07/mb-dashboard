@@ -80,8 +80,8 @@ const navGroups = [
     items: [
       ['dashboard', 'Dashboard'],
       ['sites', 'Sites'],
-      ['campaigns', 'Campaign Tracker'],
-      ['occupancy', 'Occupancy'],
+      ['campaigns', 'Latest Booking'],
+      ['occupancy', 'Campaign Tracker'],
       ['proposals', 'Proposal Builder'],
       ['ppt', 'Automated PPT'],
       ['storage', 'Storage & Archives']
@@ -126,8 +126,8 @@ const fields = {
 const viewTitles = {
   dashboard: 'Dashboard',
   sites: 'Sites Directory',
-  campaigns: 'Campaign Tracker',
-  occupancy: 'Occupancy & Utilization',
+  campaigns: 'Latest Booking',
+  occupancy: 'Campaign Tracker',
   proposals: 'Proposal Builder',
   ppt: 'Automated PPT',
   electricity: 'Electricity & Meters',
@@ -929,7 +929,7 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
     s.addText(siteCodeText, {
       x: 9.03, y: 0.70, w: 2.10, h: 0.44,
       fontFace: 'Arial', fontSize: 13.5, bold: true, color: '000000', align: 'center', valign: 'middle', margin: 0,
-      hyperlink: { url: trackerUrl, tooltip: `Open ${siteCodeText} in Campaign Tracker` }
+      hyperlink: { url: trackerUrl, tooltip: `Open ${siteCodeText} in Latest Booking` }
     });
 
     // 4. Headline: Area (Bold White, 20-22pt) & Landmark (Bold Sky Blue, 13.5-14.5pt) - Unified flow matching final format
@@ -2221,7 +2221,7 @@ function SitesView() {
                         type="button"
                         onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
                         className="scooh-plate"
-                        title={`Open ${s.site_code} in Campaign Tracker`}
+                        title={`Open ${s.site_code} in Latest Booking`}
                         style={{
                           cursor: 'pointer',
                           background: 'rgba(56, 189, 248, 0.12)',
@@ -3781,7 +3781,7 @@ function PptView() {
                     type="button"
                     onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
                     className="scooh-plate"
-                    title={`Open ${s.site_code} in Campaign Tracker`}
+                    title={`Open ${s.site_code} in Latest Booking`}
                     style={{
                       fontSize: '13px',
                       fontWeight: 800,
@@ -3797,13 +3797,13 @@ function PptView() {
                     }}
                   >
                     <span>{s.site_code || 'Site'}</span>
-                    <span style={{ fontSize: '10px', opacity: 0.8 }}>↗ Tracker</span>
+                    <span style={{ fontSize: '10px', opacity: 0.8 }}>↗ Booking</span>
                   </button>
                   {info.hasTrackerBooking && finalEndDateText ? (
                     <button
                       type="button"
                       onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
-                      title={`Active Campaign End Date: ${finalEndDateText}\nClick to view in Campaign Tracker`}
+                      title={`Active Campaign End Date: ${finalEndDateText}\nClick to view in Latest Booking`}
                       style={{
                         fontSize: '11px',
                         fontWeight: 700,
@@ -3883,21 +3883,21 @@ function PptView() {
                 <small className="scooh-ppt-coordinates">Latitude: {s.latitude ?? '—'}</small>
                 <small className="scooh-ppt-coordinates">Longitude: {s.longitude ?? '—'}</small>
 
-                {/* Booked Campaign Details Card — ONLY show when there is an active booking in Campaign Tracker */}
+                {/* Booked Campaign Details Card — ONLY show when there is an active booking in Latest Booking */}
                 {info.hasTrackerBooking && (
                   <div className="scooh-ppt-booked-card" onClick={e => e.stopPropagation()}>
                     <div className="scooh-ppt-booked-header">
                       <span className="scooh-ppt-booked-tag">
                         <span className="scooh-ppt-booked-dot" />
-                        Active Campaign (Tracker)
+                        Active Campaign (Latest Booking)
                       </span>
                       <button
                         type="button"
                         className="scooh-ppt-booked-link"
                         onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
-                        title={`View campaign details for ${s.site_code} in Campaign Tracker`}
+                        title={`View campaign details for ${s.site_code} in Latest Booking`}
                       >
-                        ↗ Tracker
+                        ↗ Booking
                       </button>
                     </div>
 
@@ -3961,8 +3961,8 @@ function PptView() {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px', flexWrap: 'wrap', gap: '4px' }}>
                     <label style={{ margin: 0 }}>Availability / Available Date</label>
                     {info.isAuto ? (
-                      <span className="scooh-ppt-avail-status-tag auto" title={`Automatic booking dates from Campaign Tracker (End: ${info.endDateStr})`}>
-                        ⚡ Auto Tracker
+                      <span className="scooh-ppt-avail-status-tag auto" title={`Automatic booking dates from Latest Booking (End: ${info.endDateStr})`}>
+                        ⚡ Auto Booking
                       </span>
                     ) : info.manualDateFmt ? (
                       <span className="scooh-ppt-avail-status-tag manual" title={`Manual available date (${info.endDateStr})`}>
@@ -5938,8 +5938,8 @@ function OccupancyView() {
 
       // Executive Media Buzz Brand Header Banner with Logo on Top Right
       const titleText = viewTab === 'overview'
-        ? 'MEDIA BUZZ — 365-DAY SITE OCCUPANCY OVERVIEW'
-        : (viewTab === '12months' ? 'MEDIA BUZZ — 12-MONTH SITE OCCUPANCY MATRIX' : 'MEDIA BUZZ — 6-MONTH SITE OCCUPANCY MATRIX');
+        ? 'MEDIA BUZZ — 365-DAY CAMPAIGN TRACKER OVERVIEW'
+        : (viewTab === '12months' ? 'MEDIA BUZZ — 12-MONTH CAMPAIGN TRACKER MATRIX' : 'MEDIA BUZZ — 6-MONTH CAMPAIGN TRACKER MATRIX');
       attachMediaBuzzExcelHeader(workbook, ws, {
         title: titleText,
         columns: cols,
@@ -6018,11 +6018,11 @@ function OccupancyView() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Site_Occupancy_${viewTab}.xlsx`;
+      a.download = `Campaign_Tracker_${viewTab}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Failed to export occupancy Excel:', err);
+      console.error('Failed to export campaign tracker Excel:', err);
       alert('Could not generate Excel export.');
     }
   }
@@ -6030,7 +6030,7 @@ function OccupancyView() {
   return (
     <>
       <PageHead 
-        title="Site Occupancy & Utilization" 
+        title="Campaign Tracker" 
         desc="Monthly utilization, client bookings, and availability across your site inventory." 
       />
 
@@ -6105,7 +6105,7 @@ function OccupancyView() {
             {stats.total}
           </div>
           <div style={{ fontSize: '12px', color: '#64748b' }}>
-            Live from Campaign Tracker
+            Live from Latest Booking
           </div>
         </div>
       </div>
@@ -6359,7 +6359,7 @@ function OccupancyView() {
               type="button"
               className="scooh-btn ghost"
               onClick={exportOccupancyExcel}
-              title="Export complete occupancy table to Excel"
+              title="Export complete campaign tracker to Excel"
               style={{ fontSize: '11.5px', padding: '6px 12px' }}
             >
               📥 Export Excel
@@ -7039,9 +7039,9 @@ function getCampaignPeriod(r, view) {
   return 'All';
 }
 
-async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tracker.xlsx') {
+async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Latest_Bookings.xlsx') {
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet('Campaign Tracker', {
+  const worksheet = workbook.addWorksheet('Latest Bookings', {
     views: [{ state: 'frozen', ySplit: 2 }]
   });
 
@@ -7068,7 +7068,7 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
 
   // Executive Media Buzz Brand Header Banner with Logo on Top Right
   attachMediaBuzzExcelHeader(workbook, worksheet, {
-    title: 'MEDIA BUZZ — MASTER CAMPAIGN TRACKER',
+    title: 'MEDIA BUZZ — LATEST BOOKINGS TRACKER',
     columns: cols,
     totalColumns: 17
   });
@@ -7736,7 +7736,7 @@ function CampaignTrackerView() {
       alert('There are no active or visible campaign records to delete.');
       return;
     }
-    if (!confirm(`⚠️ DANGER: Are you sure you want to permanently delete ALL ${count} visible campaign records from the Campaign Tracker?\n\nThis will clear all booking data for these sites. This action cannot be undone.`)) {
+    if (!confirm(`⚠️ DANGER: Are you sure you want to permanently delete ALL ${count} visible booking records from Latest Booking?\n\nThis will clear all booking data for these sites. This action cannot be undone.`)) {
       return;
     }
     try {
@@ -8269,10 +8269,10 @@ function CampaignTrackerView() {
             Media Buzz — OOH Workspace
           </div>
           <h1 style={{ fontSize: '26px', fontWeight: 900, margin: 0, color: '#fff', letterSpacing: '-0.02em' }}>
-            Campaign Tracker
+            Latest Booking
           </h1>
           <p style={{ margin: '6px 0 0', color: '#94a3b8', fontSize: '13px' }}>
-            Live outdoor campaigns, latest client billing, and real-time site occupancy.
+            Live outdoor campaigns, latest client billing, and current site booking status.
           </p>
         </div>
         <div className="scooh-headactions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -8287,7 +8287,7 @@ function CampaignTrackerView() {
               </label>
               <a
                 href="/sample_campaign_tracker_import.xlsx"
-                download="MediaBuzz_Campaign_Tracker_Sample.xlsx"
+                download="MediaBuzz_Latest_Booking_Sample.xlsx"
                 className="scooh-btn ghost"
                 style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                 title="Download sample Excel spreadsheet template for importing campaigns"
@@ -8296,7 +8296,7 @@ function CampaignTrackerView() {
               </a>
             </>
           )}
-          <button type="button" className="scooh-btn ghost" onClick={() => exportCampaignsExcel(filteredLatest, 'MediaBuzz_Campaign_Tracker.xlsx')}>
+          <button type="button" className="scooh-btn ghost" onClick={() => exportCampaignsExcel(filteredLatest, 'MediaBuzz_Latest_Bookings.xlsx')}>
             📥 Export Excel
           </button>
           {canAdd && (
@@ -8387,9 +8387,9 @@ function CampaignTrackerView() {
               className="scooh-btn ghost"
               onClick={() => navigate('/occupancy')}
               style={{ fontSize: '12px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}
-              title="Open full booking history ledger in Occupancy"
+              title="Open full booking history ledger in Campaign Tracker"
             >
-              📋 All Previous Bookings (Occupancy) ↗
+              📋 All Previous Bookings (Campaign Tracker) ↗
             </button>
             {canAdd && (
               <button type="button" className="scooh-btn purple-btn" onClick={() => openNewCampaign()}>
@@ -12400,7 +12400,7 @@ function SettingsView() {
                         Field tracking: View sites, update campaign mounting/printing progress, and log electricity meter bills.
                       </p>
                       <div style={{ fontSize: '11px', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> View Sites, Campaigns, Occupancy</div>
+                        <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> View Sites, Latest Booking, Campaign Tracker</div>
                         <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Update Mounting & Printing Status</div>
                         <div><span style={{ color: '#4ade80', marginRight: '5px' }}>✓</span> Add & Pay Electricity Meter Bills</div>
                         <div><span style={{ color: '#f87171', marginRight: '5px' }}>✕</span> No Deletions, Batch Delete, or Proposals</div>
