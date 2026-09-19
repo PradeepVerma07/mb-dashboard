@@ -60,6 +60,7 @@ export async function ensureCampaignColumns() {
   try {
     const existingCols = await tableColumns('campaigns');
     const colsToAdd = [
+      { name: 'status', type: 'VARCHAR(40) NOT NULL DEFAULT "active"' },
       { name: 'month', type: 'VARCHAR(60) NOT NULL DEFAULT ""' },
       { name: 'display', type: 'VARCHAR(190) NOT NULL DEFAULT ""' },
       { name: 'vendor_name', type: 'VARCHAR(190) NOT NULL DEFAULT ""' },
@@ -1843,6 +1844,7 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
 
     let existingSites = await q('SELECT id, site_code, address, area, width, height, size FROM sites WHERE record_status="active"');
     let existingCampaigns = await q('SELECT id, site_code, client, display, start_date, end_date FROM campaigns WHERE record_status="active"');
+    const campTableCols = await tableColumns('campaigns');
 
     // Check if the workbook contains the Site Block format (Site Code + Location header, followed by Up Date / Down Date / Display rows)
     const allBlocks = [];
@@ -1949,10 +1951,16 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
             );
             updatedCount++;
           } else {
+            const insertCols = ['site_id', 'site_code', 'client', 'display', 'location', 'start_date', 'end_date', 'booking_date', 'days', 'month', 'record_status'];
+            const insertVals = [site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month, 'active'];
+            if (campTableCols.has('status')) {
+              insertCols.push('status');
+              insertVals.push('active');
+            }
+            const placeholders = insertCols.map(() => '?').join(', ');
             await q(
-              `INSERT INTO campaigns (site_id, site_code, client, display, location, start_date, end_date, booking_date, days, month, status, record_status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'active', NOW(), NOW())`,
-              [site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month]
+              `INSERT INTO campaigns (${insertCols.join(', ')}, created_at, updated_at) VALUES (${placeholders}, NOW(), NOW())`,
+              insertVals
             );
             newCount++;
           }
@@ -2675,10 +2683,17 @@ app.post('/api/import/occupancy-xlsx', auth, managerOrAdmin, upload.single('file
                   [location, display, days, month, match.id]
                 );
               } else {
+                const campCols = await tableColumns('campaigns');
+                const insertCols = ['site_id', 'site_code', 'client', 'display', 'location', 'start_date', 'end_date', 'booking_date', 'days', 'month', 'record_status'];
+                const insertVals = [site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month, 'active'];
+                if (campCols.has('status')) {
+                  insertCols.push('status');
+                  insertVals.push('active');
+                }
+                const placeholders = insertCols.map(() => '?').join(', ');
                 const insCamp = await q(
-                  `INSERT INTO campaigns (site_id, site_code, client, display, location, start_date, end_date, booking_date, days, month, status, record_status, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'active', NOW(), NOW())`,
-                  [site.id, b.site_code, client, display, location, startDate, endDate, startDate, days, month]
+                  `INSERT INTO campaigns (${insertCols.join(', ')}, created_at, updated_at) VALUES (${placeholders}, NOW(), NOW())`,
+                  insertVals
                 );
                 existingCampaigns.push({
                   id: insCamp.insertId,

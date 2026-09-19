@@ -671,7 +671,7 @@ export default function CampaignDetailsView() {
     }
   }
 
-  const isFiltered = clientOrDisplay || startDate || endDate || statusFilter !== 'ALL' || siteFilter;
+  const isFiltered = Boolean(clientOrDisplay || startDate || endDate || siteFilter);
 
   return (
     <>
@@ -816,48 +816,20 @@ export default function CampaignDetailsView() {
             />
           </div>
 
-          {/* Input 4: Quick Status Pills & Reset */}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'inline-flex', background: '#070b10', padding: '3px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-              {[
-                { id: 'ALL', label: 'All Status' },
-                { id: 'live', label: '🟢 Live' },
-                { id: 'upcoming', label: '🔵 Upcoming' },
-                { id: 'completed', label: '⚪ Ended' }
-              ].map(s => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setStatusFilter(s.id)}
-                  style={{
-                    padding: '6px 11px',
-                    fontSize: '11.5px',
-                    fontWeight: 700,
-                    borderRadius: '6px',
-                    border: 0,
-                    cursor: 'pointer',
-                    background: statusFilter === s.id ? '#7c3aed' : 'transparent',
-                    color: statusFilter === s.id ? '#fff' : '#94a3b8',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-
-            {isFiltered && (
+          {/* Clear Filters Action */}
+          {isFiltered && (
+            <div>
               <button
                 type="button"
                 className="scooh-btn ghost"
-                style={{ padding: '7px 12px', fontSize: '11.5px', color: '#f87171', borderColor: 'rgba(248, 113, 113, 0.4)' }}
+                style={{ padding: '9px 14px', fontSize: '12px', color: '#f87171', borderColor: 'rgba(248, 113, 113, 0.4)', borderRadius: '8px' }}
                 onClick={resetAllFilters}
                 title="Reset all filters"
               >
                 ✕ Clear Filters
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Date Presets Toolbar & Quick Client Chips */}
