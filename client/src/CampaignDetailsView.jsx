@@ -566,7 +566,7 @@ export default function CampaignDetailsView() {
     });
   }, [filteredList, sortState]);
 
-  // Client-Wise Groups: groups sorted bookings under each client
+  // Client-Wise Groups: groups all bookings under each client (Site codes can repeat)
   const clientGroups = useMemo(() => {
     const map = new Map();
     sortedList.forEach(item => {
@@ -577,15 +577,18 @@ export default function CampaignDetailsView() {
       map.get(clientName).push(item);
     });
 
-    return Array.from(map.entries()).map(([clientName, bookings]) => {
-      const uniqueSites = new Set(bookings.map(b => b.site_code).filter(sc => sc && sc !== '—')).size;
-      return {
-        clientName,
-        bookings,
-        totalBookings: bookings.length,
-        uniqueSites
-      };
-    });
+    return Array.from(map.entries())
+      .map(([clientName, bookings]) => {
+        const uniqueSitesList = Array.from(new Set(bookings.map(b => b.site_code).filter(sc => sc && sc !== '—')));
+        return {
+          clientName,
+          bookings,
+          totalBookings: bookings.length,
+          uniqueSites: uniqueSitesList.length,
+          uniqueSitesList
+        };
+      })
+      .sort((a, b) => a.clientName.localeCompare(b.clientName));
   }, [sortedList]);
 
   // Summary KPIs for current filter
@@ -1151,7 +1154,7 @@ export default function CampaignDetailsView() {
                         </span>
                       </div>
                       <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '2px' }}>
-                        Booked Sites: {group.bookings.map(b => b.site_code).filter(Boolean).slice(0, 8).join(', ')}{group.bookings.length > 8 ? ` +${group.bookings.length - 8} more` : ''}
+                        Booked Sites: {group.uniqueSitesList.slice(0, 8).join(', ')}{group.uniqueSitesList.length > 8 ? ` +${group.uniqueSitesList.length - 8} more` : ''}
                       </div>
                     </div>
                   </div>
