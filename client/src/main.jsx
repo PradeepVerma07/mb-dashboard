@@ -7048,8 +7048,6 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
   const cols = [
     { key: 'site_code', width: 14 },
     { key: 'month', width: 14 },
-    { key: 'occupancy', width: 16 },
-    { key: 'date', width: 14 },
     { key: 'client', width: 28 },
     { key: 'display', width: 24 },
     { key: 'vendor_name', width: 22 },
@@ -7064,8 +7062,6 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
     { key: 'advt_fees', width: 20 },
     { key: 'printing_mounting_cost', width: 22 },
     { key: 'total_amount', width: 20 },
-    { key: 'po', width: 16 },
-    { key: 'bill', width: 18 },
     { key: 'pending', width: 18 }
   ];
   worksheet.columns = cols;
@@ -7074,15 +7070,15 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
   attachMediaBuzzExcelHeader(workbook, worksheet, {
     title: 'MEDIA BUZZ — MASTER CAMPAIGN TRACKER',
     columns: cols,
-    totalColumns: 21
+    totalColumns: 17
   });
 
   // Populate Header Row (Row 2)
   const headers = [
-    'Site Code', 'Month', 'Occupancy', 'Date', 'Client/Agency Name',
+    'Site Code', 'Month', 'Client/Agency Name',
     'Display', 'Vendor Name', 'Location', 'W', 'H',
     'Size', 'Type', 'Start Date', 'End Date', 'Days',
-    'Advt. Fees per month', 'Printing & Mounting', 'Total Amount', 'PO', 'Bill', 'Pending'
+    'Advt. Fees per month', 'Printing & Mounting', 'Total Amount', 'Pending'
   ];
   const headerRow = worksheet.getRow(2);
   headerRow.height = 28;
@@ -7094,8 +7090,6 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
     worksheet.addRow({
       site_code: r.site_code || '',
       month: r.month || '',
-      occupancy: getCampaignOccupancy(r).label,
-      date: r.booking_date ? new Date(r.booking_date).toLocaleDateString('en-IN') : (r.date || ''),
       client: r.client || r.client_name || '',
       display: r.display || r.campaign_name || r.brand || '',
       vendor_name: r.vendor_name || '',
@@ -7110,8 +7104,6 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
       advt_fees: Number(r.advt_fees || 0),
       printing_mounting_cost: Number(r.printing_mounting_cost || (Number(r.printing_cost || 0) + Number(r.mounting_cost || 0))),
       total_amount: Number(r.total_amount || r.revenue || 0),
-      po: r.po || '',
-      bill: r.bill || r.invoice_no || '',
       pending: Number(r.pending || 0)
     });
   });
@@ -7131,7 +7123,7 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
     };
     cell.alignment = {
       vertical: 'middle',
-      horizontal: [1, 8, 9, 10, 11, 12, 13, 14].includes(colNumber) ? 'center' : ([15, 16, 17, 20].includes(colNumber) ? 'right' : 'left'),
+      horizontal: [1, 2, 7, 8, 9, 10, 11, 12, 13].includes(colNumber) ? 'center' : ([14, 15, 16, 17].includes(colNumber) ? 'right' : 'left'),
       wrapText: false
     };
     cell.border = {
@@ -7150,9 +7142,9 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
         cell.font = { name: 'Calibri', size: 10.5 };
         cell.alignment = {
           vertical: 'middle',
-          horizontal: [1, 8, 9, 10, 11, 12, 13, 14].includes(colNumber) ? 'center' : ([15, 16, 17, 20].includes(colNumber) ? 'right' : 'left')
+          horizontal: [1, 2, 7, 8, 9, 10, 11, 12, 13].includes(colNumber) ? 'center' : ([14, 15, 16, 17].includes(colNumber) ? 'right' : 'left')
         };
-        if ([16, 17, 18, 21].includes(colNumber) && typeof cell.value === 'number') {
+        if ([14, 15, 16, 17].includes(colNumber) && typeof cell.value === 'number') {
           cell.numFmt = '#,##,##0';
         }
         cell.border = {
@@ -7167,12 +7159,12 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
 
   // Enable Auto-Filter on Row 2
   if (rowsData.length > 0) {
-    worksheet.autoFilter = `A2:U${rowsData.length + 2}`;
+    worksheet.autoFilter = `A2:Q${rowsData.length + 2}`;
   }
 
-  // Official 5-Point Terms & Conditions at Bottom Center
+  // Official Terms & Conditions at Bottom Center
   attachMediaBuzzTermsAndConditions(worksheet, {
-    totalColumns: 21
+    totalColumns: 17
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -7982,7 +7974,7 @@ function CampaignTrackerView() {
 
     const prevCampaigns = (item.allCampaigns || []).filter(c => c.id !== item.campaign_id);
     const isExpanded = expandedHistorySites.has(item.site_code);
-    const colSpan = canDelete ? 23 : 22;
+    const colSpan = canDelete ? 19 : 18;
 
     return (
       <React.Fragment key={item.site_code}>
@@ -8065,27 +8057,6 @@ function CampaignTrackerView() {
           ) : (
             <span style={{ color: '#64748b' }}>—</span>
           )}
-        </td>
-        <td>
-          <span style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '5px',
-            padding: '3px 9px',
-            borderRadius: '6px',
-            background: statusBg,
-            color: statusColor,
-            border: `1px solid ${statusBorder}`,
-            fontSize: '11.5px',
-            fontWeight: 800,
-            whiteSpace: 'nowrap'
-          }}>
-            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }} />
-            {isBooked ? 'Occupied' : isUpcoming ? 'Upcoming' : 'Vacant'}
-          </span>
-        </td>
-        <td style={{ color: '#94a3b8', fontSize: '11.5px' }}>
-          {formatDate(item.booking_date) || '—'}
         </td>
         <td>
           {item.client ? (
@@ -8172,12 +8143,6 @@ function CampaignTrackerView() {
             '—'
           )}
         </td>
-        <td>
-          {item.po ? <span className="scooh-plate" style={{ fontSize: '11px' }}>{item.po}</span> : '—'}
-        </td>
-        <td>
-          {item.bill ? <span style={{ color: '#93c5fd', fontSize: '11px' }}>{item.bill}</span> : '—'}
-        </td>
         <td style={{ textAlign: 'right', fontWeight: 700, color: isPending ? '#f87171' : '#94a3b8', fontSize: '12.5px' }}>
           {item.pending > 0 ? money(item.pending) : item.total_amount > 0 ? <span style={{ color: '#4ade80', fontSize: '11px' }}>₹0</span> : '—'}
         </td>
@@ -8243,7 +8208,7 @@ function CampaignTrackerView() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11.5px', minWidth: '900px' }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                        {['Month', 'Client / Agency', 'Display', 'Start Date', 'End Date', 'Days', 'Total', 'PO', 'Bill', 'Pending', 'Actions'].map(h => (
+                        {['Month', 'Client / Agency', 'Display', 'Start Date', 'End Date', 'Days', 'Total', 'Pending', 'Actions'].map(h => (
                           <th key={h} style={{ padding: '5px 10px', textAlign: ['Total','Pending'].includes(h) ? 'right' : 'left', color: '#64748b', fontWeight: 700, whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
@@ -8260,8 +8225,6 @@ function CampaignTrackerView() {
                           <td style={{ padding: '5px 10px', textAlign: 'right', color: '#4ade80', fontWeight: 700 }}>
                             {Number(c.total_amount || c.revenue || 0) > 0 ? money(Number(c.total_amount || c.revenue || 0)) : '—'}
                           </td>
-                          <td style={{ padding: '5px 10px', color: '#94a3b8' }}>{c.po || '—'}</td>
-                          <td style={{ padding: '5px 10px', color: '#93c5fd' }}>{c.bill || c.invoice_no || '—'}</td>
                           <td style={{ padding: '5px 10px', textAlign: 'right', fontWeight: 700, color: Number(c.pending || 0) > 0 ? '#f87171' : '#4ade80' }}>
                             {Number(c.pending || 0) > 0 ? money(Number(c.pending)) : '—'}
                           </td>
@@ -8686,7 +8649,7 @@ function CampaignTrackerView() {
 
           {/* Bottom Primary Table & Scroller */}
           <div ref={bottomScrollRef} onScroll={handleBottomScroll} className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
-            <table ref={tableRef} className="scooh-table" style={{ minWidth: '2200px' }}>
+            <table ref={tableRef} className="scooh-table" style={{ minWidth: '1750px' }}>
               <thead>
                 <tr>
                   {canDelete && (
@@ -8702,8 +8665,6 @@ function CampaignTrackerView() {
                   )}
                   <SortHeader label="Site Code" sortKey="site_code" currentSort={sortState} onSort={handleSort} style={{ minWidth: '105px' }} />
                   <SortHeader label="Month" sortKey="month" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
-                  <SortHeader label="Occupancy" sortKey="occupancy" currentSort={sortState} onSort={handleSort} style={{ minWidth: '135px' }} />
-                  <SortHeader label="Date" sortKey="booking_date" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
                   <SortHeader label="Client/Agency Name" sortKey="client" currentSort={sortState} onSort={handleSort} style={{ minWidth: '180px' }} />
                   <SortHeader label="Display" sortKey="display" currentSort={sortState} onSort={handleSort} style={{ minWidth: '160px' }} />
                   <SortHeader label="Vendor Name" sortKey="vendor_name" currentSort={sortState} onSort={handleSort} style={{ minWidth: '140px' }} />
@@ -8718,8 +8679,6 @@ function CampaignTrackerView() {
                   <SortHeader label="Advt. Fees" sortKey="advt_fees" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
                   <SortHeader label="Prod/Mount" sortKey="printing_mounting_cost" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '140px' }} />
                   <SortHeader label="Total" sortKey="total_amount" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '135px' }} />
-                  <SortHeader label="PO" sortKey="po" currentSort={sortState} onSort={handleSort} style={{ minWidth: '95px' }} />
-                  <SortHeader label="Bill" sortKey="bill" currentSort={sortState} onSort={handleSort} style={{ minWidth: '100px' }} />
                   <SortHeader label="Pending" sortKey="pending" currentSort={sortState} onSort={handleSort} align="right" style={{ minWidth: '110px' }} />
                   <th style={{ minWidth: '180px', textAlign: 'center' }}>Actions</th>
                 </tr>
@@ -8727,7 +8686,7 @@ function CampaignTrackerView() {
               <tbody>
                 {filteredLatest.length === 0 ? (
                   <tr>
-                    <td colSpan={canDelete ? 23 : 22} className="scooh-empty" style={{ padding: '36px 20px', textAlign: 'center' }}>
+                    <td colSpan={canDelete ? 19 : 18} className="scooh-empty" style={{ padding: '36px 20px', textAlign: 'center' }}>
                       <div style={{ fontSize: '14px', fontWeight: 700, color: '#94a3b8' }}>No sites match your query</div>
                       <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
                         Try adjusting your search or status filter.
