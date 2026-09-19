@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import ExcelJS from 'exceljs';
 import PptxGenJS from 'pptxgenjs';
+import { attachMediaBuzzExcelHeader, attachMediaBuzzTermsAndConditions, MEDIA_BUZZ_TERMS_TEXT } from './excelLogo';
 import api from './api';
 import { defaultSites, defaultSettings } from './defaultSites';
 import { canonicalSiteCode, isCombinedSite, getSiteTypeTag, getConflictSummary, getOverlappingSiteCodes, SITE_PANELS } from './siteHierarchy';
@@ -1112,16 +1113,15 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
 
 async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', title = null) {
   const workbook = new ExcelJS.Workbook();
-  const cleanTitle = title ? String(title).trim() : '';
-  const hasTitle = Boolean(cleanTitle);
-  const headerRowNum = hasTitle ? 2 : 1;
-  const dataStartRowNum = hasTitle ? 3 : 2;
+  const cleanTitle = title ? String(title).trim() : 'MEDIA BUZZ — SITES & MEDIA PORTFOLIO';
+  const headerRowNum = 2;
+  const dataStartRowNum = 3;
 
   const worksheet = workbook.addWorksheet('Sites', {
-    views: [{ state: 'frozen', ySplit: hasTitle ? 2 : 1 }]
+    views: [{ state: 'frozen', ySplit: 2 }]
   });
 
-  worksheet.columns = [
+  const cols = [
     { key: 'sr', width: 8 },
     { key: 'area', width: 22 },
     { key: 'location', width: 55 },
@@ -1134,41 +1134,16 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', ti
     { key: 'rate', width: 18 },
     { key: 'coords', width: 28 }
   ];
+  worksheet.columns = cols;
 
-  // Optional Presentation / Report Title as Line 1
-  if (hasTitle) {
-    worksheet.mergeCells('A1:K1');
-    const titleRow = worksheet.getRow(1);
-    titleRow.height = 36;
-    for (let c = 1; c <= 11; c++) {
-      const cell = titleRow.getCell(c);
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF071C35' } // Deep MediaBuzz Navy
-      };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'FF234D7D' } },
-        bottom: { style: 'medium', color: { argb: 'FFFFC200' } },
-        left: { style: 'thin', color: { argb: 'FF234D7D' } },
-        right: { style: 'thin', color: { argb: 'FF234D7D' } }
-      };
-    }
-    const titleCell = titleRow.getCell(1);
-    titleCell.value = cleanTitle;
-    titleCell.font = {
-      name: 'Calibri',
-      size: 13.5,
-      bold: true,
-      color: { argb: 'FFFFC200' } // MediaBuzz Yellow
-    };
-    titleCell.alignment = {
-      vertical: 'middle',
-      horizontal: 'center'
-    };
-  }
+  // Executive Media Buzz Brand Header Banner with Logo on Top Right
+  attachMediaBuzzExcelHeader(workbook, worksheet, {
+    title: cleanTitle,
+    columns: cols,
+    totalColumns: 11
+  });
 
-  // Populate Header Row
+  // Populate Header Row (Row 2)
   const headers = ['SR NO', 'AREA', 'LOCATION', 'MEDIA', 'LIGHT', 'W', 'H', 'SQ FT', 'AVAILABLITY', 'Selling Amount', 'Latitude Longitude'];
   const headerRow = worksheet.getRow(headerRowNum);
   headerRow.height = 28;
@@ -1245,12 +1220,17 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', ti
     }
   });
 
-  // Enable Auto-Filter
+  // Enable Auto-Filter on Row 2
   if (rowsData.length > 0) {
-    const filterStart = hasTitle ? 'A2' : 'A1';
-    const filterEnd = `K${rowsData.length + (hasTitle ? 2 : 1)}`;
+    const filterStart = 'A2';
+    const filterEnd = `K${rowsData.length + 2}`;
     worksheet.autoFilter = `${filterStart}:${filterEnd}`;
   }
+
+  // Official 5-Point Terms & Conditions at Bottom Center
+  attachMediaBuzzTermsAndConditions(worksheet, {
+    totalColumns: 11
+  });
 
   let finalFileName = String(filename || 'MediaBuzz_Sites.xlsx').trim();
   if (!finalFileName.toLowerCase().endsWith('.xlsx')) finalFileName += '.xlsx';
@@ -4262,9 +4242,7 @@ function ProposalsView() {
   const [validityDays, setValidityDays] = useState(7);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [taxPercent, setTaxPercent] = useState(18);
-  const [terms, setTerms] = useState(
-    'Rates are exclusive of production/printing and mounting costs unless stated. 50% advance on confirmation, balance before mounting. Site availability is subject to final confirmation in writing.'
-  );
+  const [terms, setTerms] = useState(MEDIA_BUZZ_TERMS_TEXT);
   const [selectedSites, setSelectedSites] = useState({});
   const [search, setSearch] = useState('');
   const [siteSort, setSiteSort] = useState({ key: 'site_code', dir: 'asc' });
@@ -5925,29 +5903,62 @@ function OccupancyView() {
   async function exportOccupancyExcel() {
     try {
       const workbook = new ExcelJS.Workbook();
-      const ws = workbook.addWorksheet(viewTab === 'overview' ? '365-Day Overview' : 'Monthly Occupancy');
+      const ws = workbook.addWorksheet(viewTab === 'overview' ? '365-Day Overview' : 'Monthly Occupancy', {
+        views: [{ state: 'frozen', ySplit: 2 }]
+      });
       
       const periods = viewTab === '12months' ? periods12M : periods6M;
       
-      const columns = [
-        { header: 'Site Code', key: 'site_code', width: 14 },
-        { header: 'Location / Area', key: 'area', width: 28 },
-        { header: 'City', key: 'city', width: 16 },
-        { header: 'Current Status', key: 'status', width: 14 }
+      const cols = [
+        { key: 'site_code', width: 14 },
+        { key: 'area', width: 28 },
+        { key: 'city', width: 16 },
+        { key: 'status', width: 14 }
       ];
+      const headers = ['Site Code', 'Location / Area', 'City', 'Current Status'];
 
       if (viewTab === 'overview') {
-        columns.push({ header: 'Occupied Days (365d)', key: 'days', width: 20 });
-        columns.push({ header: 'Occupancy Rate %', key: 'pct', width: 18 });
+        cols.push({ key: 'days', width: 20 });
+        cols.push({ key: 'pct', width: 18 });
+        headers.push('Occupied Days (365d)', 'Occupancy Rate %');
       } else {
         periods.forEach(p => {
-          columns.push({ header: `${p.label} (Occ %)`, key: `pct_${p.key}`, width: 16 });
-          columns.push({ header: `${p.label} (Booked Client)`, key: `client_${p.key}`, width: 24 });
+          cols.push({ key: `pct_${p.key}`, width: 16 });
+          cols.push({ key: `client_${p.key}`, width: 24 });
+          headers.push(`${p.label} (Occ %)`, `${p.label} (Booked Client)`);
         });
-        columns.push({ header: 'Average %', key: 'avg', width: 14 });
+        cols.push({ key: 'avg', width: 14 });
+        headers.push('Average %');
       }
 
-      ws.columns = columns;
+      ws.columns = cols;
+
+      // Executive Media Buzz Brand Header Banner with Logo on Top Right
+      const titleText = viewTab === 'overview'
+        ? 'MEDIA BUZZ — 365-DAY SITE OCCUPANCY OVERVIEW'
+        : (viewTab === '12months' ? 'MEDIA BUZZ — 12-MONTH SITE OCCUPANCY MATRIX' : 'MEDIA BUZZ — 6-MONTH SITE OCCUPANCY MATRIX');
+      attachMediaBuzzExcelHeader(workbook, ws, {
+        title: titleText,
+        columns: cols,
+        totalColumns: cols.length
+      });
+
+      // Populate Header Row (Row 2)
+      const headerRow = ws.getRow(2);
+      headerRow.height = 28;
+      headers.forEach((h, i) => {
+        const cell = headerRow.getCell(i + 1);
+        cell.value = h;
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF334155' } },
+          left: { style: 'thin', color: { argb: 'FF334155' } },
+          bottom: { style: 'medium', color: { argb: 'FFFFC200' } },
+          right: { style: 'thin', color: { argb: 'FF334155' } }
+        };
+      });
 
       filteredSites.forEach(s => {
         const rowData = {
@@ -5977,12 +5988,26 @@ function OccupancyView() {
         ws.addRow(rowData);
       });
 
-      // Style header
-      const headerRow = ws.getRow(1);
-      headerRow.height = 26;
-      headerRow.eachCell(cell => {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
-        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      // Style Data Rows (Row 3+)
+      ws.eachRow((row, rowNumber) => {
+        if (rowNumber >= 3) {
+          row.height = 22;
+          row.eachCell((cell, colNumber) => {
+            cell.font = { name: 'Calibri', size: 10.5 };
+            cell.alignment = { vertical: 'middle', horizontal: [1, 3, 4].includes(colNumber) ? 'center' : 'left' };
+            cell.border = {
+              top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+              right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+            };
+          });
+        }
+      });
+
+      // Official 5-Point Terms & Conditions at Bottom Center
+      attachMediaBuzzTermsAndConditions(ws, {
+        totalColumns: cols.length
       });
 
       const buf = await workbook.xlsx.writeBuffer();
@@ -7014,32 +7039,53 @@ function getCampaignPeriod(r, view) {
 async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tracker.xlsx') {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Campaign Tracker', {
-    views: [{ state: 'frozen', ySplit: 1 }]
+    views: [{ state: 'frozen', ySplit: 2 }]
   });
 
-  worksheet.columns = [
-    { header: 'Site Code', key: 'site_code', width: 14 },
-    { header: 'Month', key: 'month', width: 14 },
-    { header: 'Occupancy', key: 'occupancy', width: 16 },
-    { header: 'Date', key: 'date', width: 14 },
-    { header: 'Client/Agency Name', key: 'client', width: 28 },
-    { header: 'Display', key: 'display', width: 24 },
-    { header: 'Vendor Name', key: 'vendor_name', width: 22 },
-    { header: 'Location', key: 'location', width: 36 },
-    { header: 'W', key: 'width', width: 10 },
-    { header: 'H', key: 'height', width: 10 },
-    { header: 'Size', key: 'size', width: 14 },
-    { header: 'Type', key: 'type', width: 16 },
-    { header: 'Start Date', key: 'start_date', width: 14 },
-    { header: 'End Date', key: 'end_date', width: 14 },
-    { header: 'Days', key: 'days', width: 10 },
-    { header: 'Advt. Fees per month', key: 'advt_fees', width: 20 },
-    { header: 'Printing & Mounting', key: 'printing_mounting_cost', width: 22 },
-    { header: 'Total Amount', key: 'total_amount', width: 20 },
-    { header: 'PO', key: 'po', width: 16 },
-    { header: 'Bill', key: 'bill', width: 18 },
-    { header: 'Pending', key: 'pending', width: 18 }
+  const cols = [
+    { key: 'site_code', width: 14 },
+    { key: 'month', width: 14 },
+    { key: 'occupancy', width: 16 },
+    { key: 'date', width: 14 },
+    { key: 'client', width: 28 },
+    { key: 'display', width: 24 },
+    { key: 'vendor_name', width: 22 },
+    { key: 'location', width: 36 },
+    { key: 'width', width: 10 },
+    { key: 'height', width: 10 },
+    { key: 'size', width: 14 },
+    { key: 'type', width: 16 },
+    { key: 'start_date', width: 14 },
+    { key: 'end_date', width: 14 },
+    { key: 'days', width: 10 },
+    { key: 'advt_fees', width: 20 },
+    { key: 'printing_mounting_cost', width: 22 },
+    { key: 'total_amount', width: 20 },
+    { key: 'po', width: 16 },
+    { key: 'bill', width: 18 },
+    { key: 'pending', width: 18 }
   ];
+  worksheet.columns = cols;
+
+  // Executive Media Buzz Brand Header Banner with Logo on Top Right
+  attachMediaBuzzExcelHeader(workbook, worksheet, {
+    title: 'MEDIA BUZZ — MASTER CAMPAIGN TRACKER',
+    columns: cols,
+    totalColumns: 21
+  });
+
+  // Populate Header Row (Row 2)
+  const headers = [
+    'Site Code', 'Month', 'Occupancy', 'Date', 'Client/Agency Name',
+    'Display', 'Vendor Name', 'Location', 'W', 'H',
+    'Size', 'Type', 'Start Date', 'End Date', 'Days',
+    'Advt. Fees per month', 'Printing & Mounting', 'Total Amount', 'PO', 'Bill', 'Pending'
+  ];
+  const headerRow = worksheet.getRow(2);
+  headerRow.height = 28;
+  headers.forEach((h, i) => {
+    headerRow.getCell(i + 1).value = h;
+  });
 
   rowsData.forEach((r) => {
     worksheet.addRow({
@@ -7067,8 +7113,7 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
     });
   });
 
-  const headerRow = worksheet.getRow(1);
-  headerRow.height = 28;
+  // Style Header Row in Bright Yellow (#FFFF00)
   headerRow.eachCell((cell, colNumber) => {
     cell.fill = {
       type: 'pattern',
@@ -7092,6 +7137,39 @@ async function exportCampaignsExcel(rowsData, filename = 'MediaBuzz_Campaign_Tra
       bottom: { style: 'thin', color: { argb: 'FF000000' } },
       right: { style: 'thin', color: { argb: 'FFC0C0C0' } }
     };
+  });
+
+  // Style Data Rows (Row 3+)
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber >= 3) {
+      row.height = 22;
+      row.eachCell((cell, colNumber) => {
+        cell.font = { name: 'Calibri', size: 10.5 };
+        cell.alignment = {
+          vertical: 'middle',
+          horizontal: [1, 8, 9, 10, 11, 12, 13, 14].includes(colNumber) ? 'center' : ([15, 16, 17, 20].includes(colNumber) ? 'right' : 'left')
+        };
+        if ([16, 17, 18, 21].includes(colNumber) && typeof cell.value === 'number') {
+          cell.numFmt = '#,##,##0';
+        }
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+          left: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+          bottom: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+          right: { style: 'thin', color: { argb: 'FFE8E8E8' } }
+        };
+      });
+    }
+  });
+
+  // Enable Auto-Filter on Row 2
+  if (rowsData.length > 0) {
+    worksheet.autoFilter = `A2:U${rowsData.length + 2}`;
+  }
+
+  // Official 5-Point Terms & Conditions at Bottom Center
+  attachMediaBuzzTermsAndConditions(worksheet, {
+    totalColumns: 21
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -9096,28 +9174,49 @@ function CampaignTrackerView() {
 async function exportElectricityExcel(rowsData, filename = 'MediaBuzz_Electricity_Bills.xlsx') {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Electricity Bills', {
-    views: [{ state: 'frozen', ySplit: 1 }]
+    views: [{ state: 'frozen', ySplit: 2 }]
   });
 
-  worksheet.columns = [
-    { header: 'SR NO', key: 'sr', width: 8 },
-    { header: 'SITE CODE', key: 'site_code', width: 16 },
-    { header: 'LOCATION', key: 'location', width: 40 },
-    { header: 'SIZE', key: 'size', width: 14 },
-    { header: 'METER NO', key: 'meter_no', width: 20 },
-    { header: 'SERVICE NUMBER', key: 'service_number', width: 18 },
-    { header: 'T NUMBER', key: 't_number', width: 14 },
-    { header: 'BILL / PROVIDER', key: 'bill_type', width: 18 },
-    { header: 'BILLING MONTH', key: 'billing_month', width: 16 },
-    { header: 'DUE DATE', key: 'due_date', width: 16 },
-    { header: 'UNITS', key: 'units', width: 12 },
-    { header: 'RATE', key: 'rate', width: 12 },
-    { header: 'PAYMENT AMOUNT (₹)', key: 'amount', width: 20 },
-    { header: 'STATUS', key: 'status', width: 14 },
-    { header: 'PAID DATE', key: 'paid_date', width: 16 },
-    { header: 'PAYMENT REF', key: 'payment_reference', width: 22 },
-    { header: 'NOTES', key: 'notes', width: 28 }
+  const cols = [
+    { key: 'sr', width: 8 },
+    { key: 'site_code', width: 16 },
+    { key: 'location', width: 40 },
+    { key: 'size', width: 14 },
+    { key: 'meter_no', width: 20 },
+    { key: 'service_number', width: 18 },
+    { key: 't_number', width: 14 },
+    { key: 'bill_type', width: 18 },
+    { key: 'billing_month', width: 16 },
+    { key: 'due_date', width: 16 },
+    { key: 'units', width: 12 },
+    { key: 'rate', width: 12 },
+    { key: 'amount', width: 20 },
+    { key: 'status', width: 14 },
+    { key: 'paid_date', width: 16 },
+    { key: 'payment_reference', width: 22 },
+    { key: 'notes', width: 28 }
   ];
+  worksheet.columns = cols;
+
+  // Executive Media Buzz Brand Header Banner with Logo on Top Right
+  attachMediaBuzzExcelHeader(workbook, worksheet, {
+    title: 'MEDIA BUZZ — CONSOLIDATED ELECTRICITY BILLS',
+    columns: cols,
+    totalColumns: 17
+  });
+
+  // Populate Header Row (Row 2)
+  const headers = [
+    'SR NO', 'SITE CODE', 'LOCATION', 'SIZE', 'METER NO',
+    'SERVICE NUMBER', 'T NUMBER', 'BILL / PROVIDER', 'BILLING MONTH', 'DUE DATE',
+    'UNITS', 'RATE', 'PAYMENT AMOUNT (₹)', 'STATUS', 'PAID DATE',
+    'PAYMENT REF', 'NOTES'
+  ];
+  const headerRow = worksheet.getRow(2);
+  headerRow.height = 28;
+  headers.forEach((h, i) => {
+    headerRow.getCell(i + 1).value = h;
+  });
 
   rowsData.forEach((r, idx) => {
     worksheet.addRow({
@@ -9141,9 +9240,7 @@ async function exportElectricityExcel(rowsData, filename = 'MediaBuzz_Electricit
     });
   });
 
-  // Style Header Row (Row 1) in Bright Yellow (#FFFF00)
-  const headerRow = worksheet.getRow(1);
-  headerRow.height = 28;
+  // Style Header Row in Bright Yellow (#FFFF00)
   headerRow.eachCell((cell, colNumber) => {
     cell.fill = {
       type: 'pattern',
@@ -9168,6 +9265,34 @@ async function exportElectricityExcel(rowsData, filename = 'MediaBuzz_Electricit
       right: { style: 'thin', color: { argb: 'FFC0C0C0' } }
     };
   });
+
+  // Style Data Rows (Row 3+)
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber >= 3) {
+      row.height = 22;
+      row.eachCell((cell, colNumber) => {
+        cell.font = { name: 'Calibri', size: 10.5 };
+        cell.alignment = {
+          vertical: 'middle',
+          horizontal: [1, 4, 8, 9, 10, 11, 12, 14, 15].includes(colNumber) ? 'center' : (colNumber === 13 ? 'right' : 'left')
+        };
+        if (colNumber === 13 && typeof cell.value === 'number') {
+          cell.numFmt = '#,##,##0';
+        }
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+          left: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+          bottom: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+          right: { style: 'thin', color: { argb: 'FFE8E8E8' } }
+        };
+      });
+    }
+  });
+
+  // Enable Auto-Filter on Row 2
+  if (rowsData.length > 0) {
+    worksheet.autoFilter = `A2:Q${rowsData.length + 2}`;
+  }
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
