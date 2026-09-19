@@ -2125,18 +2125,32 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
           'booking date', 'booking_date', 'order date', 'ro date', 'po date', 'agreement date', 'date', 'dt'
         ]));
 
-        const client = String(getVal([
+        let client = String(getVal([
+          'client / display', 'client/display', 'client_display',
           'client/agency name', 'client / agency name', 'client / agency', 'client/agency',
           'client name', 'client_name', 'client', 'agency name', 'agency_name', 'agency',
           'advertiser name', 'advertiser', 'customer name', 'customer',
           'party name', 'party', 'account name', 'account', 'bill to'
         ])).trim();
 
-        const display = String(getVal([
+        let display = String(getVal([
+          'display / brand', 'display/brand',
           'display', 'campaign name', 'campaign_name', 'campaign', 'brand name', 'brand_name',
           'brand', 'product name', 'product', 'creative name', 'creative', 'ad name', 'ad title',
           'ad content', 'caption', 'matter', 'description'
         ])).trim();
+
+        if (!display && client) {
+          const parenMatch = client.match(/^([^(]+)\s*\(([^)]+)\)$/);
+          if (parenMatch) {
+            client = parenMatch[1].trim();
+            display = parenMatch[2].trim();
+          } else if (client.includes(' / ')) {
+            const parts = client.split(' / ');
+            client = parts[0].trim();
+            display = parts.slice(1).join(' / ').trim();
+          }
+        }
 
         const vendorName = String(getVal([
           'vendor name', 'vendor_name', 'vendor', 'supplier name', 'supplier', 'media owner', 'owner', 'landlord'

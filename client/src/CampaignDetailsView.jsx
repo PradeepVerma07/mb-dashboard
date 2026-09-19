@@ -46,17 +46,13 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
   const cols = [
     { key: 'sr_no', width: 8 },
     { key: 'site_code', width: 14 },
-    { key: 'client', width: 32 },
-    { key: 'display', width: 28 },
+    { key: 'client_display', width: 36 },
     { key: 'location', width: 38 },
     { key: 'size', width: 14 },
     { key: 'type', width: 16 },
-    { key: 'start_date', width: 14 },
-    { key: 'end_date', width: 14 },
+    { key: 'start_date', width: 15 },
+    { key: 'end_date', width: 15 },
     { key: 'days', width: 10 },
-    { key: 'advt_fees', width: 20 },
-    { key: 'printing_mounting_cost', width: 22 },
-    { key: 'total_amount', width: 20 },
     { key: 'status', width: 14 }
   ];
   worksheet.columns = cols;
@@ -78,9 +74,8 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
 
   // Header Row (Row 2)
   const headers = [
-    '#', 'Site Code', 'Client/Agency Name', 'Display / Campaign',
-    'Location', 'Size', 'Type', 'Start Date', 'End Date', 'Days',
-    'Advt. Fees per month', 'Printing & Mounting', 'Total Amount', 'Pending', 'Status'
+    '#', 'Site Code', 'Client / Display',
+    'Location', 'Size', 'Type', 'Start Date', 'End Date', 'Days', 'Status'
   ];
   const headerRow = worksheet.getRow(2);
   headerRow.height = 28;
@@ -91,7 +86,7 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
     cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
     cell.alignment = {
       vertical: 'middle',
-      horizontal: [1, 2, 6, 7, 8, 9, 10, 15].includes(i + 1) ? 'center' : ([11, 12, 13, 14].includes(i + 1) ? 'right' : 'left'),
+      horizontal: [1, 2, 5, 6, 7, 8, 9, 10].includes(i + 1) ? 'center' : 'left',
       wrapText: false
     };
     cell.border = {
@@ -104,21 +99,20 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
 
   // Populate data rows
   rowsData.forEach((r, idx) => {
+    const clientName = r.client || r.client_name || '';
+    const disp = r.display || r.campaign_name || r.brand || '';
+    const combinedClientDisplay = clientName && disp && clientName !== disp ? `${clientName} (${disp})` : (clientName || disp || '—');
+
     const row = worksheet.addRow({
       sr_no: idx + 1,
       site_code: r.site_code || '—',
-      client: r.client || r.client_name || '—',
-      display: r.display || r.campaign_name || r.brand || '—',
+      client_display: combinedClientDisplay,
       location: r.location || '—',
       size: r.size || (r.width && r.height ? `${r.width}x${r.height} ft` : '—'),
       type: r.type || 'Hoarding',
       start_date: r.start_date || '—',
       end_date: r.end_date || '—',
       days: r.tenureDays || r.days || (r.start_date && r.end_date ? Math.max(1, Math.round((new Date(r.end_date) - new Date(r.start_date)) / 86400000) + 1) : '—'),
-      advt_fees: Number(r.advt_fees || 0) > 0 ? Number(r.advt_fees) : '',
-      printing_mounting_cost: Number(r.printing_mounting_cost || r.printing_cost || 0) > 0 ? Number(r.printing_mounting_cost || r.printing_cost) : '',
-      total_amount: Number(r.total_amount || r.revenue || 0) > 0 ? Number(r.total_amount || r.revenue) : '',
-      pending: Number(r.pending || 0) > 0 ? Number(r.pending) : (Number(r.total_amount || 0) > 0 ? 0 : ''),
       status: r.computedStatus ? r.computedStatus.toUpperCase() : 'LIVE'
     });
     row.height = 22;
@@ -128,11 +122,8 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
       cell.font = { name: 'Calibri', size: 10.5 };
       cell.alignment = {
         vertical: 'middle',
-        horizontal: [1, 2, 6, 7, 8, 9, 10, 15].includes(colNumber) ? 'center' : ([11, 12, 13, 14].includes(colNumber) ? 'right' : 'left')
+        horizontal: [1, 2, 5, 6, 7, 8, 9, 10].includes(colNumber) ? 'center' : 'left'
       };
-      if ([11, 12, 13, 14].includes(colNumber) && typeof cell.value === 'number') {
-        cell.numFmt = '#,##,##0';
-      }
       cell.border = {
         top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
         left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
@@ -180,32 +171,24 @@ export async function downloadSampleCampaignExcel() {
   const cols = [
     { key: 'site_code', width: 14 },
     { key: 'location', width: 34 },
-    { key: 'client', width: 28 },
-    { key: 'display', width: 28 },
+    { key: 'client_display', width: 34 },
     { key: 'start_date', width: 16 },
-    { key: 'end_date', width: 16 },
-    { key: 'advt_fees', width: 16 },
-    { key: 'total_amount', width: 16 },
-    { key: 'notes', width: 30 }
+    { key: 'end_date', width: 16 }
   ];
   worksheet.columns = cols;
 
   attachMediaBuzzExcelHeader(workbook, worksheet, {
     title: 'MEDIA BUZZ — CAMPAIGN DETAILS IMPORT TEMPLATE',
     columns: cols,
-    totalColumns: 9
+    totalColumns: 5
   });
 
   const headers = [
     'SITE CODE',
     'LOCATION',
-    'CLIENT',
-    'DISPLAY / BRAND',
+    'CLIENT / DISPLAY',
     'START DATE (YYYY-MM-DD)',
-    'END DATE (YYYY-MM-DD)',
-    'ADVT. FEES',
-    'TOTAL AMOUNT',
-    'NOTES'
+    'END DATE (YYYY-MM-DD)'
   ];
 
   const headerRow = worksheet.getRow(2);
@@ -237,24 +220,16 @@ export async function downloadSampleCampaignExcel() {
     {
       site_code: 'MB-01',
       location: 'Shivranjani Cross Roads, Ahmedabad',
-      client: 'Tata Motors',
-      display: 'Tata Punch EV Launch',
+      client_display: 'Tata Motors (Tata Punch EV Launch)',
       start_date: '2026-03-01',
-      end_date: '2026-03-31',
-      advt_fees: 125000,
-      total_amount: 150000,
-            notes: 'Prime display at junction'
+      end_date: '2026-03-31'
     },
     {
       site_code: 'MB-02',
       location: 'Iskcon Cross Roads, SG Highway',
-      client: 'HDFC Bank',
-      display: 'Festive Home Loan Campaign',
+      client_display: 'HDFC Bank (Festive Home Loan Campaign)',
       start_date: '2026-04-01',
-      end_date: '2026-04-30',
-      advt_fees: 95000,
-      total_amount: 110000,
-            notes: 'Backlit high visibility'
+      end_date: '2026-04-30'
     }
   ];
 
@@ -265,11 +240,8 @@ export async function downloadSampleCampaignExcel() {
       cell.font = { name: 'Calibri', size: 10.5 };
       cell.alignment = {
         vertical: 'middle',
-        horizontal: [1, 5, 6].includes(colNum) ? 'center' : [7, 8, 9].includes(colNum) ? 'right' : 'left'
+        horizontal: [1, 4, 5].includes(colNum) ? 'center' : 'left'
       };
-      if ([7, 8, 9].includes(colNum) && typeof cell.value === 'number') {
-        cell.numFmt = '#,##,##0';
-      }
       cell.border = {
         top: { style: 'thin', color: { argb: 'FFE8E8E8' } },
         left: { style: 'thin', color: { argb: 'FFE8E8E8' } },
@@ -279,7 +251,7 @@ export async function downloadSampleCampaignExcel() {
     });
   });
 
-  attachMediaBuzzTermsAndConditions(worksheet, { totalColumns: 9 });
+  attachMediaBuzzTermsAndConditions(worksheet, { totalColumns: 5 });
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -941,18 +913,15 @@ export default function CampaignDetailsView() {
         </div>
 
         <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
-          <table className="scooh-table" style={{ minWidth: '1350px' }}>
+          <table className="scooh-table" style={{ minWidth: '1050px' }}>
             <thead>
               <tr>
                 <th style={{ width: '45px', textAlign: 'center' }}>#</th>
                 <th style={{ minWidth: '105px', cursor: 'pointer' }} onClick={() => handleSort('site_code')}>
                   Site Code {sortState.key === 'site_code' && (sortState.dir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th style={{ minWidth: '200px', cursor: 'pointer' }} onClick={() => handleSort('client')}>
-                  Client / Agency Name {sortState.key === 'client' && (sortState.dir === 'asc' ? '↑' : '↓')}
-                </th>
-                <th style={{ minWidth: '180px', cursor: 'pointer' }} onClick={() => handleSort('display')}>
-                  Display / Campaign {sortState.key === 'display' && (sortState.dir === 'asc' ? '↑' : '↓')}
+                <th style={{ minWidth: '220px', cursor: 'pointer' }} onClick={() => handleSort('client')}>
+                  Client / Display {sortState.key === 'client' && (sortState.dir === 'asc' ? '↑' : '↓')}
                 </th>
                 <th style={{ minWidth: '220px' }}>Location</th>
                 <th style={{ minWidth: '120px', textAlign: 'center' }}>Size & Type</th>
@@ -965,12 +934,6 @@ export default function CampaignDetailsView() {
                 <th style={{ minWidth: '75px', textAlign: 'center', cursor: 'pointer' }} onClick={() => handleSort('days')}>
                   Days {sortState.key === 'days' && (sortState.dir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th style={{ minWidth: '130px', textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('advt_fees')}>
-                  Advt. Fees {sortState.key === 'advt_fees' && (sortState.dir === 'asc' ? '↑' : '↓')}
-                </th>
-                <th style={{ minWidth: '130px', textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('total_amount')}>
-                  Total Amount {sortState.key === 'total_amount' && (sortState.dir === 'asc' ? '↑' : '↓')}
-                </th>
                 
                 <th style={{ minWidth: '110px', textAlign: 'center' }}>Status</th>
                 <th style={{ minWidth: '110px', textAlign: 'center' }}>Actions</th>
@@ -979,13 +942,13 @@ export default function CampaignDetailsView() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={13} style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
                     <div style={{ fontSize: '18px', marginBottom: '8px' }}>⏳ Loading campaign details…</div>
                   </td>
                 </tr>
               ) : sortedList.length === 0 ? (
                 <tr>
-                  <td colSpan={13} style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
                     <div style={{ fontSize: '40px', marginBottom: '10px' }}>🔍</div>
                     <div style={{ fontSize: '16px', fontWeight: 700, color: '#cbd5e1' }}>
                       No campaigns found for the selected filter
@@ -1035,19 +998,21 @@ export default function CampaignDetailsView() {
                         </button>
                       </td>
                       <td>
-                        <div style={{ fontWeight: 800, color: '#f8fafc', fontSize: '13px' }}>
+                        <div style={{ fontWeight: 800, color: '#f8fafc', fontSize: '13.5px' }}>
                           {c.client || c.client_name || '—'}
                         </div>
+                        {(c.display || c.campaign_name || c.brand) && (
+                          <div style={{ marginTop: '3px' }}>
+                            <span style={{ display: 'inline-block', padding: '2px 7px', background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.35)', color: '#c084fc', borderRadius: '4px', fontSize: '11.5px', fontWeight: 700 }}>
+                              📢 {c.display || c.campaign_name || c.brand}
+                            </span>
+                          </div>
+                        )}
                         {c.vendor_name && (
-                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                          <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
                             Vendor: {c.vendor_name}
                           </div>
                         )}
-                      </td>
-                      <td>
-                        <span style={{ display: 'inline-block', padding: '3px 8px', background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.35)', color: '#c084fc', borderRadius: '5px', fontSize: '12px', fontWeight: 700 }}>
-                          📢 {c.display || c.campaign_name || c.brand || 'Campaign'}
-                        </span>
                       </td>
                       <td style={{ fontSize: '12px', color: '#cbd5e1', maxWidth: '240px' }}>
                         <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={c.location}>
@@ -1069,12 +1034,6 @@ export default function CampaignDetailsView() {
                         <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#cbd5e1', background: '#1e293b', padding: '2px 7px', borderRadius: '4px' }}>
                           {c.tenureDays ? `${c.tenureDays}d` : '—'}
                         </span>
-                      </td>
-                      <td style={{ textAlign: 'right', fontSize: '12.5px', color: '#94a3b8', fontWeight: 600 }}>
-                        {Number(c.advt_fees || 0) > 0 ? money(Number(c.advt_fees)) : '—'}
-                      </td>
-                      <td style={{ textAlign: 'right', fontSize: '13px', color: '#34d399', fontWeight: 800 }}>
-                        {Number(c.total_amount || c.revenue || 0) > 0 ? money(Number(c.total_amount || c.revenue)) : '—'}
                       </td>
                       
                       <td style={{ textAlign: 'center' }}>
