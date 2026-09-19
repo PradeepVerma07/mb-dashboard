@@ -2944,6 +2944,60 @@ function PptView() {
     }
   }
 
+  async function removeAllImagesForSite(site) {
+    if (!confirm(`Are you sure you want to remove all photos for site ${site.site_code}?`)) return;
+    try {
+      if (site.id) {
+        await api.delete(`/sites/${site.id}/images`);
+      }
+      setSites(prev => prev.map(s => (s.id === site.id || s.site_code === site.site_code) ? { ...s, ppt_images: [] } : s));
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+    } catch (e) {
+      alert('Failed to remove photos: ' + (e.response?.data?.message || e.message));
+    }
+  }
+
+  async function removeAllPhotosTogether() {
+    const checkedSiteKeys = Object.entries(sel)
+      .filter(([k, v]) => v?.checked)
+      .map(([k]) => k);
+
+    const checkedSitesWithPhotos = sites.filter(s =>
+      (checkedSiteKeys.includes(String(s.id)) || checkedSiteKeys.includes(String(s.site_code))) &&
+      Array.isArray(s.ppt_images) && s.ppt_images.length > 0
+    );
+
+    let confirmMsg = '';
+    let targetIds = [];
+
+    if (checkedSitesWithPhotos.length > 0) {
+      confirmMsg = `Are you sure you want to remove all photos from the ${checkedSitesWithPhotos.length} selected site(s)?`;
+      targetIds = checkedSitesWithPhotos.map(s => s.id).filter(Boolean);
+    } else {
+      const totalWithPhotos = sites.filter(s => Array.isArray(s.ppt_images) && s.ppt_images.length > 0).length;
+      if (totalWithPhotos === 0) {
+        alert('There are currently no uploaded photos across any sites in Automated PPT.');
+        return;
+      }
+      confirmMsg = `Are you sure you want to remove ALL uploaded photos across ALL ${totalWithPhotos} site(s) in Automated PPT?\n\nThis will clear all site photos together so you can start fresh.`;
+    }
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      await api.post('/sites/clear-all-images', { site_ids: targetIds.length > 0 ? targetIds : undefined });
+      if (targetIds.length > 0) {
+        setSites(prev => prev.map(s => targetIds.includes(s.id) ? { ...s, ppt_images: [] } : s));
+      } else {
+        setSites(prev => prev.map(s => ({ ...s, ppt_images: [] })));
+      }
+      alert('✓ All photos have been removed successfully!');
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+    } catch (err) {
+      alert('Failed to remove all photos: ' + (err.response?.data?.message || err.message));
+    }
+  }
+
   const [folderImportStatus, setFolderImportStatus] = useState(null);
   const [replaceExistingFolderPhotos, setReplaceExistingFolderPhotos] = useState(true);
 
@@ -3633,6 +3687,29 @@ function PptView() {
             >
               Deselect all
             </button>
+            <button
+              type="button"
+              className="scooh-btn danger"
+              onClick={removeAllPhotosTogether}
+              style={{
+                minHeight: '44px',
+                padding: '0 14px',
+                fontSize: '12.5px',
+                whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: '#f87171',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                cursor: 'pointer',
+                borderRadius: '8px',
+                fontWeight: 700
+              }}
+              title="Remove all uploaded site photos together across all sites (or selected sites)"
+            >
+              <span>🗑️ Remove All Photos</span>
+            </button>
             <select
               value={`${sortState.key}:${sortState.dir}`}
               onChange={e => {
@@ -3758,6 +3835,20 @@ function PptView() {
                         }}
                       />
                     </label>
+                    {imgs.length > 0 && (
+                      <button
+                        type="button"
+                        className="scooh-btn danger"
+                        style={{ fontSize: '11px', padding: '4px 8px', minHeight: '30px' }}
+                        onClick={e => {
+                          e.stopPropagation();
+                          removeAllImagesForSite(s);
+                        }}
+                        title={`Remove all ${imgs.length} photo(s) for ${s.site_code}`}
+                      >
+                        🗑️ Clear
+                      </button>
+                    )}
                   </div>
                 </div>
 

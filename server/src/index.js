@@ -464,6 +464,55 @@ app.delete('/api/sites/:id/images/:index', auth, async (req, res) => {
   }
 });
 
+// Delete all images for a specific site
+app.delete('/api/sites/:id/images', auth, async (req, res) => {
+  try {
+    const site = (await q('SELECT * FROM sites WHERE id=?', [req.params.id]))[0];
+    if (!site) return res.status(404).json({ message: 'Site not found' });
+    let flags = {};
+    try { flags = JSON.parse(site.flags || '{}') || {}; } catch {};
+    if (Array.isArray(flags)) flags = { tags: flags };
+    flags.ppt_images = [];
+    await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), req.params.id]);
+    res.json({ site_id: site.id, site_code: site.site_code, images: [] });
+  } catch (err) {
+    res.status(500).json({ message: 'Delete all images error: ' + err.message });
+  }
+});
+
+// Clear all photos together across all or selected sites
+app.post('/api/sites/clear-all-images', auth, async (req, res) => {
+  try {
+    const { site_ids } = req.body || {};
+    if (Array.isArray(site_ids) && site_ids.length > 0) {
+      for (const id of site_ids) {
+        const site = (await q('SELECT id, flags FROM sites WHERE id=?', [id]))[0];
+        if (site) {
+          let flags = {};
+          try { flags = JSON.parse(site.flags || '{}') || {}; } catch {};
+          if (Array.isArray(flags)) flags = { tags: flags };
+          flags.ppt_images = [];
+          await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), id]);
+        }
+      }
+    } else {
+      const allSites = await q('SELECT id, flags FROM sites WHERE record_status="active"');
+      for (const site of allSites) {
+        let flags = {};
+        try { flags = JSON.parse(site.flags || '{}') || {}; } catch {};
+        if (Array.isArray(flags)) flags = { tags: flags };
+        if (flags.ppt_images && flags.ppt_images.length > 0) {
+          flags.ppt_images = [];
+          await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), site.id]);
+        }
+      }
+    }
+    res.json({ success: true, message: 'All photos removed successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Clear all images error: ' + err.message });
+  }
+});
+
 // Auto-match Site Code by Location and Size
 app.post('/api/sites/match', auth, async (req, res) => {
   try {

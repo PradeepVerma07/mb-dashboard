@@ -57,7 +57,6 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
     { key: 'advt_fees', width: 20 },
     { key: 'printing_mounting_cost', width: 22 },
     { key: 'total_amount', width: 20 },
-    { key: 'pending', width: 18 },
     { key: 'status', width: 14 }
   ];
   worksheet.columns = cols;
@@ -187,7 +186,6 @@ export async function downloadSampleCampaignExcel() {
     { key: 'end_date', width: 16 },
     { key: 'advt_fees', width: 16 },
     { key: 'total_amount', width: 16 },
-    { key: 'pending', width: 16 },
     { key: 'notes', width: 30 }
   ];
   worksheet.columns = cols;
@@ -195,7 +193,7 @@ export async function downloadSampleCampaignExcel() {
   attachMediaBuzzExcelHeader(workbook, worksheet, {
     title: 'MEDIA BUZZ — CAMPAIGN DETAILS IMPORT TEMPLATE',
     columns: cols,
-    totalColumns: 10
+    totalColumns: 9
   });
 
   const headers = [
@@ -207,7 +205,6 @@ export async function downloadSampleCampaignExcel() {
     'END DATE (YYYY-MM-DD)',
     'ADVT. FEES',
     'TOTAL AMOUNT',
-    'PENDING AMOUNT',
     'NOTES'
   ];
 
@@ -246,8 +243,7 @@ export async function downloadSampleCampaignExcel() {
       end_date: '2026-03-31',
       advt_fees: 125000,
       total_amount: 150000,
-      pending: 0,
-      notes: 'Prime display at junction'
+            notes: 'Prime display at junction'
     },
     {
       site_code: 'MB-02',
@@ -258,8 +254,7 @@ export async function downloadSampleCampaignExcel() {
       end_date: '2026-04-30',
       advt_fees: 95000,
       total_amount: 110000,
-      pending: 25000,
-      notes: 'Backlit high visibility'
+            notes: 'Backlit high visibility'
     }
   ];
 
@@ -284,7 +279,7 @@ export async function downloadSampleCampaignExcel() {
     });
   });
 
-  attachMediaBuzzTermsAndConditions(worksheet, { totalColumns: 10 });
+  attachMediaBuzzTermsAndConditions(worksheet, { totalColumns: 9 });
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -927,57 +922,6 @@ export default function CampaignDetailsView() {
         </div>
       </section>
 
-      {/* ── Summary KPI Cards ────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '18px' }}>
-        <div className="scooh-panel" style={{ padding: '16px 20px', borderLeft: '4px solid #7c3aed' }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Bookings Found
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 900, color: '#fff', margin: '4px 0 2px' }}>
-            {kpis.totalBookings}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
-            Across {kpis.uniqueSites} unique outdoor sites
-          </div>
-        </div>
-
-        <div className="scooh-panel" style={{ padding: '16px 20px', borderLeft: '4px solid #10b981' }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Total Campaign Value
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 900, color: '#34d399', margin: '4px 0 2px' }}>
-            {money(kpis.totalRevenue)}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
-            Gross billing amount for matched dates
-          </div>
-        </div>
-
-        <div className="scooh-panel" style={{ padding: '16px 20px', borderLeft: '4px solid #38bdf8' }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Advt. Fees Revenue
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 900, color: '#38bdf8', margin: '4px 0 2px' }}>
-            {money(kpis.totalAdvtFees)}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
-            Rental fee across {kpis.totalDays} booking days
-          </div>
-        </div>
-
-        <div className="scooh-panel" style={{ padding: '16px 20px', borderLeft: `4px solid ${kpis.totalPending > 0 ? '#f59e0b' : '#10b981'}` }}>
-          <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Pending Balance
-          </div>
-          <div style={{ fontSize: '28px', fontWeight: 900, color: kpis.totalPending > 0 ? '#fbbf24' : '#34d399', margin: '4px 0 2px' }}>
-            {kpis.totalPending > 0 ? money(kpis.totalPending) : '₹0 (Clear)'}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
-            {kpis.totalPending > 0 ? 'Outstanding client dues' : 'All accounts settled'}
-          </div>
-        </div>
-      </div>
-
       {/* ── Matching Bookings Table ──────────────────────────────────────── */}
       <div className="scooh-panel" style={{ overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
@@ -1027,9 +971,7 @@ export default function CampaignDetailsView() {
                 <th style={{ minWidth: '130px', textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('total_amount')}>
                   Total Amount {sortState.key === 'total_amount' && (sortState.dir === 'asc' ? '↑' : '↓')}
                 </th>
-                <th style={{ minWidth: '110px', textAlign: 'right', cursor: 'pointer' }} onClick={() => handleSort('pending')}>
-                  Pending {sortState.key === 'pending' && (sortState.dir === 'asc' ? '↑' : '↓')}
-                </th>
+                
                 <th style={{ minWidth: '110px', textAlign: 'center' }}>Status</th>
                 <th style={{ minWidth: '110px', textAlign: 'center' }}>Actions</th>
               </tr>
@@ -1037,13 +979,13 @@ export default function CampaignDetailsView() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={14} style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+                  <td colSpan={13} style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
                     <div style={{ fontSize: '18px', marginBottom: '8px' }}>⏳ Loading campaign details…</div>
                   </td>
                 </tr>
               ) : sortedList.length === 0 ? (
                 <tr>
-                  <td colSpan={14} style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
+                  <td colSpan={13} style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
                     <div style={{ fontSize: '40px', marginBottom: '10px' }}>🔍</div>
                     <div style={{ fontSize: '16px', fontWeight: 700, color: '#cbd5e1' }}>
                       No campaigns found for the selected filter
@@ -1134,9 +1076,7 @@ export default function CampaignDetailsView() {
                       <td style={{ textAlign: 'right', fontSize: '13px', color: '#34d399', fontWeight: 800 }}>
                         {Number(c.total_amount || c.revenue || 0) > 0 ? money(Number(c.total_amount || c.revenue)) : '—'}
                       </td>
-                      <td style={{ textAlign: 'right', fontSize: '12.5px', fontWeight: 700, color: isPending ? '#f87171' : '#94a3b8' }}>
-                        {isPending ? money(Number(c.pending)) : (Number(c.total_amount || 0) > 0 ? <span style={{ color: '#4ade80' }}>₹0</span> : '—')}
-                      </td>
+                      
                       <td style={{ textAlign: 'center' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 8px', borderRadius: '5px', background: statusBg, border: `1px solid ${statusBorder}`, color: statusColor, fontSize: '11px', fontWeight: 800 }}>
                           <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }} />
@@ -1239,12 +1179,7 @@ export default function CampaignDetailsView() {
                       {Number(selectedCampaign.total_amount || selectedCampaign.revenue || 0) > 0 ? money(Number(selectedCampaign.total_amount || selectedCampaign.revenue)) : '—'}
                     </div>
                   </div>
-                  <div>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>Pending Balance</span>
-                    <div style={{ fontSize: '16px', fontWeight: 800, color: Number(selectedCampaign.pending || 0) > 0 ? '#f87171' : '#4ade80' }}>
-                      {Number(selectedCampaign.pending || 0) > 0 ? money(Number(selectedCampaign.pending)) : '₹0 (Clear)'}
-                    </div>
-                  </div>
+
                 </div>
               </div>
 
@@ -1449,29 +1384,16 @@ export default function CampaignDetailsView() {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: 800, color: '#cbd5e1' }}>Total Gross Amount (₹)</label>
-                    <input
-                      type="number"
-                      className="scooh-input"
-                      style={{ width: '100%', marginTop: '4px' }}
-                      value={modalTotalAmount}
-                      onChange={e => setModalTotalAmount(e.target.value)}
-                      placeholder="Auto sum or enter"
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: 800, color: '#cbd5e1' }}>Pending Balance (₹)</label>
-                    <input
-                      type="number"
-                      className="scooh-input"
-                      style={{ width: '100%', marginTop: '4px' }}
-                      value={modalPending}
-                      onChange={e => setModalPending(e.target.value)}
-                      placeholder="0 if cleared"
-                    />
-                  </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 800, color: '#cbd5e1' }}>Total Gross Amount (₹)</label>
+                  <input
+                    type="number"
+                    className="scooh-input"
+                    style={{ width: '100%', marginTop: '4px' }}
+                    value={modalTotalAmount}
+                    onChange={e => setModalTotalAmount(e.target.value)}
+                    placeholder="Auto sum or enter"
+                  />
                 </div>
 
                 <div>
