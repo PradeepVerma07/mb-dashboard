@@ -1019,40 +1019,6 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
       fit: 'shrink'
     });
 
-    // 6b. Campaign & Booking Details (shown when site is booked)
-    if (isBooked || site._isBooked) {
-      const parts = [];
-      if (site._clientName) parts.push(`Client: ${site._clientName}`);
-      if (site._campaignName) parts.push(`Campaign: ${site._campaignName}`);
-      const campInfo = parts.join('  |  ');
-
-      let dateInfo = '';
-      if (site._startDate && site._endDate) {
-        dateInfo = `📅 ${site._startDate} – ${site._endDate}${site._duration ? ` (${site._duration})` : ''}`;
-      } else if (site._endDate) {
-        dateInfo = `📅 End Date: ${site._endDate}${site._duration ? ` (${site._duration})` : ''}`;
-      } else if (site._duration) {
-        dateInfo = `⏱️ Duration: ${site._duration}`;
-      }
-
-      if (campInfo && dateInfo) {
-        s.addText(`${campInfo}\n${dateInfo}`, {
-          x: 9.03, y: 6.42, w: 4.10, h: 0.36,
-          fontFace: 'Arial', fontSize: 9, bold: false, color: 'FFC870', margin: 0, align: 'left'
-        });
-      } else if (campInfo || dateInfo) {
-        s.addText(campInfo || dateInfo, {
-          x: 9.03, y: 6.48, w: 4.10, h: 0.26,
-          fontFace: 'Arial', fontSize: 10, bold: false, color: 'FFC870', margin: 0, align: 'left'
-        });
-      }
-    } else if (site._endDate && !availText.includes(site._endDate)) {
-      s.addText(`📅 End Date: ${site._endDate}`, {
-        x: 9.55, y: 6.48, w: 3.60, h: 0.26,
-        fontFace: 'Arial', fontSize: 10.5, bold: false, color: 'FFC870', margin: 0, align: 'left'
-      });
-    }
-
     // 7. Location Coordinates (Always shown by default)
     const { lat, lng } = getCoords(site);
     const coordsText = `Latitude ${lat}  |  Longitude ${lng}`;
@@ -2718,14 +2684,17 @@ function PptView() {
       }
     }
 
+    const hasTrackerBooking = hasAuto && !!(autoCamp && (autoCamp.campaign_name || autoCamp.display || autoCamp.client || autoCamp.client_name || autoCamp.end_date));
+
     return {
       isAuto,
       hasAuto,
+      hasTrackerBooking,
       hasManual: !!manualDateObj,
       isBooked: finalBooked,
       activeCamp: isAuto ? autoCamp : (latestCamp || null),
-      campaignName: isAuto ? autoCampName : (v.campaignName || (finalBooked ? (s?.ownership ? `${s.ownership} Booking` : 'Manual Booking') : '')),
-      clientName: isAuto ? autoClientName : (v.clientName || (s?.vendor_name || '')),
+      campaignName: isAuto ? autoCampName : (v.campaignName || ''),
+      clientName: isAuto ? autoClientName : (v.clientName || ''),
       durationStr: isAuto ? autoDurationStr : (v.duration || manualDurationStr),
       startDateStr: isAuto ? autoStartDateStr : (v.startDate || ''),
       endDateStr: effectiveEndDate,
@@ -3816,33 +3785,11 @@ function PptView() {
                     <span>{s.site_code || 'Site'}</span>
                     <span style={{ fontSize: '10px', opacity: 0.8 }}>↗ Tracker</span>
                   </button>
-                  {finalEndDateText && isBooked ? (
+                  {info.hasTrackerBooking && finalEndDateText ? (
                     <button
                       type="button"
-                      onClick={() => info.isAuto ? navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`) : null}
-                      title={info.isAuto ? `Active Campaign End Date: ${finalEndDateText}\nClick to view in Campaign Tracker` : `Manual Available Date: ${finalEndDateText}`}
-                      style={{
-                        fontSize: '11px',
-                        fontWeight: 700,
-                        padding: '3px 8px',
-                        borderRadius: '5px',
-                        background: info.isAuto ? 'rgba(245, 158, 11, 0.2)' : 'rgba(56, 189, 248, 0.18)',
-                        color: info.isAuto ? '#fbbf24' : '#38bdf8',
-                        border: info.isAuto ? '1px solid rgba(245, 158, 11, 0.45)' : '1px solid rgba(56, 189, 248, 0.45)',
-                        cursor: info.isAuto ? 'pointer' : 'default',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '4px'
-                      }}
-                    >
-                      <span>📅 Booked till {finalEndDateText}</span>
-                      <span style={{ fontSize: '9px', opacity: 0.85 }}>({info.isAuto ? 'Auto' : 'Manual'})</span>
-                    </button>
-                  ) : isBooked ? (
-                    <button
-                      type="button"
-                      onClick={() => info.isAuto ? navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`) : null}
-                      title={info.isAuto ? `Site is booked\nClick to view in Campaign Tracker` : `Site is booked (Manual)`}
+                      onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
+                      title={`Active Campaign End Date: ${finalEndDateText}\nClick to view in Campaign Tracker`}
                       style={{
                         fontSize: '11px',
                         fontWeight: 700,
@@ -3851,14 +3798,49 @@ function PptView() {
                         background: 'rgba(245, 158, 11, 0.2)',
                         color: '#fbbf24',
                         border: '1px solid rgba(245, 158, 11, 0.45)',
-                        cursor: info.isAuto ? 'pointer' : 'default',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>📅 Booked till {finalEndDateText}</span>
+                    </button>
+                  ) : info.manualDateFmt ? (
+                    <span
+                      title={`Manual Available Date: ${info.manualDateFmt}`}
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: '5px',
+                        background: 'rgba(56, 189, 248, 0.15)',
+                        color: '#38bdf8',
+                        border: '1px solid rgba(56, 189, 248, 0.35)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>📅 Available: {info.manualDateFmt}</span>
+                    </span>
+                  ) : isBooked ? (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: '5px',
+                        background: 'rgba(245, 158, 11, 0.2)',
+                        color: '#fbbf24',
+                        border: '1px solid rgba(245, 158, 11, 0.45)',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px'
                       }}
                     >
                       <span>🔒 Booked</span>
-                    </button>
+                    </span>
                   ) : dateFilter ? (
                     <span
                       style={{
@@ -3883,68 +3865,76 @@ function PptView() {
                 <small className="scooh-ppt-coordinates">Latitude: {s.latitude ?? '—'}</small>
                 <small className="scooh-ppt-coordinates">Longitude: {s.longitude ?? '—'}</small>
 
-                {/* Booked Campaign Details Card */}
-                {isBooked && (
+                {/* Booked Campaign Details Card — ONLY show when there is an active booking in Campaign Tracker */}
+                {info.hasTrackerBooking && (
                   <div className="scooh-ppt-booked-card" onClick={e => e.stopPropagation()}>
                     <div className="scooh-ppt-booked-header">
                       <span className="scooh-ppt-booked-tag">
                         <span className="scooh-ppt-booked-dot" />
-                        {info.isAuto ? 'Booked / Active Campaign (Tracker)' : (info.hasManual ? 'Booked (Manual Date)' : 'Booked (Manual)')}
+                        Active Campaign (Tracker)
                       </span>
-                      {info.isAuto ? (
-                        <button
-                          type="button"
-                          className="scooh-ppt-booked-link"
-                          onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
-                          title={`View campaign details for ${s.site_code} in Campaign Tracker`}
-                        >
-                          ↗ Tracker
-                        </button>
-                      ) : (
-                        <span style={{ fontSize: '10.5px', color: '#38bdf8', fontWeight: 600 }}>✍️ Manual</span>
-                      )}
+                      <button
+                        type="button"
+                        className="scooh-ppt-booked-link"
+                        onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
+                        title={`View campaign details for ${s.site_code} in Campaign Tracker`}
+                      >
+                        ↗ Tracker
+                      </button>
                     </div>
 
                     <div className="scooh-ppt-booked-body">
                       {/* Campaign Name */}
-                      <div className="scooh-ppt-booked-row">
-                        <span className="scooh-ppt-booked-label">Campaign Name</span>
-                        <span className="scooh-ppt-booked-val camp-val" title={campaignName || (info.isAuto ? 'Active Campaign' : 'Manual Booking')}>
-                          📢 {campaignName || (info.isAuto ? '—' : 'Manual Booking')}
-                        </span>
-                      </div>
+                      {campaignName && (
+                        <div className="scooh-ppt-booked-row">
+                          <span className="scooh-ppt-booked-label">Campaign Name</span>
+                          <span className="scooh-ppt-booked-val camp-val" title={campaignName}>
+                            📢 {campaignName}
+                          </span>
+                        </div>
+                      )}
 
                       {/* Client Name */}
-                      <div className="scooh-ppt-booked-row">
-                        <span className="scooh-ppt-booked-label">Client Name</span>
-                        <span className="scooh-ppt-booked-val client-val" title={clientName || (info.isAuto ? 'Booked Client' : '—')}>
-                          🏢 {clientName || (info.isAuto ? '—' : (s.ownership || '—'))}
-                        </span>
-                      </div>
+                      {clientName && (
+                        <div className="scooh-ppt-booked-row">
+                          <span className="scooh-ppt-booked-label">Client Name</span>
+                          <span className="scooh-ppt-booked-val client-val" title={clientName}>
+                            🏢 {clientName}
+                          </span>
+                        </div>
+                      )}
 
                       {/* Duration */}
-                      <div className="scooh-ppt-booked-row">
-                        <span className="scooh-ppt-booked-label">Duration</span>
-                        <span className="scooh-ppt-booked-val duration-val">
-                          ⏱️ {durationText || '—'}
-                        </span>
-                      </div>
+                      {durationText && (
+                        <div className="scooh-ppt-booked-row">
+                          <span className="scooh-ppt-booked-label">Duration</span>
+                          <span className="scooh-ppt-booked-val duration-val">
+                            ⏱️ {durationText}
+                          </span>
+                        </div>
+                      )}
 
                       {/* Start Date & End Date */}
-                      <div className="scooh-ppt-booked-dates">
-                        <div className="scooh-ppt-booked-date-col">
-                          <span className="scooh-ppt-booked-label">Start Date</span>
-                          <span className="scooh-ppt-booked-val date-val">
-                            📅 {startDateText || '—'}
-                          </span>
+                      {(startDateText || finalEndDateText) && (
+                        <div className="scooh-ppt-booked-dates">
+                          {startDateText && (
+                            <div className="scooh-ppt-booked-date-col">
+                              <span className="scooh-ppt-booked-label">Start Date</span>
+                              <span className="scooh-ppt-booked-val date-val">
+                                📅 {startDateText}
+                              </span>
+                            </div>
+                          )}
+                          {finalEndDateText && (
+                            <div className="scooh-ppt-booked-date-col">
+                              <span className="scooh-ppt-booked-label">End Date</span>
+                              <span className="scooh-ppt-booked-val date-val end-date-val">
+                                🏁 {finalEndDateText}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <div className="scooh-ppt-booked-date-col">
-                          <span className="scooh-ppt-booked-label">End / Available Date</span>
-                          <span className="scooh-ppt-booked-val date-val end-date-val">
-                            🏁 {finalEndDateText || '—'}
-                          </span>
-                        </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 )}
