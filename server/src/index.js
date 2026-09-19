@@ -32,11 +32,7 @@ app.use((req, res, next) => {
   });
   next();
 });
-app.use('/uploads', (req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  next();
-}, express.static(uploadDir, {
+const serveUploads = express.static(uploadDir, {
   setHeaders: (res, filePath) => {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -45,8 +41,80 @@ app.use('/uploads', (req, res, next) => {
       res.setHeader('Content-Type', 'image/jpeg');
     }
   }
-}));
-const upload=multer({dest:uploadDir,limits:{fileSize:Number(process.env.MAX_UPLOAD_MB||20)*1024*1024}});
+});
+
+app.use(['/uploads', '/api/uploads'], (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, serveUploads);
+
+// Explicit route for uploads with smart extension fallback & 404 guard (never return index.html for assets)
+app.get(['/uploads/:filename', '/api/uploads/:filename'], (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  const rawFilename = path.basename(req.params.filename || '');
+  if (!rawFilename) return res.status(404).type('text/plain').send('File not found');
+
+  const exact = path.join(uploadDir, rawFilename);
+  if (fs.existsSync(exact) && fs.statSync(exact).isFile()) {
+    const ext = path.extname(exact).toLowerCase();
+    if (!ext) res.setHeader('Content-Type', 'image/jpeg');
+    return res.sendFile(exact);
+  }
+
+  const baseNoExt = rawFilename.replace(/\.[^.]+$/, '');
+  const extensions = ['.jpg', '.jpeg', '.png', '.webp', '.avif', '.gif', '.svg'];
+  for (const ext of extensions) {
+    const cand = path.join(uploadDir, baseNoExt + ext);
+    if (fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+      return res.sendFile(cand);
+    }
+  }
+
+  try {
+    const files = fs.readdirSync(uploadDir);
+    const matched = files.find(f => f.toLowerCase().startsWith(baseNoExt.toLowerCase()));
+    if (matched) {
+      const matchPath = path.join(uploadDir, matched);
+      if (fs.statSync(matchPath).isFile()) {
+        const ext = path.extname(matchPath).toLowerCase();
+        if (!ext) res.setHeader('Content-Type', 'image/jpeg');
+        return res.sendFile(matchPath);
+      }
+    }
+  } catch {}
+
+  return res.status(404).type('text/plain').send('File not found');
+});
+
+const uploadStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    let ext = path.extname(file.originalname || '').toLowerCase();
+    if (!ext || ext === '.') {
+      const mime = (file.mimetype || '').toLowerCase();
+      if (mime.includes('png')) ext = '.png';
+      else if (mime.includes('webp')) ext = '.webp';
+      else if (mime.includes('gif')) ext = '.gif';
+      else if (mime.includes('svg')) ext = '.svg';
+      else if (mime.includes('sheet') || mime.includes('excel')) ext = '.xlsx';
+      else if (mime.includes('json')) ext = '.json';
+      else ext = '.jpg';
+    }
+    const safeBase = path.basename(file.originalname || 'photo', ext)
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 40) || 'upload';
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, `${safeBase}-${uniqueSuffix}${ext}`);
+  }
+});
+const upload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: Number(process.env.MAX_UPLOAD_MB || 50) * 1024 * 1024 }
+});
 const entities={
  sites:{table:'sites',order:'LENGTH(site_code) ASC, site_code ASC, id ASC'},clients:{table:'clients',order:'id DESC'},campaigns:{table:'campaigns',order:'LENGTH(site_code) ASC, site_code ASC, id DESC'},validations:{table:'validations',order:'id DESC'},electricity:{table:'electricity',order:'LENGTH(site_code) ASC, site_code ASC, id DESC'},vendors:{table:'vendors',order:'id DESC'},'vendor-jobs':{table:'vendor_jobs',order:'id DESC'},proposals:{table:'proposals',order:'id DESC'},invoices:{table:'invoices',order:'id DESC'},occupancy:{table:'occupancy_records',order:'LENGTH(site_code) ASC, site_code ASC, id DESC'}
 };
@@ -404,12 +472,7 @@ app.post('/api/sites/:id/images', auth, upload.array('files', 100), async (req, 
     if (Array.isArray(flags)) flags = { tags: flags };
     const shouldReplace = req.query.replace === 'true' || req.query.replace === '1' || req.body?.replace === 'true' || req.body?.replace === true;
     const existing = shouldReplace ? [] : (Array.isArray(flags.ppt_images) ? flags.ppt_images : []);
-    const urls = (req.files || []).map(f => {
-      const ext = path.extname(f.originalname || '');
-      const final = f.path + ext;
-      fs.renameSync(f.path, final);
-      return `/uploads/${path.basename(final)}`;
-    });
+    const urls = (req.files || []).map(f => `/uploads/${f.filename}`);
     flags.ppt_images = shouldReplace ? urls : [...existing, ...urls];
     await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), req.params.id]);
     res.json({ site_id: site.id, site_code: site.site_code, images: flags.ppt_images, replaced: shouldReplace });
@@ -430,12 +493,7 @@ app.post('/api/sites/code/:site_code/images', auth, upload.array('files', 100), 
     if (Array.isArray(flags)) flags = { tags: flags };
     const shouldReplace = req.query.replace === 'true' || req.query.replace === '1' || req.body?.replace === 'true' || req.body?.replace === true;
     const existing = shouldReplace ? [] : (Array.isArray(flags.ppt_images) ? flags.ppt_images : []);
-    const urls = (req.files || []).map(f => {
-      const ext = path.extname(f.originalname || '');
-      const final = f.path + ext;
-      fs.renameSync(f.path, final);
-      return `/uploads/${path.basename(final)}`;
-    });
+    const urls = (req.files || []).map(f => `/uploads/${f.filename}`);
     flags.ppt_images = shouldReplace ? urls : [...existing, ...urls];
     await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), site.id]);
     res.json({ site_id: site.id, site_code: site.site_code, images: flags.ppt_images, replaced: shouldReplace });
@@ -580,20 +638,9 @@ app.post('/api/ppt-pages/:key', auth, upload.single('file'), async (req, res) =>
     const map = { first: 'ppt_first_page', second_last: 'ppt_second_last_page', last: 'ppt_last_page' };
     const sk = map[req.params.key];
     if (!sk || !req.file) return res.status(400).json({ message: 'Invalid page upload' });
-    let ext = path.extname(req.file.originalname || '');
-    if (!ext) {
-      const mime = (req.file.mimetype || '').toLowerCase();
-      if (mime.includes('png')) ext = '.png';
-      else if (mime.includes('webp')) ext = '.webp';
-      else ext = '.jpeg';
-    }
-    const final = req.file.path.endsWith(ext) ? req.file.path : (req.file.path + ext);
-    if (!fs.existsSync(final)) {
-      fs.renameSync(req.file.path, final);
-    }
-    const url = `/uploads/${path.basename(final)}`;
+    const url = `/uploads/${req.file.filename}`;
     await q('INSERT INTO settings(setting_key,setting_value,updated_at) VALUES(?,?,NOW()) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),updated_at=NOW()', [sk, url]);
-    res.json({ key: req.params.key, url, filename: path.basename(final) });
+    res.json({ key: req.params.key, url, filename: req.file.filename });
   } catch (err) {
     res.status(500).json({ message: 'Page upload error: ' + err.message });
   }
@@ -3110,10 +3157,7 @@ app.post('/api/import/json', auth, managerOrAdmin, upload.single('file'), async 
 
 app.post('/api/upload', auth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No file received' });
-  const ext = path.extname(req.file.originalname || '');
-  const final = req.file.path + ext;
-  fs.renameSync(req.file.path, final);
-  const url = `/uploads/${path.basename(final)}`;
+  const url = `/uploads/${req.file.filename}`;
   res.json({ url, name: req.file.originalname, size: req.file.size });
 });
 
@@ -3171,9 +3215,7 @@ app.post('/api/storage/upload', auth, notViewer, upload.single('file'), async (r
     if (!req.file) return res.status(400).json({ message: 'No file received' });
     const originalName = req.file.originalname || 'document';
     const ext = path.extname(originalName).toLowerCase();
-    const final = req.file.path + ext;
-    fs.renameSync(req.file.path, final);
-    const fileUrl = `/uploads/${path.basename(final)}`;
+    const fileUrl = `/uploads/${req.file.filename}`;
 
     // Calculate readable size
     const bytes = req.file.size || 0;

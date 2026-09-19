@@ -489,8 +489,19 @@ function unpackSite(s) {
   };
 }
 
+// In-memory preview cache for instantaneous zero-lag image rendering and offline resilience
+const photoPreviewCache = new Map();
+
+function resolvePhotoUrl(u) {
+  if (!u) return '';
+  if (photoPreviewCache.has(u)) return photoPreviewCache.get(u);
+  if (typeof u === 'string' && (u.startsWith('data:') || u.startsWith('blob:'))) return u;
+  return u;
+}
+
 async function imageData(url) {
   if (!url) throw new Error('Empty image URL');
+  if (photoPreviewCache.has(url)) return photoPreviewCache.get(url);
   if (url.startsWith('data:')) return url;
   try {
     const r = await fetch(url);
@@ -514,6 +525,19 @@ async function imageData(url) {
             fr.onload = () => ok(fr.result);
             fr.onerror = ko;
             fr.readAsDataURL(b2);
+          });
+        }
+      } catch {}
+      try {
+        const altUrl2 = `/api${url}`;
+        const r3 = await fetch(altUrl2);
+        if (r3.ok) {
+          const b3 = await r3.blob();
+          return await new Promise((ok, ko) => {
+            const fr = new FileReader();
+            fr.onload = () => ok(fr.result);
+            fr.onerror = ko;
+            fr.readAsDataURL(b3);
           });
         }
       } catch {}
@@ -1971,9 +1995,29 @@ function SitesView() {
   }
 
   async function handleImageUpload(siteId, files, replace = false) {
+    const fileList = Array.from(files || []);
+    if (!fileList.length) return;
+    const localPreviews = fileList.map(f => URL.createObjectURL(f));
+    fileList.forEach((f, idx) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result) {
+          photoPreviewCache.set(f.name, reader.result);
+          if (localPreviews[idx]) photoPreviewCache.set(localPreviews[idx], reader.result);
+        }
+      };
+      reader.readAsDataURL(f);
+    });
+
     const fd = new FormData();
-    [...files].forEach(f => fd.append('files', f));
-    await api.post(`/sites/${siteId}/images${replace ? '?replace=true' : ''}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    fileList.forEach(f => fd.append('files', f));
+    const res = await api.post(`/sites/${siteId}/images${replace ? '?replace=true' : ''}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    const serverImgs = res.data?.images || [];
+    serverImgs.forEach((sUrl, idx) => {
+      if (localPreviews[idx]) {
+        photoPreviewCache.set(sUrl, localPreviews[idx]);
+      }
+    });
     await load();
     window.dispatchEvent(new CustomEvent('mb-sites-updated'));
   }
@@ -2447,7 +2491,28 @@ function SitesView() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '16px' }}>
                 {(imageModalSite.ppt_images || []).map((url, i) => (
                   <div key={i} style={{ position: 'relative', border: '1px solid #34404e', borderRadius: '8px', overflow: 'hidden' }}>
-                    <img src={url} alt="Site" style={{ width: '100%', height: '110px', objectFit: 'cover' }} />
+                    <img
+                      src={resolvePhotoUrl(url)}
+                      alt={`Site ${imageModalSite.site_code} photo ${i + 1}`}
+                      style={{ width: '100%', height: '110px', objectFit: 'cover' }}
+                      onError={e => {
+                        const img = e.target;
+                        const currentSrc = img.src || '';
+                        if (url && typeof url === 'string' && url.startsWith('/uploads/')) {
+                          if (!currentSrc.includes(':3000')) {
+                            img.src = `http://localhost:3000${url}`;
+                            return;
+                          }
+                          if (!currentSrc.includes('/api/uploads/')) {
+                            img.src = `/api${url}`;
+                            return;
+                          }
+                        }
+                        if (photoPreviewCache.has(url)) {
+                          img.src = photoPreviewCache.get(url);
+                        }
+                      }}
+                    />
                   </div>
                 ))}
               </div>
@@ -2915,17 +2980,62 @@ function PptView() {
   }
 
   async function addImages(site, files, replace = false) {
+    const fileArray = Array.from(files || []);
+    if (!fileArray.length) return;
+
+    // 1. Create immediate local object URLs for instantaneous UI preview
+    const localPreviews = fileArray.map(f => URL.createObjectURL(f));
+
+    // Register into photoPreviewCache
+    fileArray.forEach((f, idx) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result) {
+          photoPreviewCache.set(f.name, reader.result);
+          if (localPreviews[idx]) photoPreviewCache.set(localPreviews[idx], reader.result);
+        }
+      };
+      reader.readAsDataURL(f);
+    });
+
+    // 2. Optimistically update state so the photo renders IMMEDIATELY (0ms delay!)
+    setSites(prev => prev.map(s => {
+      if (s.id === site.id || s.site_code === site.site_code) {
+        const currentImgs = Array.isArray(s.ppt_images) ? s.ppt_images : [];
+        return { ...s, ppt_images: replace ? localPreviews : [...currentImgs, ...localPreviews] };
+      }
+      return s;
+    }));
+
     try {
       if (site.id) {
         const fd = new FormData();
-        Array.from(files).forEach(f => fd.append('files', f));
+        fileArray.forEach(f => fd.append('files', f));
         const res = await api.post(`/sites/${site.id}/images${replace ? '?replace=true' : ''}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-        setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: res.data.images } : s));
+        const serverImgs = res.data?.images || [];
+
+        // Associate server URLs with cached previews
+        serverImgs.forEach((sUrl, idx) => {
+          if (localPreviews[idx]) {
+            photoPreviewCache.set(sUrl, localPreviews[idx]);
+          }
+        });
+
+        setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: serverImgs } : s));
       } else {
-        const urls = Array.from(files).map(f => URL.createObjectURL(f));
-        setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: replace ? urls : [...(s.ppt_images || []), ...urls] } : s));
+        const fd = new FormData();
+        fileArray.forEach(f => fd.append('files', f));
+        const res = await api.post(`/sites/code/${encodeURIComponent(site.site_code)}/images${replace ? '?replace=true' : ''}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        const serverImgs = res.data?.images || [];
+        serverImgs.forEach((sUrl, idx) => {
+          if (localPreviews[idx]) {
+            photoPreviewCache.set(sUrl, localPreviews[idx]);
+          }
+        });
+        setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: serverImgs } : s));
       }
     } catch (e) {
+      console.error('Failed to upload images:', e);
       alert('Failed to upload images: ' + (e.response?.data?.message || e.message));
     }
   }
@@ -3105,19 +3215,37 @@ function PptView() {
       }));
 
       try {
+        const localPreviews = fileList.map(f => URL.createObjectURL(f));
+        fileList.forEach((f, idx) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (reader.result) {
+              photoPreviewCache.set(f.name, reader.result);
+              if (localPreviews[idx]) photoPreviewCache.set(localPreviews[idx], reader.result);
+            }
+          };
+          reader.readAsDataURL(f);
+        });
+
         const replaceQuery = replaceExistingFolderPhotos ? '?replace=true' : '';
         if (site.id) {
           const fd = new FormData();
           fileList.forEach(f => fd.append('files', f));
           const res = await api.post(`/sites/${site.id}/images${replaceQuery}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-          const newImages = res.data.images;
+          const newImages = res.data?.images || [];
+          newImages.forEach((sUrl, idx) => {
+            if (localPreviews[idx]) photoPreviewCache.set(sUrl, localPreviews[idx]);
+          });
           setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: newImages } : s));
           siteResults.push({ site_code: site.site_code, count: fileList.length, success: true, replaced: replaceExistingFolderPhotos });
         } else {
           const fd = new FormData();
           fileList.forEach(f => fd.append('files', f));
           const res = await api.post(`/sites/code/${encodeURIComponent(site.site_code)}/images${replaceQuery}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-          const newImages = res.data.images;
+          const newImages = res.data?.images || [];
+          newImages.forEach((sUrl, idx) => {
+            if (localPreviews[idx]) photoPreviewCache.set(sUrl, localPreviews[idx]);
+          });
           setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: newImages } : s));
           siteResults.push({ site_code: site.site_code, count: fileList.length, success: true, replaced: replaceExistingFolderPhotos });
         }
@@ -3818,7 +3946,12 @@ function PptView() {
                         multiple
                         accept="image/*"
                         hidden
-                        onChange={e => e.target.files.length && addImages(s, e.target.files)}
+                        onChange={e => {
+                          if (e.target.files && e.target.files.length) {
+                            addImages(s, e.target.files);
+                            e.target.value = '';
+                          }
+                        }}
                       />
                     </label>
                     <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 8px', minHeight: '30px' }} onClick={e => e.stopPropagation()} title={`Import a folder of photos specifically for ${s.site_code} (replaces old photos)`}>
@@ -3854,19 +3987,46 @@ function PptView() {
 
                 <div className="scooh-ppt-photo-list scooh-ppt-added-images">
                   {imgs.length > 0 ? (
-                    imgs.map((u, idx) => (
-                      <span className="scooh-ppt-photo" key={idx} onClick={e => e.stopPropagation()}>
-                        <img src={u} alt="Added site image" />
-                        <button
-                          type="button"
-                          title="Remove image"
-                          aria-label="Remove image"
-                          onClick={() => removeImage(s, idx)}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))
+                    imgs.map((u, idx) => {
+                      const photoSrc = resolvePhotoUrl(u);
+                      return (
+                        <span className="scooh-ppt-photo" key={idx} onClick={e => e.stopPropagation()}>
+                          <img
+                            src={photoSrc}
+                            alt={`${s.site_code} photo ${idx + 1}`}
+                            loading="lazy"
+                            onError={e => {
+                              const img = e.target;
+                              const currentSrc = img.src || '';
+                              if (u && typeof u === 'string' && u.startsWith('/uploads/')) {
+                                if (!currentSrc.includes(':3000')) {
+                                  img.src = `http://localhost:3000${u}`;
+                                  return;
+                                }
+                                if (!currentSrc.includes('/api/uploads/')) {
+                                  img.src = `/api${u}`;
+                                  return;
+                                }
+                              }
+                              if (photoPreviewCache.has(u)) {
+                                img.src = photoPreviewCache.get(u);
+                                return;
+                              }
+                              img.style.display = 'none';
+                              if (img.parentElement) img.parentElement.classList.add('photo-load-error');
+                            }}
+                          />
+                          <button
+                            type="button"
+                            title="Remove image"
+                            aria-label="Remove image"
+                            onClick={() => removeImage(s, idx)}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })
                   ) : (
                     <div className="scooh-ppt-no-photos">No added images</div>
                   )}
