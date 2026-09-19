@@ -2564,6 +2564,179 @@ function PptView() {
     return '';
   }
 
+  function extractDateFromString(str) {
+    if (!str) return null;
+    if (str instanceof Date) return isNaN(str.getTime()) ? null : new Date(str.getFullYear(), str.getMonth(), str.getDate());
+    if (typeof str === 'number') {
+      const dt = new Date((str - 25569) * 86400000);
+      return isNaN(dt.getTime()) ? null : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+    }
+    const s = String(str).trim();
+    if (!s) return null;
+    // 1. DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY
+    const dmy = s.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+    if (dmy) {
+      let day = parseInt(dmy[1], 10);
+      let month = parseInt(dmy[2], 10) - 1;
+      let year = parseInt(dmy[3], 10);
+      if (year < 100) year += 2000;
+      if (month > 11 && day <= 12) {
+        const tmp = day - 1;
+        day = month + 1;
+        month = tmp;
+      }
+      const d = new Date(year, month, day);
+      if (!isNaN(d.getTime())) return d;
+    }
+    // 2. YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
+    const iso = s.match(/(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
+    if (iso) {
+      const d = new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
+      if (!isNaN(d.getTime())) return d;
+    }
+    // 3. DD Mon YYYY e.g. 25 Oct 2026, 25-Oct-2026
+    const monMatch = s.match(/(\d{1,2})[ -]([A-Za-z]{3,9})[ -](\d{2,4})/);
+    if (monMatch) {
+      const d = new Date(`${monMatch[1]} ${monMatch[2]} ${monMatch[3]}`);
+      if (!isNaN(d.getTime())) return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    }
+    return null;
+  }
+
+  function resolveSiteAvailability(s, v = {}, campaignsBySiteCode = {}, campaignMap = {}, dateFilter = '') {
+    const siteCode = s?.site_code || '';
+
+    // 1. Automated Tracker evaluation
+    const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, siteCode, dateFilter);
+    const todayCamp = !dateFilter ? getActiveCampaignOnDate(campaignsBySiteCode, siteCode, '') : null;
+    const latestCamp = campaignMap[String(siteCode || '').toUpperCase().trim()] || (campaignsBySiteCode[String(siteCode || '').toUpperCase().trim()] || [])[0];
+    const autoCamp = activeCamp || todayCamp;
+    const hasAuto = !!autoCamp;
+
+    let autoEndDateStr = '';
+    let autoStartDateStr = '';
+    let autoDurationStr = '';
+    let autoCampName = '';
+    let autoClientName = '';
+    let autoEndDay = null;
+
+    if (autoCamp) {
+      if (autoCamp.end_date) {
+        autoEndDateStr = fmtDate(autoCamp.end_date);
+        autoEndDay = parseDay(autoCamp.end_date);
+      }
+      if (autoCamp.start_date || autoCamp.booking_date) {
+        autoStartDateStr = fmtDate(autoCamp.start_date || autoCamp.booking_date);
+      }
+      autoDurationStr = getCampaignDurationString(autoCamp);
+      autoCampName = autoCamp.display || autoCamp.campaign_name || autoCamp.brand || autoCamp.parent_campaign || '';
+      autoClientName = autoCamp.client || autoCamp.client_name || '';
+    }
+
+    // 2. Manual date & availability evaluation
+    const siteStoredAvail = String(s?.ppt_availability || s?.availability || '').trim();
+    const manualDateInput = v.manualDate;
+    const manualTextInput = v.availability;
+
+    let manualDateObj = null;
+    if (manualDateInput) {
+      manualDateObj = parseDay(manualDateInput);
+    } else if (manualTextInput !== undefined && manualTextInput !== '') {
+      manualDateObj = extractDateFromString(manualTextInput);
+    } else if (siteStoredAvail) {
+      manualDateObj = extractDateFromString(siteStoredAvail);
+    }
+
+    const manualDateFmt = manualDateObj ? fmtDate(manualDateObj) : '';
+    const manualDateIso = manualDateObj
+      ? `${manualDateObj.getFullYear()}-${String(manualDateObj.getMonth() + 1).padStart(2, '0')}-${String(manualDateObj.getDate()).padStart(2, '0')}`
+      : '';
+
+    // If user explicitly provided manualDate or manual text, user override applies
+    const hasUserManualOverride = v.manualDate !== undefined || (v.availability !== undefined && v.availability !== '');
+    const isAuto = !hasUserManualOverride && hasAuto;
+
+    // Effective End Date & Day
+    const effectiveEndDate = isAuto ? autoEndDateStr : (manualDateFmt || (hasUserManualOverride ? '' : autoEndDateStr));
+    const effectiveEndDay = isAuto ? autoEndDay : manualDateObj;
+
+    // Evaluation against dateFilter (📅 Select Date filter at top)
+    const filterDay = dateFilter ? parseDay(dateFilter) : null;
+    let isBooked = false;
+
+    if (filterDay) {
+      if (isAuto) {
+        isBooked = !!activeCamp;
+      } else if (effectiveEndDay) {
+        isBooked = filterDay <= effectiveEndDay;
+      } else {
+        const checkText = String(manualTextInput !== undefined ? manualTextInput : siteStoredAvail).toLowerCase();
+        isBooked = checkText.startsWith('booked') || checkText.startsWith('occupied');
+      }
+    } else {
+      if (isAuto) {
+        isBooked = true;
+      } else if (effectiveEndDay) {
+        const today = parseDay(new Date());
+        isBooked = !today || today <= effectiveEndDay;
+      } else {
+        const checkText = String(manualTextInput !== undefined ? manualTextInput : siteStoredAvail).toLowerCase();
+        isBooked = checkText.startsWith('booked') || checkText.startsWith('occupied') || String(s?.availability || '').toLowerCase() === 'booked';
+      }
+    }
+
+    // Default availability text
+    let defaultAvailText = 'Available';
+    if (filterDay) {
+      if (isBooked) {
+        defaultAvailText = effectiveEndDate ? `Booked till ${effectiveEndDate}` : 'Occupied';
+      } else {
+        defaultAvailText = 'Available';
+      }
+    } else if (isBooked) {
+      if (effectiveEndDate) {
+        defaultAvailText = `Booked till ${effectiveEndDate}`;
+      } else {
+        defaultAvailText = siteStoredAvail || 'Occupied';
+      }
+    } else {
+      defaultAvailText = 'Available';
+    }
+
+    const currentAvailText = manualTextInput !== undefined ? manualTextInput : defaultAvailText;
+    const finalBooked = isBooked ||
+      String(currentAvailText).toLowerCase().startsWith('booked') ||
+      String(currentAvailText).toLowerCase().startsWith('occupied');
+
+    // Manual duration if start & end exist
+    let manualDurationStr = '';
+    if (!isAuto && manualDateObj) {
+      const today = parseDay(new Date());
+      if (today && manualDateObj >= today) {
+        const diff = Math.max(1, Math.round((manualDateObj.getTime() - today.getTime()) / 86400000) + 1);
+        manualDurationStr = `${diff} day${diff === 1 ? '' : 's'}`;
+      }
+    }
+
+    return {
+      isAuto,
+      hasAuto,
+      hasManual: !!manualDateObj,
+      isBooked: finalBooked,
+      activeCamp: isAuto ? autoCamp : (latestCamp || null),
+      campaignName: isAuto ? autoCampName : (v.campaignName || (finalBooked ? (s?.ownership ? `${s.ownership} Booking` : 'Manual Booking') : '')),
+      clientName: isAuto ? autoClientName : (v.clientName || (s?.vendor_name || '')),
+      durationStr: isAuto ? autoDurationStr : (v.duration || manualDurationStr),
+      startDateStr: isAuto ? autoStartDateStr : (v.startDate || ''),
+      endDateStr: effectiveEndDate,
+      autoEndDateStr,
+      manualDateFmt,
+      manualDateIso,
+      availText: currentAvailText,
+      defaultAvailText
+    };
+  }
+
   async function load() {
     try {
       const [sRes, pRes, cRes] = await Promise.all([
@@ -2683,10 +2856,10 @@ function PptView() {
           valB = Number(b.ppt_rate || b.monthly_rate || 0);
         }
         if (sortState.key === 'availability') {
-          const activeCampA = getActiveCampaignOnDate(campaignsBySiteCode, a.site_code, dateFilter);
-          const activeCampB = getActiveCampaignOnDate(campaignsBySiteCode, b.site_code, dateFilter);
-          valA = activeCampA ? 'Occupied' : 'Available';
-          valB = activeCampB ? 'Occupied' : 'Available';
+          const infoA = resolveSiteAvailability(a, sel[a.id || a.site_code] || {}, campaignsBySiteCode, campaignMap, dateFilter);
+          const infoB = resolveSiteAvailability(b, sel[b.id || b.site_code] || {}, campaignsBySiteCode, campaignMap, dateFilter);
+          valA = infoA.isBooked ? 'Occupied' : 'Available';
+          valB = infoB.isBooked ? 'Occupied' : 'Available';
         }
         return universalCompare(valA, valB, sortState.dir);
       }
@@ -2961,43 +3134,7 @@ function PptView() {
 
       const rows = targetSites.map((x, idx) => {
         const v = sel[x.id || x.site_code] || {};
-        const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, x.site_code, dateFilter);
-        const todayCamp = !dateFilter ? getActiveCampaignOnDate(campaignsBySiteCode, x.site_code, '') : null;
-        const latestCamp = campaignMap[String(x.site_code || '').toUpperCase().trim()] || (campaignsBySiteCode[String(x.site_code || '').toUpperCase().trim()] || [])[0];
-        const bookedCamp = activeCamp || todayCamp || latestCamp;
-
-        let autoAvail = v.availability ?? (dateFilter ? undefined : (x.ppt_availability ?? x.availability)) ?? 'Available';
-        let endDateFmt = '';
-        if (activeCamp && activeCamp.end_date) {
-          const endFmt = fmtDate(activeCamp.end_date);
-          endDateFmt = endFmt;
-          if (!v.availability) {
-            autoAvail = `Booked till ${endFmt}`;
-          }
-        } else {
-          if (!v.availability) autoAvail = 'Available';
-        }
-
-        const isSiteBooked = !!activeCamp ||
-          (activeCamp === null && !dateFilter && !!todayCamp) ||
-          String(autoAvail || '').toLowerCase().startsWith('booked') ||
-          String(autoAvail || '').toLowerCase().startsWith('occupied') ||
-          String(x.availability || '').toLowerCase() === 'booked';
-
-        let campName = '';
-        let clientName = '';
-        let startFmt = '';
-        let durationStr = '';
-
-        if (isSiteBooked && bookedCamp) {
-          campName = bookedCamp.display || bookedCamp.campaign_name || bookedCamp.brand || bookedCamp.parent_campaign || '';
-          clientName = bookedCamp.client || bookedCamp.client_name || '';
-          startFmt = bookedCamp.start_date ? fmtDate(bookedCamp.start_date) : (bookedCamp.booking_date ? fmtDate(bookedCamp.booking_date) : '');
-          if (bookedCamp.end_date && !endDateFmt) {
-            endDateFmt = fmtDate(bookedCamp.end_date);
-          }
-          durationStr = getCampaignDurationString(bookedCamp);
-        }
+        const info = resolveSiteAvailability(x, v, campaignsBySiteCode, campaignMap, dateFilter);
 
         let w = x.width || '', h = x.height || '';
         if ((!w || !h) && x.size) {
@@ -3017,12 +3154,12 @@ function PptView() {
           'W': w || '',
           'H': h || '',
           'SQ FT': sqft,
-          'AVAILABLITY': autoAvail,
-          'Campaign Name': campName,
-          'Client Name': clientName,
-          'Duration': durationStr,
-          'Start Date': startFmt,
-          'End Date': endDateFmt,
+          'AVAILABLITY': info.availText,
+          'Campaign Name': info.campaignName,
+          'Client Name': info.clientName,
+          'Duration': info.durationStr,
+          'Start Date': info.startDateStr,
+          'End Date': info.endDateStr,
           'Selling Amount': Number(v.rate ?? x.ppt_rate ?? x.monthly_rate ?? 0),
           'Latitude Longitude': coords
         };
@@ -3039,57 +3176,20 @@ function PptView() {
       .filter(s => sel[s.id || s.site_code]?.checked)
       .map(s => {
         const v = sel[s.id || s.site_code] || {};
-        // Look up active campaign from Campaign Tracker for this site as of dateFilter
-        const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, dateFilter);
-        const todayCamp = !dateFilter ? getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, '') : null;
-        const latestCamp = campaignMap[String(s.site_code || '').toUpperCase().trim()] || (campaignsBySiteCode[String(s.site_code || '').toUpperCase().trim()] || [])[0];
-        const bookedCamp = activeCamp || todayCamp || latestCamp;
-
-        let autoAvail = v.availability ?? s.ppt_availability ?? s.availability;
-        let endDateFmt = '';
-        if (activeCamp && activeCamp.end_date) {
-          const endFmt = fmtDate(activeCamp.end_date);
-          endDateFmt = endFmt;
-          // Auto-set availability to only show the end date unless user manually overrode it
-          if (!v.availability) {
-            autoAvail = `Booked till ${endFmt}`;
-          }
-        } else {
-          if (!v.availability) autoAvail = 'Available';
-        }
-
-        const isSiteBooked = !!activeCamp ||
-          (activeCamp === null && !dateFilter && !!todayCamp) ||
-          String(autoAvail || '').toLowerCase().startsWith('booked') ||
-          String(autoAvail || '').toLowerCase().startsWith('occupied') ||
-          String(s.availability || '').toLowerCase() === 'booked';
-
-        let campName = '';
-        let clientName = '';
-        let startFmt = '';
-        let durationStr = '';
-
-        if (isSiteBooked && bookedCamp) {
-          campName = bookedCamp.display || bookedCamp.campaign_name || bookedCamp.brand || bookedCamp.parent_campaign || '';
-          clientName = bookedCamp.client || bookedCamp.client_name || '';
-          startFmt = bookedCamp.start_date ? fmtDate(bookedCamp.start_date) : (bookedCamp.booking_date ? fmtDate(bookedCamp.booking_date) : '');
-          if (bookedCamp.end_date && !endDateFmt) {
-            endDateFmt = fmtDate(bookedCamp.end_date);
-          }
-          durationStr = getCampaignDurationString(bookedCamp);
-        }
+        const info = resolveSiteAvailability(s, v, campaignsBySiteCode, campaignMap, dateFilter);
 
         return {
           ...s,
-          _availability: autoAvail,
+          _availability: info.availText,
           _rate: v.rate ?? s.ppt_rate ?? s.monthly_rate,
           _showRate: !!v.showRate,
-          _endDate: endDateFmt,
-          _isBooked: isSiteBooked,
-          _campaignName: campName,
-          _clientName: clientName,
-          _startDate: startFmt,
-          _duration: durationStr
+          _endDate: info.endDateStr,
+          _isBooked: info.isBooked,
+          _campaignName: info.campaignName,
+          _clientName: info.clientName,
+          _startDate: info.startDateStr,
+          _duration: info.durationStr,
+          _isAuto: info.isAuto
         };
       });
 
@@ -3621,44 +3721,13 @@ function PptView() {
             const v = sel[siteKey] || {};
             const isChecked = !!v.checked;
             const imgs = s.ppt_images || [];
-            const activeCamp = getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, dateFilter);
-            const todayCamp = !dateFilter ? getActiveCampaignOnDate(campaignsBySiteCode, s.site_code, '') : null;
-            const latestCamp = campaignMap[String(s.site_code || '').toUpperCase().trim()] || (campaignsBySiteCode[String(s.site_code || '').toUpperCase().trim()] || [])[0];
-            const bookedCamp = activeCamp || todayCamp || latestCamp;
-
-            let autoAvail = '';
-            let endDateText = '';
-            if (activeCamp && activeCamp.end_date) {
-              const endFmt = fmtDate(activeCamp.end_date);
-              autoAvail = `Booked till ${endFmt}`;
-              endDateText = endFmt;
-            } else if (dateFilter) {
-              autoAvail = 'Available';
-              endDateText = '';
-            } else {
-              if (todayCamp && todayCamp.end_date) {
-                const endFmt = fmtDate(todayCamp.end_date);
-                autoAvail = `Booked till ${endFmt}`;
-                endDateText = endFmt;
-              } else {
-                autoAvail = s.ppt_availability || s.availability || 'Available';
-                endDateText = '';
-              }
-            }
-
-            const currentAvail = v.availability !== undefined ? v.availability : autoAvail;
-            const isBooked = !!activeCamp ||
-              (activeCamp === null && !dateFilter && !!todayCamp) ||
-              String(currentAvail || '').toLowerCase().startsWith('booked') ||
-              String(currentAvail || '').toLowerCase().startsWith('occupied') ||
-              String(s.availability || '').toLowerCase() === 'booked';
-
-            // Extract campaign details for booked site card
-            const campaignName = bookedCamp?.display || bookedCamp?.campaign_name || bookedCamp?.brand || bookedCamp?.parent_campaign || (isBooked ? 'Active Campaign' : '');
-            const clientName = bookedCamp?.client || bookedCamp?.client_name || (isBooked ? 'Booked Client' : '');
-            const startDateText = bookedCamp?.start_date ? fmtDate(bookedCamp.start_date) : (bookedCamp?.booking_date ? fmtDate(bookedCamp.booking_date) : '');
-            const finalEndDateText = (bookedCamp?.end_date ? fmtDate(bookedCamp.end_date) : '') || endDateText || '';
-            const durationText = getCampaignDurationString(bookedCamp) || '';
+            const info = resolveSiteAvailability(s, v, campaignsBySiteCode, campaignMap, dateFilter);
+            const isBooked = info.isBooked;
+            const campaignName = info.campaignName;
+            const clientName = info.clientName;
+            const startDateText = info.startDateStr;
+            const finalEndDateText = info.endDateStr;
+            const durationText = info.durationStr;
 
             return (
               <div
@@ -3750,29 +3819,30 @@ function PptView() {
                   {finalEndDateText && isBooked ? (
                     <button
                       type="button"
-                      onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
-                      title={`Active Campaign End Date: ${finalEndDateText}\nClick to view in Campaign Tracker`}
+                      onClick={() => info.isAuto ? navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`) : null}
+                      title={info.isAuto ? `Active Campaign End Date: ${finalEndDateText}\nClick to view in Campaign Tracker` : `Manual Available Date: ${finalEndDateText}`}
                       style={{
                         fontSize: '11px',
                         fontWeight: 700,
                         padding: '3px 8px',
                         borderRadius: '5px',
-                        background: 'rgba(245, 158, 11, 0.2)',
-                        color: '#fbbf24',
-                        border: '1px solid rgba(245, 158, 11, 0.45)',
-                        cursor: 'pointer',
+                        background: info.isAuto ? 'rgba(245, 158, 11, 0.2)' : 'rgba(56, 189, 248, 0.18)',
+                        color: info.isAuto ? '#fbbf24' : '#38bdf8',
+                        border: info.isAuto ? '1px solid rgba(245, 158, 11, 0.45)' : '1px solid rgba(56, 189, 248, 0.45)',
+                        cursor: info.isAuto ? 'pointer' : 'default',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px'
                       }}
                     >
                       <span>📅 Booked till {finalEndDateText}</span>
+                      <span style={{ fontSize: '9px', opacity: 0.85 }}>({info.isAuto ? 'Auto' : 'Manual'})</span>
                     </button>
                   ) : isBooked ? (
                     <button
                       type="button"
-                      onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
-                      title={`Site is booked\nClick to view in Campaign Tracker`}
+                      onClick={() => info.isAuto ? navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`) : null}
+                      title={info.isAuto ? `Site is booked\nClick to view in Campaign Tracker` : `Site is booked (Manual)`}
                       style={{
                         fontSize: '11px',
                         fontWeight: 700,
@@ -3781,7 +3851,7 @@ function PptView() {
                         background: 'rgba(245, 158, 11, 0.2)',
                         color: '#fbbf24',
                         border: '1px solid rgba(245, 158, 11, 0.45)',
-                        cursor: 'pointer',
+                        cursor: info.isAuto ? 'pointer' : 'default',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px'
@@ -3819,32 +3889,36 @@ function PptView() {
                     <div className="scooh-ppt-booked-header">
                       <span className="scooh-ppt-booked-tag">
                         <span className="scooh-ppt-booked-dot" />
-                        Booked / Active Campaign
+                        {info.isAuto ? 'Booked / Active Campaign (Tracker)' : (info.hasManual ? 'Booked (Manual Date)' : 'Booked (Manual)')}
                       </span>
-                      <button
-                        type="button"
-                        className="scooh-ppt-booked-link"
-                        onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
-                        title={`View campaign details for ${s.site_code} in Campaign Tracker`}
-                      >
-                        ↗ Tracker
-                      </button>
+                      {info.isAuto ? (
+                        <button
+                          type="button"
+                          className="scooh-ppt-booked-link"
+                          onClick={() => navigate(`/campaigns?site=${encodeURIComponent(s.site_code)}`)}
+                          title={`View campaign details for ${s.site_code} in Campaign Tracker`}
+                        >
+                          ↗ Tracker
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: '10.5px', color: '#38bdf8', fontWeight: 600 }}>✍️ Manual</span>
+                      )}
                     </div>
 
                     <div className="scooh-ppt-booked-body">
                       {/* Campaign Name */}
                       <div className="scooh-ppt-booked-row">
                         <span className="scooh-ppt-booked-label">Campaign Name</span>
-                        <span className="scooh-ppt-booked-val camp-val" title={campaignName || 'Active Campaign'}>
-                          📢 {campaignName || '—'}
+                        <span className="scooh-ppt-booked-val camp-val" title={campaignName || (info.isAuto ? 'Active Campaign' : 'Manual Booking')}>
+                          📢 {campaignName || (info.isAuto ? '—' : 'Manual Booking')}
                         </span>
                       </div>
 
                       {/* Client Name */}
                       <div className="scooh-ppt-booked-row">
                         <span className="scooh-ppt-booked-label">Client Name</span>
-                        <span className="scooh-ppt-booked-val client-val" title={clientName || 'Booked Client'}>
-                          🏢 {clientName || '—'}
+                        <span className="scooh-ppt-booked-val client-val" title={clientName || (info.isAuto ? 'Booked Client' : '—')}>
+                          🏢 {clientName || (info.isAuto ? '—' : (s.ownership || '—'))}
                         </span>
                       </div>
 
@@ -3865,7 +3939,7 @@ function PptView() {
                           </span>
                         </div>
                         <div className="scooh-ppt-booked-date-col">
-                          <span className="scooh-ppt-booked-label">End Date</span>
+                          <span className="scooh-ppt-booked-label">End / Available Date</span>
                           <span className="scooh-ppt-booked-val date-val end-date-val">
                             🏁 {finalEndDateText || '—'}
                           </span>
@@ -3876,36 +3950,114 @@ function PptView() {
                 )}
 
                 <div className="scooh-ppt-availability" onClick={e => e.stopPropagation()}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <label style={{ margin: 0 }}>Availability for PPT</label>
-                    {endDateText ? (
-                      <span style={{ fontSize: '10.5px', color: '#fbbf24', fontWeight: 600 }}>
-                        Auto from Campaign Tracker
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px', flexWrap: 'wrap', gap: '4px' }}>
+                    <label style={{ margin: 0 }}>Availability / Available Date</label>
+                    {info.isAuto ? (
+                      <span className="scooh-ppt-avail-status-tag auto" title={`Automatic booking dates from Campaign Tracker (End: ${info.endDateStr})`}>
+                        ⚡ Auto Tracker
                       </span>
-                    ) : dateFilter ? (
-                      <span style={{ fontSize: '10.5px', color: '#4ade80', fontWeight: 600 }}>
-                        Available on {formatDate(dateFilter) || dateFilter}
+                    ) : info.manualDateFmt ? (
+                      <span className="scooh-ppt-avail-status-tag manual" title={`Manual available date (${info.endDateStr})`}>
+                        ✍️ Manual Date
                       </span>
-                    ) : null}
+                    ) : (
+                      <span className="scooh-ppt-avail-status-tag available">
+                        ✓ Available
+                      </span>
+                    )}
                   </div>
-                  <input
-                    type="text"
-                    className="scooh-ppt-availability-input"
-                    value={v.availability !== undefined ? v.availability : autoAvail}
-                    placeholder={autoAvail || "Immediate or DD.MM.YYYY"}
-                    onChange={e => setSel({ ...sel, [siteKey]: { ...v, availability: e.target.value } })}
-                  />
-                  {finalEndDateText && isBooked ? (
-                    <div style={{ fontSize: '11px', color: '#38bdf8', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span>📅 Booked End Date:</span>
-                      <span style={{ fontWeight: 600 }}>{finalEndDateText}</span>
-                    </div>
-                  ) : dateFilter ? (
-                    <div style={{ fontSize: '11px', color: '#4ade80', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span>✓</span>
-                      <span style={{ fontWeight: 600 }}>Available on this date</span>
-                    </div>
-                  ) : null}
+
+                  <div className="scooh-ppt-avail-row">
+                    <input
+                      type="date"
+                      title="Manual available date or booked end date. Set date manually or clear to use auto tracker."
+                      value={v.manualDate !== undefined ? v.manualDate : (info.isAuto ? '' : info.manualDateIso)}
+                      onChange={e => {
+                        const newDate = e.target.value;
+                        const dObj = newDate ? parseDay(newDate) : null;
+                        const newAvail = dObj ? `Booked till ${fmtDate(dObj)}` : (info.hasAuto ? `Booked till ${info.autoEndDateStr}` : 'Available');
+                        setSel({
+                          ...sel,
+                          [siteKey]: {
+                            ...v,
+                            manualDate: newDate,
+                            availability: newAvail
+                          }
+                        });
+                      }}
+                    />
+                    <input
+                      type="text"
+                      className="scooh-ppt-availability-input"
+                      value={v.availability !== undefined ? v.availability : info.availText}
+                      placeholder={info.defaultAvailText || "Immediate or DD.MM.YYYY"}
+                      title="Availability text for PowerPoint & Excel"
+                      onChange={e => {
+                        const val = e.target.value;
+                        const d = extractDateFromString(val);
+                        setSel({
+                          ...sel,
+                          [siteKey]: {
+                            ...v,
+                            availability: val,
+                            manualDate: d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : v.manualDate
+                          }
+                        });
+                      }}
+                    />
+                    {(v.manualDate !== undefined || v.availability !== undefined) && (
+                      <button
+                        type="button"
+                        title="Reset to default / auto tracker"
+                        onClick={() => {
+                          const next = { ...v };
+                          delete next.manualDate;
+                          delete next.availability;
+                          setSel({ ...sel, [siteKey]: next });
+                        }}
+                        style={{
+                          background: 'none',
+                          border: '1px solid var(--mb-border-2)',
+                          color: '#f87171',
+                          borderRadius: '8px',
+                          padding: '0 8px',
+                          cursor: 'pointer',
+                          minHeight: '32px',
+                          fontSize: '13px',
+                          flexShrink: 0
+                        }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ fontSize: '11px', marginTop: '5px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', flexWrap: 'wrap' }}>
+                    {info.isAuto ? (
+                      <div style={{ color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span>⚡ Auto End Date:</span>
+                        <strong style={{ color: '#fef08a' }}>{info.endDateStr}</strong>
+                        <span style={{ opacity: 0.7, fontSize: '10px' }}>(from Tracker)</span>
+                      </div>
+                    ) : info.manualDateFmt ? (
+                      <div style={{ color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span>📅 Manual Date:</span>
+                        <strong style={{ color: '#7dd3fc' }}>{info.manualDateFmt}</strong>
+                        <span style={{ opacity: 0.7, fontSize: '10px' }}>(manual)</span>
+                      </div>
+                    ) : (
+                      <div style={{ color: '#4ade80', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span>✓</span>
+                        <span>Available Immediately</span>
+                      </div>
+                    )}
+
+                    {dateFilter && (
+                      <span style={{ color: info.isBooked ? '#fbbf24' : '#4ade80', fontWeight: 600 }}>
+                        {info.isBooked ? `🔒 Occupied on ${formatDate(dateFilter) || dateFilter}` : `✓ Available on ${formatDate(dateFilter) || dateFilter}`}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="scooh-ppt-output-options" onClick={e => e.stopPropagation()}>
