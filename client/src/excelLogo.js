@@ -120,19 +120,22 @@ export function attachMediaBuzzExcelHeader(workbook, worksheet, {
   }
 }
 
-// Plain text 5-point official terms for proposals & web views
+// Plain text 7-point official terms for proposals & web views
 export const MEDIA_BUZZ_TERMS_TEXT = [
   '1. Before confirming any site, please check and confirm its availability.',
   '2. 18% GST will be charged extra, as applicable.',
   '3. Printing charges will be charged extra, as actual.',
   '4. Mounting charges will be charged extra at ₹4 per sq. ft.',
-  '5. Payment Terms: Advance / within 30 days from the date of invoice.'
+  '5. Payment Terms: Advance / within 30 days from the date of invoice.',
+  '6. Artwork/Flex must be provided within 7 days of site confirmation, otherwise the site may be released.',
+  "7. Cancellations require a minimum 10 days' notice; immediate cancellations are not accepted."
 ].join('\n');
 
 export const MEDIA_BUZZ_TERMS_CONFIG = [
   {
     richText: [
-      { font: { bold: true, name: 'Calibri', size: 10, color: { argb: 'FF071C35' } }, text: '1. Before confirming any site, please check and confirm its availability.' }
+      { font: { bold: false, name: 'Calibri', size: 10, color: { argb: 'FF1E293B' } }, text: '1. ' },
+      { font: { bold: true, name: 'Calibri', size: 10, color: { argb: 'FF071C35' } }, text: 'Before confirming any site, please check and confirm its availability.' }
     ]
   },
   {
@@ -164,11 +167,23 @@ export const MEDIA_BUZZ_TERMS_CONFIG = [
       { font: { bold: false, name: 'Calibri', size: 10, color: { argb: 'FF1E293B' } }, text: ' Advance / within ' },
       { font: { bold: true, name: 'Calibri', size: 10, color: { argb: 'FF071C35' } }, text: '30 days from the date of invoice.' }
     ]
+  },
+  {
+    richText: [
+      { font: { bold: false, name: 'Calibri', size: 10, color: { argb: 'FF1E293B' } }, text: '6. ' },
+      { font: { bold: true, name: 'Calibri', size: 10, color: { argb: 'FF071C35' } }, text: 'Artwork/Flex must be provided within 7 days of site confirmation, otherwise the site may be released.' }
+    ]
+  },
+  {
+    richText: [
+      { font: { bold: false, name: 'Calibri', size: 10, color: { argb: 'FF1E293B' } }, text: '7. ' },
+      { font: { bold: true, name: 'Calibri', size: 10, color: { argb: 'FF071C35' } }, text: "Cancellations require a minimum 10 days' notice; immediate cancellations are not accepted." }
+    ]
   }
 ];
 
 /**
- * Attaches the official 5-point Terms & Conditions block at the bottom center of an automated Excel sheet.
+ * Attaches the official 7-point Terms & Conditions block at the bottom center of an automated Excel sheet.
  * 
  * @param {import('exceljs').Worksheet} worksheet
  * @param {Object} options
@@ -216,7 +231,7 @@ export function attachMediaBuzzTermsAndConditions(worksheet, {
     horizontal: 'center'
   };
 
-  // 5 Term Rows
+  // 7 Term Rows
   MEDIA_BUZZ_TERMS_CONFIG.forEach((term, idx) => {
     const rNum = baseRow + 1 + idx;
     worksheet.mergeCells(`A${rNum}:${lastColLetter}${rNum}`);
