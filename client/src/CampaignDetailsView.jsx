@@ -52,8 +52,7 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
     { key: 'type', width: 16 },
     { key: 'start_date', width: 15 },
     { key: 'end_date', width: 15 },
-    { key: 'days', width: 10 },
-    { key: 'status', width: 14 }
+    { key: 'days', width: 10 }
   ];
   worksheet.columns = cols;
 
@@ -75,7 +74,7 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
   // Header Row (Row 2)
   const headers = [
     '#', 'Site Code', 'Client / Display',
-    'Location', 'Size', 'Type', 'Start Date', 'End Date', 'Days', 'Status'
+    'Location', 'Size', 'Type', 'Start Date', 'End Date', 'Days'
   ];
   const headerRow = worksheet.getRow(2);
   headerRow.height = 28;
@@ -86,7 +85,7 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
     cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
     cell.alignment = {
       vertical: 'middle',
-      horizontal: [1, 2, 5, 6, 7, 8, 9, 10].includes(i + 1) ? 'center' : 'left',
+      horizontal: [1, 2, 5, 6, 7, 8, 9].includes(i + 1) ? 'center' : 'left',
       wrapText: false
     };
     cell.border = {
@@ -112,8 +111,7 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
       type: r.type || 'Hoarding',
       start_date: r.start_date || '—',
       end_date: r.end_date || '—',
-      days: r.tenureDays || r.days || (r.start_date && r.end_date ? Math.max(1, Math.round((new Date(r.end_date) - new Date(r.start_date)) / 86400000) + 1) : '—'),
-      status: r.computedStatus ? r.computedStatus.toUpperCase() : 'LIVE'
+      days: r.tenureDays || r.days || (r.start_date && r.end_date ? Math.max(1, Math.round((new Date(r.end_date) - new Date(r.start_date)) / 86400000) + 1) : '—')
     });
     row.height = 22;
 
@@ -122,7 +120,7 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
       cell.font = { name: 'Calibri', size: 10.5 };
       cell.alignment = {
         vertical: 'middle',
-        horizontal: [1, 2, 5, 6, 7, 8, 9, 10].includes(colNumber) ? 'center' : 'left'
+        horizontal: [1, 2, 5, 6, 7, 8, 9].includes(colNumber) ? 'center' : 'left'
       };
       cell.border = {
         top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
@@ -958,20 +956,19 @@ export default function CampaignDetailsView() {
                   Days {sortState.key === 'days' && (sortState.dir === 'asc' ? '↑' : '↓')}
                 </th>
                 
-                <th style={{ minWidth: '110px', textAlign: 'center' }}>Status</th>
                 <th style={{ minWidth: '110px', textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
                     <div style={{ fontSize: '18px', marginBottom: '8px' }}>⏳ Loading campaign details…</div>
                   </td>
                 </tr>
               ) : sortedList.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
                     <div style={{ fontSize: '40px', marginBottom: '10px' }}>🔍</div>
                     <div style={{ fontSize: '16px', fontWeight: 700, color: '#cbd5e1' }}>
                       No campaigns found for the selected filter
@@ -1060,12 +1057,6 @@ export default function CampaignDetailsView() {
                         </span>
                       </td>
                       
-                      <td style={{ textAlign: 'center' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 8px', borderRadius: '5px', background: statusBg, border: `1px solid ${statusBorder}`, color: statusColor, fontSize: '11px', fontWeight: 800 }}>
-                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusColor }} />
-                          {isLive ? 'Live' : (isUpcoming ? 'Upcoming' : 'Ended')}
-                        </span>
-                      </td>
                       <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'inline-flex', gap: '5px', alignItems: 'center' }}>
                           <button
