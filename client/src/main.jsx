@@ -1402,7 +1402,7 @@ function Layout() {
               aria-label="Toggle Theme"
             >
               <span>{theme === 'dark' ? '☀️' : '🌙'}</span>
-              <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+              <span className="scooh-theme-label">{theme === 'dark' ? 'Light' : 'Dark'}</span>
             </button>
 
             <div className="scooh-topbar-notifications" style={{ position: 'relative' }}>
