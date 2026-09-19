@@ -170,6 +170,132 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
   URL.revokeObjectURL(url);
 }
 
+
+// ── Download Sample Template for Campaign Excel Import ───────────────────────
+export async function downloadSampleCampaignExcel() {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Campaign Template', {
+    views: [{ state: 'frozen', ySplit: 2 }]
+  });
+
+  const cols = [
+    { key: 'site_code', width: 14 },
+    { key: 'location', width: 34 },
+    { key: 'client', width: 28 },
+    { key: 'display', width: 28 },
+    { key: 'start_date', width: 16 },
+    { key: 'end_date', width: 16 },
+    { key: 'advt_fees', width: 16 },
+    { key: 'total_amount', width: 16 },
+    { key: 'pending', width: 16 },
+    { key: 'notes', width: 30 }
+  ];
+  worksheet.columns = cols;
+
+  attachMediaBuzzExcelHeader(workbook, worksheet, {
+    title: 'MEDIA BUZZ — CAMPAIGN DETAILS IMPORT TEMPLATE',
+    columns: cols,
+    totalColumns: 10
+  });
+
+  const headers = [
+    'SITE CODE',
+    'LOCATION',
+    'CLIENT',
+    'DISPLAY / BRAND',
+    'START DATE (YYYY-MM-DD)',
+    'END DATE (YYYY-MM-DD)',
+    'ADVT. FEES',
+    'TOTAL AMOUNT',
+    'PENDING AMOUNT',
+    'NOTES'
+  ];
+
+  const headerRow = worksheet.getRow(2);
+  headerRow.height = 28;
+  headers.forEach((h, idx) => {
+    headerRow.getCell(idx + 1).value = h;
+  });
+
+  headerRow.eachCell((cell, colNum) => {
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFFF00' }
+    };
+    cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: [1, 5, 6].includes(colNum) ? 'center' : [7, 8, 9].includes(colNum) ? 'right' : 'left'
+    };
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FFC0C0C0' } },
+      left: { style: 'thin', color: { argb: 'FFC0C0C0' } },
+      bottom: { style: 'medium', color: { argb: 'FF808080' } },
+      right: { style: 'thin', color: { argb: 'FFC0C0C0' } }
+    };
+  });
+
+  const sampleRows = [
+    {
+      site_code: 'MB-01',
+      location: 'Shivranjani Cross Roads, Ahmedabad',
+      client: 'Tata Motors',
+      display: 'Tata Punch EV Launch',
+      start_date: '2026-03-01',
+      end_date: '2026-03-31',
+      advt_fees: 125000,
+      total_amount: 150000,
+      pending: 0,
+      notes: 'Prime display at junction'
+    },
+    {
+      site_code: 'MB-02',
+      location: 'Iskcon Cross Roads, SG Highway',
+      client: 'HDFC Bank',
+      display: 'Festive Home Loan Campaign',
+      start_date: '2026-04-01',
+      end_date: '2026-04-30',
+      advt_fees: 95000,
+      total_amount: 110000,
+      pending: 25000,
+      notes: 'Backlit high visibility'
+    }
+  ];
+
+  sampleRows.forEach(r => {
+    const row = worksheet.addRow(r);
+    row.height = 22;
+    row.eachCell((cell, colNum) => {
+      cell.font = { name: 'Calibri', size: 10.5 };
+      cell.alignment = {
+        vertical: 'middle',
+        horizontal: [1, 5, 6].includes(colNum) ? 'center' : [7, 8, 9].includes(colNum) ? 'right' : 'left'
+      };
+      if ([7, 8, 9].includes(colNum) && typeof cell.value === 'number') {
+        cell.numFmt = '#,##,##0';
+      }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+        left: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+        bottom: { style: 'thin', color: { argb: 'FFE8E8E8' } },
+        right: { style: 'thin', color: { argb: 'FFE8E8E8' } }
+      };
+    });
+  });
+
+  attachMediaBuzzTermsAndConditions(worksheet, { totalColumns: 10 });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'MediaBuzz_Campaign_Details_Sample_Template.xlsx';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function CampaignDetailsView() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -181,6 +307,8 @@ export default function CampaignDetailsView() {
   const [campaigns, setCampaigns] = useState([]);
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [importingExcel, setImportingExcel] = useState(false);
+  const [importBanner, setImportBanner] = useState('');
 
   // Filters: Client/Display text, Start Date, End Date, Status
   const [clientOrDisplay, setClientOrDisplay] = useState('');
@@ -189,6 +317,33 @@ export default function CampaignDetailsView() {
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'live' | 'upcoming' | 'completed'
   const [siteFilter, setSiteFilter] = useState('');
   const [sortState, setSortState] = useState({ key: 'start_date', dir: 'desc' });
+
+
+  // ── Import Campaign Excel ────────────────────────────────────────────────
+  async function handleImportExcel(e) {
+    if (!canAdd) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingExcel(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await api.post('/import/campaigns-xlsx', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const msg = r.data?.message || `Processed ${r.data?.rows || 0} campaigns (${r.data?.updated || 0} updated, ${r.data?.created || 0} created).`;
+      setImportBanner(`✓ ${msg}`);
+      alert(`✓ Campaign Excel Import Successful!\n\n${msg}`);
+      await loadData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+      setTimeout(() => setImportBanner(''), 6000);
+    } catch (err) {
+      console.error('Excel Import failed:', err);
+      alert('Campaign Excel Import failed: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setImportingExcel(false);
+      e.target.value = '';
+    }
+  }
 
   // Modals: Inspect details and Add/Edit
   const [selectedCampaign, setSelectedCampaign] = useState(null);
@@ -557,6 +712,31 @@ export default function CampaignDetailsView() {
             📥 Export Excel
           </button>
           {canAdd && (
+            <label
+              className="scooh-btn ghost"
+              style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              title="Upload Excel spreadsheet (.xlsx, .xls) to import campaign bookings"
+            >
+              <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                hidden
+                disabled={importingExcel}
+                onChange={handleImportExcel}
+              />
+            </label>
+          )}
+          <button
+            type="button"
+            className="scooh-btn ghost"
+            onClick={downloadSampleCampaignExcel}
+            style={{ fontSize: '12px', color: '#94a3b8' }}
+            title="Download sample Excel template for importing campaign bookings"
+          >
+            📄 Sample Template
+          </button>
+          {canAdd && (
             <button
               type="button"
               className="scooh-btn purple-btn"
@@ -579,6 +759,13 @@ export default function CampaignDetailsView() {
           )}
         </div>
       </div>
+
+      {importBanner && (
+        <div style={{ padding: '10px 18px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: '8px', color: '#34d399', fontSize: '13px', fontWeight: 600, marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>{importBanner}</span>
+          <button type="button" onClick={() => setImportBanner('')} style={{ background: 'none', border: 'none', color: '#34d399', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
+        </div>
+      )}
 
       {/* ── Filter Control Panel ────────────────────────────────────────── */}
       <section className="scooh-panel" style={{ marginBottom: '16px', padding: '18px 20px', border: '1px solid rgba(168, 85, 247, 0.25)', background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.85) 0%, rgba(11, 16, 22, 0.95) 100%)' }}>
