@@ -3230,18 +3230,18 @@ function PptView() {
         title="Automated PPT"
         desc="Select sites, customize presentation name, and generate client pitch decks with the official Media Buzz side dashboard."
         actions={
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <div className="scooh-ppt-head-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <div className="scooh-ppt-name-bar" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(10, 30, 53, 0.85)', padding: '5px 12px', borderRadius: '8px', border: '1px solid #1c3b60' }}>
               <span style={{ fontSize: '11px', fontWeight: 700, color: '#FFC200', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Presentation Name:</span>
               <input
                 type="text"
-                className="scooh-input"
-                style={{ width: '220px', padding: '5px 10px', fontSize: '13px', background: '#071526', border: '1px solid #234d7d', color: '#fff', borderRadius: '5px' }}
+                className="scooh-input scooh-ppt-name-input"
+                style={{ flex: '1 1 180px', minWidth: 0, padding: '5px 10px', fontSize: '13px', background: '#071526', border: '1px solid #234d7d', color: '#fff', borderRadius: '5px' }}
                 value={pptName}
                 onChange={e => setPptName(e.target.value)}
                 placeholder="MediaBuzz_Automated-PPT"
               />
-              <span style={{ fontSize: '12px', color: '#8fa4bd', fontWeight: 600 }}>
+              <span className="scooh-ppt-name-ext" style={{ fontSize: '12px', color: '#8fa4bd', fontWeight: 600 }}>
                 {alsoGenerateExcel ? '.pptx & .xlsx' : '.pptx'}
               </span>
             </div>
@@ -3546,7 +3546,7 @@ function PptView() {
 
           <div
             className="scooh-ppt-select-actions"
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}
           >
             <label
               className="scooh-btn ghost"
@@ -3585,6 +3585,7 @@ function PptView() {
               />
             </label>
             <label
+              className="scooh-ppt-replace-toggle"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -3679,15 +3680,15 @@ function PptView() {
 
         {/* Dynamic Date Evaluation Banner */}
         {dateFilter && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '8px', padding: '8px 14px', margin: '10px 0 16px', fontSize: '12px', color: '#38bdf8' }}>
+          <div className="scooh-ppt-date-banner" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '8px', padding: '8px 14px', margin: '10px 0 16px', fontSize: '12px', color: '#38bdf8' }}>
             <span style={{ fontSize: '15px' }}>📅</span>
-            <span>
+            <span style={{ flex: '1 1 auto', minWidth: '160px' }}>
               Site availability evaluated as of <strong>{formatDate(dateFilter) || dateFilter}</strong>. Any site whose campaign ends before this date automatically displays as <strong>Available</strong>.
             </span>
             <button
               type="button"
               onClick={() => setDateFilter('')}
-              style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '11.5px', fontWeight: 700, textDecoration: 'underline' }}
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '11.5px', fontWeight: 700, textDecoration: 'underline', padding: '4px 0' }}
             >
               Reset to Today
             </button>
@@ -3719,38 +3720,40 @@ function PptView() {
                   background: isChecked ? 'rgba(30, 27, 75, 0.45)' : undefined
                 }}
               >
-                <input
-                  type="checkbox"
-                  className="scooh-ppt-site-check"
-                  checked={isChecked}
-                  onChange={e => setSel({ ...sel, [siteKey]: { ...v, checked: e.target.checked } })}
-                  style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#a78bfa' }}
-                />
-                <div className="scooh-ppt-card-actions" style={{ display: 'flex', gap: '6px' }}>
-                  <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 9px' }} onClick={e => e.stopPropagation()} title="Upload one or more photo files">
-                    Add images
-                    <input
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      hidden
-                      onChange={e => e.target.files.length && addImages(s, e.target.files)}
-                    />
-                  </label>
-                  <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 8px' }} onClick={e => e.stopPropagation()} title={`Import a folder of photos specifically for ${s.site_code} (replaces old photos)`}>
-                    📁 Folder
-                    <input
-                      type="file"
-                      {...{ webkitdirectory: '', directory: '', multiple: true }}
-                      hidden
-                      onChange={e => {
-                        const imgFiles = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|gif|bmp)$/i.test(f.name));
-                        if (imgFiles.length) addImages(s, imgFiles, true);
-                        else alert('No image files found in folder.');
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
+                <div className="scooh-ppt-card-top" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '8px' }}>
+                  <input
+                    type="checkbox"
+                    className="scooh-ppt-site-check"
+                    checked={isChecked}
+                    onChange={e => setSel({ ...sel, [siteKey]: { ...v, checked: e.target.checked } })}
+                    style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#a78bfa', margin: 0 }}
+                  />
+                  <div className="scooh-ppt-card-actions" style={{ display: 'flex', gap: '6px', margin: 0 }}>
+                    <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 9px', minHeight: '30px' }} onClick={e => e.stopPropagation()} title="Upload one or more photo files">
+                      Add images
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        hidden
+                        onChange={e => e.target.files.length && addImages(s, e.target.files)}
+                      />
+                    </label>
+                    <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 8px', minHeight: '30px' }} onClick={e => e.stopPropagation()} title={`Import a folder of photos specifically for ${s.site_code} (replaces old photos)`}>
+                      📁 Folder
+                      <input
+                        type="file"
+                        {...{ webkitdirectory: '', directory: '', multiple: true }}
+                        hidden
+                        onChange={e => {
+                          const imgFiles = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|gif|bmp)$/i.test(f.name));
+                          if (imgFiles.length) addImages(s, imgFiles, true);
+                          else alert('No image files found in folder.');
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
                 </div>
 
                 <div className="scooh-ppt-photo-list scooh-ppt-added-images">
@@ -4096,12 +4099,12 @@ function PptView() {
       {/* ── Modal for Folder Photo Auto-Import Progress & Results ───────── */}
       {folderImportStatus && (
         <div 
-          className="scooh-modal-backdrop" 
+          className="scooh-modal-backdrop scooh-ppt-folder-modal-backdrop" 
           style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
           onClick={() => { if (folderImportStatus.finished) setFolderImportStatus(null); }}
         >
           <div 
-            className="scooh-panel" 
+            className="scooh-panel scooh-ppt-folder-modal-panel" 
             style={{ width: '100%', maxWidth: '580px', maxHeight: '88vh', overflowY: 'auto', border: '1px solid #38bdf8', boxShadow: '0 20px 50px rgba(0,0,0,0.7)' }}
             onClick={e => e.stopPropagation()}
           >

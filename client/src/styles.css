@@ -1008,15 +1008,204 @@ body {
   .scooh-proposal-rates{grid-template-columns:1fr!important}
 }
 
-/* Automated PPT Toolbar & Single Row Search/Actions */
-.scooh-ppt-toolbar{display:flex;align-items:center;gap:12px;margin:18px 0 10px;width:100%}
-.scooh-ppt-toolbar .scooh-ppt-search-wrap{flex:1;min-width:0;margin:0!important}
-.scooh-ppt-select-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}
-.scooh-ppt-select-actions .scooh-btn{white-space:nowrap;min-height:44px;padding:0 16px;font-size:12.5px}
-@media(max-width:768px){
-  .scooh-ppt-toolbar{flex-direction:column;align-items:stretch;gap:10px}
-  .scooh-ppt-select-actions{width:100%;justify-content:flex-start;flex-wrap:wrap;gap:8px}
-  .scooh-ppt-select-actions .scooh-btn{flex:1 1 auto;min-width:110px}
+/* Automated PPT Toolbar & Layout Controls */
+.scooh-ppt-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.scooh-ppt-name-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(10, 30, 53, 0.85);
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid #1c3b60;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.scooh-ppt-name-input {
+  flex: 1 1 180px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.scooh-ppt-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  width: 100%;
+}
+.scooh-ppt-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.scooh-ppt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 10px;
+  width: 100%;
+}
+.scooh-ppt-toolbar .scooh-ppt-search-wrap {
+  flex: 1;
+  min-width: 0;
+  margin: 0 !important;
+}
+.scooh-ppt-select-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.scooh-ppt-select-actions .scooh-btn {
+  white-space: nowrap;
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 12.5px;
+}
+
+@media (max-width: 768px) {
+  .scooh-ppt-head-actions {
+    width: 100% !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+  .scooh-ppt-name-bar {
+    width: 100% !important;
+    flex-wrap: wrap !important;
+    padding: 8px 10px !important;
+  }
+  .scooh-ppt-name-bar span:first-child {
+    width: 100% !important;
+    display: block !important;
+    margin-bottom: 2px !important;
+  }
+  .scooh-ppt-name-input {
+    width: 100% !important;
+    flex: 1 1 100% !important;
+    min-height: 38px !important;
+  }
+  .scooh-ppt-name-ext {
+    display: none !important;
+  }
+  .scooh-ppt-excel-option {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    justify-content: flex-start !important;
+    min-height: 42px !important;
+    padding: 8px 12px !important;
+  }
+  .scooh-ppt-head-actions .scooh-btn {
+    width: 100% !important;
+    min-height: 44px !important;
+    justify-content: center !important;
+    text-align: center !important;
+  }
+  .scooh-ppt-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    margin: 14px 0 10px !important;
+  }
+  .scooh-ppt-search-wrap {
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  .scooh-ppt-select-actions {
+    width: 100% !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .scooh-ppt-select-actions > * {
+    flex: 1 1 calc(50% - 4px) !important;
+    min-width: 130px !important;
+    box-sizing: border-box !important;
+    justify-content: center !important;
+    text-align: center !important;
+  }
+  .scooh-ppt-select-actions select {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .scooh-ppt-fixed-pages .scooh-grid3 {
+    grid-template-columns: 1fr !important;
+  }
+  .scooh-ppt-global-settings {
+    grid-template-columns: 1fr !important;
+  }
+  .scooh-ppt-date-banner {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
+  }
+  .scooh-ppt-date-banner button {
+    margin-left: 0 !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .scooh-ppt-select-actions > * {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    min-height: 42px !important;
+  }
+  .scooh-ppt-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+    padding: 4px 0 !important;
+  }
+  .scooh-ppt-site {
+    padding: 12px 10px !important;
+    border-radius: 12px !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+  }
+  .scooh-ppt-avail-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+  .scooh-ppt-avail-row input[type="date"] {
+    flex: 1 1 100% !important;
+    min-width: 100% !important;
+    width: 100% !important;
+    min-height: 38px !important;
+  }
+  .scooh-ppt-avail-row input[type="text"] {
+    flex: 1 1 0% !important;
+    min-width: 120px !important;
+    min-height: 38px !important;
+  }
+  .scooh-ppt-avail-row button {
+    flex: 0 0 auto !important;
+    min-height: 38px !important;
+    padding: 0 12px !important;
+  }
+  .scooh-ppt-booked-dates {
+    grid-template-columns: 1fr !important;
+    gap: 4px !important;
+  }
+  .scooh-ppt-folder-modal-backdrop {
+    padding: 10px !important;
+  }
+  .scooh-ppt-folder-modal-panel {
+    max-height: calc(100dvh - 20px) !important;
+    padding: 14px !important;
+  }
 }
 
 /* Automated PPT optional output controls */
