@@ -566,53 +566,48 @@ const OVERLAY_SVG_STRING = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0
   <polygon points="1260,0 1920,0 1920,1080 1080,1080" fill="url(#mainNavy)" />
   <line x1="1260" y1="0" x2="1080" y2="1080" stroke="#0B2A4A" stroke-width="1.5" />
 
-  <!-- A. SITE CODE Section Accents (Moved to top with ample space) -->
+  <!-- A. SITE CODE Section Accents (Compact top bar and clean label) -->
   <!-- Yellow horizontal bar above SITE CODE -->
-  <rect x="1300" y="48" width="90" height="8" rx="4" fill="#FFC200" />
+  <rect x="1300" y="24" width="70" height="6" rx="3" fill="#FFC200" />
   <!-- Label: SITE CODE -->
-  <text x="1300" y="88" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="21" fill="#FFFFFF" letter-spacing="4">SITE CODE</text>
+  <text x="1300" y="58" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="16" fill="#FFFFFF" letter-spacing="3">SITE CODE</text>
 
-  <!-- B. Headline Section Accents -->
+  <!-- B. Thin Horizontal Divider Lines under Spec Rows 1–5 -->
+  <!-- Line under Row 1: Size -->
+  <line x1="1395" y1="485" x2="1885" y2="485" stroke="#0F355C" stroke-width="1.5" />
+  <!-- Line under Row 2: Type -->
+  <line x1="1395" y1="580" x2="1885" y2="580" stroke="#0F355C" stroke-width="1.5" />
+  <!-- Line under Row 3: Illumination -->
+  <line x1="1395" y1="675" x2="1885" y2="675" stroke="#0F355C" stroke-width="1.5" />
+  <!-- Line under Row 4: Adv. Fee Per Month -->
+  <line x1="1395" y1="770" x2="1885" y2="770" stroke="#0F355C" stroke-width="1.5" />
+  <!-- Line under Row 5: Availability -->
+  <line x1="1395" y1="865" x2="1885" y2="865" stroke="#0F355C" stroke-width="1.5" />
 
-
-  <!-- C. Thin Horizontal Divider Lines across the specs & coordinates list -->
-  <line x1="1295" y1="375" x2="1885" y2="375" stroke="#0F355C" stroke-width="1.5" />
-  <line x1="1295" y1="485" x2="1885" y2="485" stroke="#0F355C" stroke-width="1.5" />
-  <line x1="1295" y1="595" x2="1885" y2="595" stroke="#0F355C" stroke-width="1.5" />
-  <line x1="1295" y1="705" x2="1885" y2="705" stroke="#0F355C" stroke-width="1.5" />
-  <line x1="1295" y1="815" x2="1885" y2="815" stroke="#0F355C" stroke-width="1.5" />
-  <line x1="1295" y1="925" x2="1885" y2="925" stroke="#0F355C" stroke-width="1.5" />
-  <line x1="1295" y1="1040" x2="1885" y2="1040" stroke="#0F355C" stroke-width="1.5" />
-
-  <!-- D. Spec Section Labels & Icons matching reference photo -->
-  <!-- Row 1: SIZE -->
-  <g transform="translate(1305, 395)">
-    <!-- 4-arrows icon -->
-    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- C. Spec Section Icons in unified Cyan/Sky Blue (#38BDF8) matching reference format -->
+  <!-- Row 1: Size Icon -->
+  <g transform="translate(1305, 408)">
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
       <polyline points="15 3 21 3 21 9" />
       <polyline points="9 21 3 21 3 15" />
       <polyline points="21 15 21 21 15 21" />
       <polyline points="3 9 3 3 9 3" />
     </svg>
   </g>
-  <text x="1395" y="415" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="18" fill="#8EA5C4" letter-spacing="1">SIZE</text>
 
-  <!-- Row 2: TYPE -->
-  <g transform="translate(1303, 505)">
-    <!-- Billboard outline icon -->
-    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Row 2: Type Icon -->
+  <g transform="translate(1304, 502)">
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#38BDF8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="4" width="18" height="11" rx="1.5" />
       <line x1="8" y1="15" x2="8" y2="21" />
       <line x1="16" y1="15" x2="16" y2="21" />
       <line x1="5" y1="21" x2="19" y2="21" />
     </svg>
   </g>
-  <text x="1395" y="525" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="18" fill="#8EA5C4" letter-spacing="1">TYPE</text>
 
-  <!-- Row 3: ILLUMINATION -->
-  <g transform="translate(1304, 615)">
-    <!-- Lightbulb icon -->
-    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Row 3: Illumination Icon -->
+  <g transform="translate(1304, 597)">
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#38BDF8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M9 18h6" />
       <path d="M10 22h4" />
       <path d="M12 2v2" />
@@ -621,38 +616,31 @@ const OVERLAY_SVG_STRING = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0
       <line x1="19.07" y1="4.93" x2="17.66" y2="6.34" />
     </svg>
   </g>
-  <text x="1395" y="635" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="18" fill="#8EA5C4" letter-spacing="1">ILLUMINATION</text>
 
-  <!-- Row 4: Adv. Fee Per Month -->
-  <g transform="translate(1310, 723)">
-    <!-- Yellow Rupee symbol -->
-    <svg width="38" height="42" viewBox="0 0 24 24" fill="none" stroke="#FFC200" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Row 4: Adv. Fee Icon (Rupee) -->
+  <g transform="translate(1308, 692)">
+    <svg width="40" height="44" viewBox="0 0 24 24" fill="none" stroke="#38BDF8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
       <path d="M6 3h12" />
       <path d="M6 8h12" />
       <path d="M6 13l8.5 8" />
       <path d="M6 13h3a4.5 4.5 0 0 0 0-9" />
     </svg>
   </g>
-  <text x="1395" y="745" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="17" fill="#8EA5C4" letter-spacing="0.5">Adv. Fee Per Month</text>
 
-  <!-- Row 5: AVAILABILITY -->
-  <g transform="translate(1306, 833)">
-    <!-- Circle checkmark icon -->
-    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#5AC8FA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="9.5" stroke="#5AC8FA" />
-      <polyline points="7.5 12 10.5 15 16.5 9" stroke="#5AC8FA" />
+  <!-- Row 5: Availability Icon (Circle Check) -->
+  <g transform="translate(1306, 787)">
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9.5" stroke="#38BDF8" />
+      <polyline points="7.5 12 10.5 15 16.5 9" stroke="#38BDF8" />
     </svg>
   </g>
-  <text x="1395" y="855" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="18" fill="#8EA5C4" letter-spacing="1">AVAILABILITY</text>
 
-  <!-- Row 6: Location Coordinates Icon & Label -->
-  <g transform="translate(1305, 943)">
-    <!-- Bright yellow location pin -->
-    <svg width="44" height="52" viewBox="0 0 24 24" fill="#FFC200">
+  <!-- Row 6: Location Coordinates Icon (Pin) -->
+  <g transform="translate(1306, 888)">
+    <svg width="44" height="50" viewBox="0 0 24 24" fill="#38BDF8">
       <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C7.58 2 4 5.58 4 10C4 15.5 12 22 12 22C12 22 20 15.5 20 10C20 5.58 16.42 2 12 2ZM12 13C10.34 13 9 11.66 9 10C9 8.34 10.34 7 12 7C13.66 7 15 8.34 15 10C15 11.66 13.66 13 12 13Z" />
     </svg>
   </g>
-  <text x="1375" y="966" font-family="'Montserrat', Arial, sans-serif" font-weight="700" font-size="18" fill="#8EA5C4" letter-spacing="1">LOCATION COORDINATES</text>
 </svg>`;
 
 const LOGO_SVG_STRING = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 140" width="540" height="140">
@@ -933,39 +921,27 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
     // 3. Dynamic Site Code Pill (Spacious & prominent at top)
     const siteCodeText = String(site.site_code || 'MB-AHD-001').toUpperCase();
     s.addShape(pptx.ShapeType.roundRect, {
-      x: 9.03, y: 0.76, w: 2.10, h: 0.46,
-      fill: { color: 'FFC200' }, line: { color: 'FFC200' }, rectRadius: 0.23
+      x: 9.03, y: 0.70, w: 2.10, h: 0.44,
+      fill: { color: 'FFC200' }, line: { color: 'FFC200' }, rectRadius: 0.22
     });
     const trackerUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/campaigns?site=${encodeURIComponent(siteCodeText)}`;
     s.addText(siteCodeText, {
-      x: 9.03, y: 0.76, w: 2.10, h: 0.46,
-      fontFace: 'Arial', fontSize: 14, bold: true, color: '000000', align: 'center', valign: 'middle', margin: 0,
+      x: 9.03, y: 0.70, w: 2.10, h: 0.44,
+      fontFace: 'Arial', fontSize: 13.5, bold: true, color: '000000', align: 'center', valign: 'middle', margin: 0,
       hyperlink: { url: trackerUrl, tooltip: `Open ${siteCodeText} in Campaign Tracker` }
     });
 
-    // 4. Headline: Area (Bold White, 17-19pt) & Landmark (Light Sky Blue, 12-13.5pt) - Single unified flow so they NEVER overlap
+    // 4. Headline: Area (Bold White, 20-22pt) & Landmark (Bold Sky Blue, 13.5-14.5pt) - Unified flow matching final format
     const area = String(site.area || site.city || site.site_code || 'Prime Site').trim();
-    let landmark = String(site.address || site.notes || '').trim();
+    const landmark = String(site.address || site.notes || (site.city ? `Near ${site.city} Hub` : '')).trim();
 
-    // Strip duplicate leading area from landmark to avoid redundant repetition & overflow
-    let cleanLandmark = landmark;
-    if (area && cleanLandmark.toLowerCase().startsWith(area.toLowerCase())) {
-      let trimmed = cleanLandmark.slice(area.length).trim();
-      trimmed = trimmed.replace(/^[\s–—\-:,|/]+/, '').trim();
-      cleanLandmark = trimmed;
-    }
-    if (!cleanLandmark || cleanLandmark.toLowerCase() === area.toLowerCase()) {
-      cleanLandmark = site.city && !area.toLowerCase().includes(site.city.toLowerCase()) ? site.city : '';
-    }
+    let areaFontSize = 21;
+    if (area.length > 40) areaFontSize = 16;
+    else if (area.length > 25) areaFontSize = 18.5;
 
-    // Balanced font sizes: clean & readable without breaking awkwardly or colliding
-    let areaFontSize = 19;
-    if (area.length > 40) areaFontSize = 15;
-    else if (area.length > 25) areaFontSize = 16.5;
-
-    let landmarkFontSize = 13;
-    if (cleanLandmark.length > 55) landmarkFontSize = 11;
-    else if (cleanLandmark.length > 35) landmarkFontSize = 12;
+    let landmarkFontSize = 14;
+    if (landmark.length > 60) landmarkFontSize = 11.5;
+    else if (landmark.length > 40) landmarkFontSize = 12.5;
 
     const headlineRuns = [
       {
@@ -975,64 +951,85 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
           bold: true,
           color: 'FFFFFF',
           fontFace: 'Arial',
-          breakLine: Boolean(cleanLandmark)
+          breakLine: Boolean(landmark)
         }
       }
     ];
 
-    if (cleanLandmark) {
+    if (landmark) {
       headlineRuns.push({
-        text: cleanLandmark,
+        text: landmark,
         options: {
           fontSize: landmarkFontSize,
-          bold: false,
-          color: '5EB0FA',
+          bold: true,
+          color: '38BDF8',
           fontFace: 'Arial'
         }
       });
     }
 
     s.addText(headlineRuns, {
-      x: 9.03, y: 1.30, w: 4.10, h: 1.40,
+      x: 9.03, y: 1.25, w: 4.10, h: 1.45,
       valign: 'top',
       margin: 0,
       fit: 'shrink'
     });
 
-    // 5. Spec values (SIZE, TYPE, ILLUMINATION, RATE) - Big, crisp & spacious
-    s.addText(getSize(site), {
-      x: 9.70, y: 2.95, w: 3.40, h: 0.35,
-      fontFace: 'Arial', fontSize: 15, bold: true, color: 'FFFFFF', margin: 0
+    // 5. Spec Rows: Inline (Icon + Label in #8EA5C4 + Value in Bold #FFFFFF) matching final format
+    // Row 1: Size
+    s.addText([
+      { text: 'Size:  ', options: { color: '8EA5C4', bold: false, fontSize: 13.5, fontFace: 'Arial' } },
+      { text: getSize(site), options: { color: 'FFFFFF', bold: true, fontSize: 14, fontFace: 'Arial' } }
+    ], {
+      x: 9.70, y: 2.88, w: 3.40, h: 0.36,
+      valign: 'middle', margin: 0
     });
 
-    s.addText(String(site.media_type || 'Hoarding'), {
-      x: 9.70, y: 3.71, w: 3.40, h: 0.35,
-      fontFace: 'Arial', fontSize: 15, bold: true, color: 'FFFFFF', margin: 0
+    // Row 2: Type
+    s.addText([
+      { text: 'Type:  ', options: { color: '8EA5C4', bold: false, fontSize: 13.5, fontFace: 'Arial' } },
+      { text: String(site.media_type || 'Hoarding'), options: { color: 'FFFFFF', bold: true, fontSize: 14, fontFace: 'Arial' } }
+    ], {
+      x: 9.70, y: 3.54, w: 3.40, h: 0.36,
+      valign: 'middle', margin: 0
     });
 
-    s.addText(String(site.lighting || 'NL').toUpperCase(), {
-      x: 9.70, y: 4.48, w: 3.40, h: 0.35,
-      fontFace: 'Arial', fontSize: 15, bold: true, color: 'FFFFFF', margin: 0
+    // Row 3: Illumination
+    s.addText([
+      { text: 'Illumination:  ', options: { color: '8EA5C4', bold: false, fontSize: 13.5, fontFace: 'Arial' } },
+      { text: String(site.lighting || 'BL').toUpperCase(), options: { color: 'FFFFFF', bold: true, fontSize: 14, fontFace: 'Arial' } }
+    ], {
+      x: 9.70, y: 4.20, w: 3.40, h: 0.36,
+      valign: 'middle', margin: 0
     });
 
+    // Row 4: Adv. Fee Per Month
     let rateText = 'On Request';
     if (site._showRate && site._rate) {
       rateText = `₹ ${Number(site._rate).toLocaleString('en-IN')}/-`;
     }
-    s.addText(rateText, {
-      x: 9.70, y: 5.24, w: 3.40, h: 0.35,
-      fontFace: 'Arial', fontSize: 16, bold: true, color: 'FFFFFF', margin: 0
+    s.addText([
+      { text: 'Adv. Fee Per Month:  ', options: { color: '8EA5C4', bold: false, fontSize: 13.5, fontFace: 'Arial' } },
+      { text: rateText, options: { color: 'FFFFFF', bold: true, fontSize: 14, fontFace: 'Arial' } }
+    ], {
+      x: 9.70, y: 4.86, w: 3.40, h: 0.36,
+      valign: 'middle', margin: 0
     });
 
-    // 6. Availability Pill — green if available, amber/orange if booked
+    // Row 5: Availability (Inline Label + Rounded Pill Badge)
     const availText = String(site._availability || site.ppt_availability || site.availability || 'Available').trim();
     const isBooked = availText.toLowerCase().startsWith('booked') || availText.toLowerCase().startsWith('occupied');
     const pillColor = isBooked ? 'E07B00' : '00A859';
-    const pillH = 0.38;
-    const pillY = 6.01;
-    const pillX = 9.70;
-    const pillW = Math.max(1.65, Math.min(3.60, (availText.length * 0.11) + 0.55));
+    const pillH = 0.35;
+    const pillY = 5.52;
+    const pillX = 10.90;
+    const pillW = Math.max(1.30, Math.min(2.35, (availText.length * 0.10) + 0.45));
     const pillRadius = pillH / 2;
+
+    s.addText('Availability: ', {
+      x: 9.70, y: 5.52, w: 1.15, h: 0.35,
+      fontFace: 'Arial', fontSize: 13.5, color: '8EA5C4', valign: 'middle', margin: 0
+    });
 
     s.addShape(pptx.ShapeType.roundRect, {
       x: pillX, y: pillY, w: pillW, h: pillH,
@@ -1041,7 +1038,7 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
     s.addText(availText, {
       x: pillX, y: pillY, w: pillW, h: pillH,
       fontFace: 'Arial',
-      fontSize: availText.length > 20 ? 10.5 : (availText.length > 14 ? 11.5 : 12.5),
+      fontSize: availText.length > 18 ? 9.5 : (availText.length > 12 ? 10.5 : 11.5),
       bold: true,
       color: 'FFFFFF',
       align: 'center',
@@ -1051,12 +1048,14 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
       fit: 'shrink'
     });
 
-    // 7. Location Coordinates (Always shown by default)
+    // Row 6: Location Coordinates (Pin Icon + Two Lines)
     const { lat, lng } = getCoords(site);
-    const coordsText = `Latitude ${lat}  |  Longitude ${lng}`;
-    s.addText(coordsText, {
-      x: 9.55, y: 6.81, w: 3.60, h: 0.28,
-      fontFace: 'Arial', fontSize: 11, bold: true, color: 'FFFFFF', margin: 0
+    s.addText([
+      { text: 'Location Coordinates:\n', options: { color: '8EA5C4', bold: false, fontSize: 11.5, fontFace: 'Arial', breakLine: true } },
+      { text: `Latitude ${lat}  |  Longitude ${lng}`, options: { color: 'FFFFFF', bold: true, fontSize: 12, fontFace: 'Arial' } }
+    ], {
+      x: 9.70, y: 6.18, w: 3.40, h: 0.60,
+      valign: 'middle', margin: 0
     });
   }
 
