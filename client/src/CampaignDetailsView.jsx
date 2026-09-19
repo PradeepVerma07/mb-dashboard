@@ -716,9 +716,105 @@ export default function CampaignDetailsView() {
     try {
       await api.delete(`/campaigns/${id}`);
       await loadData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
     } catch (err) {
       console.error('Failed to delete campaign:', err);
-      alert('Error deleting campaign.');
+      alert('Error deleting campaign: ' + (err.response?.data?.message || err.message));
+    }
+  }
+
+  async function handleDeleteAll() {
+    if (!canDelete) return;
+    const totalCount = campaigns.length;
+    if (totalCount === 0) {
+      alert('There are no campaign records to delete.');
+      return;
+    }
+
+    let idsToDelete = [];
+    let deleteMsg = '';
+
+    if (isFiltered && sortedList.length > 0 && sortedList.length < totalCount) {
+      const filterContext = selectedClient && selectedClient !== 'ALL'
+        ? `client "${selectedClient}"`
+        : 'the current filtered view';
+
+      const choice = confirm(
+        `⚠️ FILTER IS ACTIVE:\n\n` +
+        `• Click OK to delete ONLY the ${sortedList.length} filtered booking(s) for ${filterContext}.\n` +
+        `• Click CANCEL if you want to delete ALL ${totalCount} bookings in the system or abort.`
+      );
+
+      if (choice) {
+        idsToDelete = sortedList.map(c => c.id).filter(Boolean);
+        deleteMsg = `${idsToDelete.length} filtered booking(s)`;
+      } else {
+        const confirmAll = confirm(
+          `⚠️ CAUTION: Do you want to permanently delete ALL ${totalCount} campaign bookings across ALL clients in the entire system?\n\n` +
+          `This will clear all booking data and recalculate site occupancy. This action cannot be undone.\n\n` +
+          `Press OK to proceed with deleting ALL ${totalCount} records.`
+        );
+        if (!confirmAll) return;
+        idsToDelete = campaigns.map(c => c.id).filter(Boolean);
+        deleteMsg = `ALL ${totalCount} campaign bookings`;
+      }
+    } else {
+      const confirmAll = confirm(
+        `⚠️ PERMANENT DELETION WARNING:\n\n` +
+        `Are you sure you want to delete ALL ${totalCount} campaign booking records?\n\n` +
+        `• All bookings, linked multi-panel campaigns, and payment records will be permanently removed.\n` +
+        `• Site availability and occupancy will be automatically recalculated.\n\n` +
+        `This action CANNOT be undone. Proceed?`
+      );
+      if (!confirmAll) return;
+      idsToDelete = campaigns.map(c => c.id).filter(Boolean);
+      deleteMsg = `ALL ${totalCount} campaign bookings`;
+    }
+
+    if (!idsToDelete.length) return;
+
+    try {
+      setLoading(true);
+      await api.post('/campaigns/batch-delete', { ids: idsToDelete, hard: true });
+      alert(`✓ Successfully deleted ${deleteMsg}.`);
+      await loadData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+    } catch (err) {
+      console.error('Failed to batch delete campaigns:', err);
+      alert('Error deleting campaigns: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDeleteClientBookings(clientName, clientBookings) {
+    if (!canDelete) return;
+    const count = clientBookings?.length || 0;
+    if (!count) return;
+
+    if (!confirm(
+      `⚠️ Delete All Bookings for "${clientName}"?\n\n` +
+      `Are you sure you want to permanently delete all ${count} campaign booking(s) for "${clientName}"?\n\n` +
+      `This will remove these bookings and automatically update site availability. This action cannot be undone.`
+    )) {
+      return;
+    }
+
+    const ids = clientBookings.map(c => c.id).filter(Boolean);
+    try {
+      setLoading(true);
+      await api.post('/campaigns/batch-delete', { ids, hard: true });
+      alert(`✓ Successfully deleted ${ids.length} booking(s) for "${clientName}".`);
+      await loadData();
+      window.dispatchEvent(new CustomEvent('mb-campaigns-updated'));
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+    } catch (err) {
+      console.error('Failed to delete client campaigns:', err);
+      alert('Error deleting client campaigns: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -794,6 +890,36 @@ export default function CampaignDetailsView() {
               }}
             >
               + Add Campaign
+            </button>
+          )}
+          {canDelete && campaigns.length > 0 && (
+            <button
+              type="button"
+              className="scooh-btn danger"
+              style={{
+                fontSize: '12px',
+                padding: '6px 12px',
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: '#f87171',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px'
+              }}
+              onClick={handleDeleteAll}
+              title={
+                isFiltered && sortedList.length < campaigns.length
+                  ? `Delete ${sortedList.length} filtered or all ${campaigns.length} campaigns`
+                  : `Delete all ${campaigns.length} campaign bookings`
+              }
+            >
+              <span>🗑️</span>
+              <span>
+                {isFiltered && sortedList.length < campaigns.length
+                  ? `Delete All (${sortedList.length} Filtered)`
+                  : `Delete All (${campaigns.length})`}
+              </span>
             </button>
           )}
         </div>
@@ -1161,6 +1287,23 @@ export default function CampaignDetailsView() {
 
                   {/* Actions on Client Header */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {canDelete && (
+                      <button
+                        type="button"
+                        className="scooh-btn ghost"
+                        style={{
+                          padding: '3px 9px',
+                          fontSize: '11px',
+                          color: '#f87171',
+                          borderColor: 'rgba(239, 68, 68, 0.35)',
+                          background: 'rgba(239, 68, 68, 0.08)'
+                        }}
+                        onClick={() => handleDeleteClientBookings(group.clientName, group.bookings)}
+                        title={`Permanently delete all ${group.totalBookings} booking(s) for ${group.clientName}`}
+                      >
+                        🗑️ Delete Client ({group.totalBookings})
+                      </button>
+                    )}
                     {selectedClient !== group.clientName && (
                       <button
                         type="button"
