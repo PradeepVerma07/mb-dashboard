@@ -57,7 +57,9 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
   worksheet.columns = cols;
 
   let title = 'MEDIA BUZZ — CAMPAIGN DETAILS REPORT';
-  if (filters.clientOrDisplay) {
+  if (filters.client && filters.client !== 'ALL') {
+    title += ` • CLIENT: ${filters.client.toUpperCase()}`;
+  } else if (filters.clientOrDisplay) {
     title += ` • ${filters.clientOrDisplay.toUpperCase()}`;
   }
   if (filters.startDate || filters.endDate) {
@@ -298,8 +300,11 @@ export default function CampaignDetailsView() {
   const [importingExcel, setImportingExcel] = useState(false);
   const [importBanner, setImportBanner] = useState('');
 
-  // Filters: Client/Display text, Start Date, End Date, Status
+  // Filters: Client/Display text, Selected Client, Start Date, End Date, Status
   const [clientOrDisplay, setClientOrDisplay] = useState('');
+  const [selectedClient, setSelectedClient] = useState('ALL');
+  const [viewMode, setViewMode] = useState('grouped'); // 'grouped' | 'table'
+  const [collapsedClients, setCollapsedClients] = useState({});
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'live' | 'upcoming' | 'completed'
@@ -374,12 +379,14 @@ export default function CampaignDetailsView() {
   // Sync with URL query params
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const qParam = params.get('q') || params.get('client') || params.get('search') || '';
+    const qParam = params.get('q') || params.get('search') || '';
+    const clientParam = params.get('client') || '';
     const startParam = params.get('start') || '';
     const endParam = params.get('end') || '';
     const siteParam = params.get('site') || '';
 
     if (qParam) setClientOrDisplay(qParam);
+    if (clientParam) setSelectedClient(clientParam);
     if (startParam) setStartDate(startParam);
     if (endParam) setEndDate(endParam);
     if (siteParam) setSiteFilter(siteParam);
@@ -394,6 +401,18 @@ export default function CampaignDetailsView() {
     });
     return map;
   }, [sites]);
+
+  // List of all distinct clients for the dropdown selector
+  const allClientsList = useMemo(() => {
+    const set = new Set();
+    campaigns.forEach(c => {
+      const name = String(c.client || c.client_name || '').trim();
+      if (name && !isVacantClient(name)) {
+        set.add(name);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [campaigns]);
 
   // Extract top client suggestions for one-click filter chips
   const clientSuggestions = useMemo(() => {
@@ -471,6 +490,12 @@ export default function CampaignDetailsView() {
     const eFilter = endDate ? new Date(endDate + 'T23:59:59') : null;
 
     return enrichedCampaigns.filter(c => {
+      // 0. Selected Client dropdown filter
+      if (selectedClient && selectedClient !== 'ALL') {
+        const clientText = String(c.client || c.client_name || '').trim().toLowerCase();
+        if (clientText !== selectedClient.toLowerCase()) return false;
+      }
+
       // 1. Client / Display search (also searches site code and location)
       if (q) {
         const clientText = String(c.client || c.client_name || '').toLowerCase();
@@ -516,7 +541,7 @@ export default function CampaignDetailsView() {
 
       return true;
     });
-  }, [enrichedCampaigns, clientOrDisplay, siteFilter, startDate, endDate, statusFilter]);
+  }, [enrichedCampaigns, clientOrDisplay, selectedClient, siteFilter, startDate, endDate, statusFilter]);
 
   // Sorted list
   const sortedList = useMemo(() => {
@@ -540,6 +565,28 @@ export default function CampaignDetailsView() {
       return 0;
     });
   }, [filteredList, sortState]);
+
+  // Client-Wise Groups: groups sorted bookings under each client
+  const clientGroups = useMemo(() => {
+    const map = new Map();
+    sortedList.forEach(item => {
+      const clientName = String(item.client || item.client_name || 'Unassigned Client').trim() || 'Unassigned Client';
+      if (!map.has(clientName)) {
+        map.set(clientName, []);
+      }
+      map.get(clientName).push(item);
+    });
+
+    return Array.from(map.entries()).map(([clientName, bookings]) => {
+      const uniqueSites = new Set(bookings.map(b => b.site_code).filter(sc => sc && sc !== '—')).size;
+      return {
+        clientName,
+        bookings,
+        totalBookings: bookings.length,
+        uniqueSites
+      };
+    });
+  }, [sortedList]);
 
   // Summary KPIs for current filter
   const kpis = useMemo(() => {
@@ -592,6 +639,7 @@ export default function CampaignDetailsView() {
 
   function resetAllFilters() {
     setClientOrDisplay('');
+    setSelectedClient('ALL');
     setStartDate('');
     setEndDate('');
     setStatusFilter('ALL');
@@ -671,7 +719,7 @@ export default function CampaignDetailsView() {
     }
   }
 
-  const isFiltered = Boolean(clientOrDisplay || startDate || endDate || siteFilter);
+  const isFiltered = Boolean(clientOrDisplay || (selectedClient && selectedClient !== 'ALL') || startDate || endDate || siteFilter);
 
   return (
     <>
@@ -684,7 +732,7 @@ export default function CampaignDetailsView() {
             Campaign Details
           </h1>
           <p style={{ margin: '6px 0 0', color: '#94a3b8', fontSize: '13px' }}>
-            Search by client name, display brand, and filter by start & end date to view all campaign bookings across your sites.
+            Client-wise campaign tracking — search, filter by client, and manage all site bookings.
           </p>
         </div>
         <div className="scooh-headactions" style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -694,7 +742,7 @@ export default function CampaignDetailsView() {
           <button
             type="button"
             className="scooh-btn ghost"
-            onClick={() => exportCampaignDetailsExcel(sortedList, { clientOrDisplay, startDate, endDate })}
+            onClick={() => exportCampaignDetailsExcel(sortedList, { client: selectedClient, clientOrDisplay, startDate, endDate })}
             title="Export filtered campaign details to Excel"
           >
             📥 Export Excel
@@ -758,20 +806,40 @@ export default function CampaignDetailsView() {
       {/* ── Filter Control Panel ────────────────────────────────────────── */}
       <section className="scooh-panel" style={{ marginBottom: '16px', padding: '18px 20px', border: '1px solid rgba(168, 85, 247, 0.25)', background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.85) 0%, rgba(11, 16, 22, 0.95) 100%)' }}>
         
-        {/* Main 3-Column Search & Date Pickers */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', alignItems: 'flex-end' }}>
+        {/* Main 4-Column Search, Client Selector & Date Pickers */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px', alignItems: 'flex-end' }}>
           
-          {/* Input 1: Client Name or Display / Campaign */}
+          {/* Input 1: Client Selector Dropdown */}
           <div>
             <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#f8fafc', marginBottom: '6px', letterSpacing: '0.02em' }}>
-              👤 Client Name / Display Brand
+              🏢 Select Client
+            </label>
+            <select
+              className="scooh-input"
+              style={{ width: '100%', padding: '9px 12px', fontSize: '13px', background: '#0b1016', border: '1px solid rgba(168, 85, 247, 0.5)', borderRadius: '8px', color: '#fff', cursor: 'pointer' }}
+              value={selectedClient}
+              onChange={e => setSelectedClient(e.target.value)}
+            >
+              <option value="ALL">All Clients ({allClientsList.length})</option>
+              {allClientsList.map(cName => (
+                <option key={cName} value={cName}>
+                  {cName}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Input 2: Search Display Brand / Site / Notes */}
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#f8fafc', marginBottom: '6px', letterSpacing: '0.02em' }}>
+              🔍 Search Brand / Display / Site
             </label>
             <div style={{ position: 'relative' }}>
               <input
                 type="text"
                 className="scooh-search"
-                style={{ width: '100%', padding: '10px 36px 10px 14px', fontSize: '13px', background: '#0b1016', border: '1px solid rgba(168, 85, 247, 0.4)', borderRadius: '8px', color: '#fff' }}
-                placeholder="Type Client or Display (e.g. Tata, HDFC, EV)…"
+                style={{ width: '100%', padding: '9px 34px 9px 12px', fontSize: '13px', background: '#0b1016', border: '1px solid rgba(168, 85, 247, 0.35)', borderRadius: '8px', color: '#fff' }}
+                placeholder="Search display, code, area…"
                 value={clientOrDisplay}
                 onChange={e => setClientOrDisplay(e.target.value)}
               />
@@ -788,7 +856,7 @@ export default function CampaignDetailsView() {
             </div>
           </div>
 
-          {/* Input 2: Start Date */}
+          {/* Input 3: Start Date */}
           <div>
             <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#f8fafc', marginBottom: '6px' }}>
               📅 Start Date (From)
@@ -802,7 +870,7 @@ export default function CampaignDetailsView() {
             />
           </div>
 
-          {/* Input 3: End Date */}
+          {/* Input 4: End Date */}
           <div>
             <label style={{ display: 'block', fontSize: '12px', fontWeight: 800, color: '#f8fafc', marginBottom: '6px' }}>
               🏁 End Date (To)
@@ -818,11 +886,11 @@ export default function CampaignDetailsView() {
 
           {/* Clear Filters Action */}
           {isFiltered && (
-            <div>
+            <div style={{ alignSelf: 'flex-end' }}>
               <button
                 type="button"
                 className="scooh-btn ghost"
-                style={{ padding: '9px 14px', fontSize: '12px', color: '#f87171', borderColor: 'rgba(248, 113, 113, 0.4)', borderRadius: '8px' }}
+                style={{ padding: '9px 14px', fontSize: '12px', color: '#f87171', borderColor: 'rgba(248, 113, 113, 0.4)', borderRadius: '8px', whiteSpace: 'nowrap' }}
                 onClick={resetAllFilters}
                 title="Reset all filters"
               >
@@ -863,215 +931,517 @@ export default function CampaignDetailsView() {
               <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginRight: '4px' }}>
                 Top Clients:
               </span>
-              {clientSuggestions.slice(0, 5).map(cName => (
-                <button
-                  key={cName}
-                  type="button"
-                  className="scooh-pill"
-                  onClick={() => setClientOrDisplay(cName)}
-                  style={{
-                    cursor: 'pointer',
-                    padding: '2px 8px',
-                    fontSize: '11px',
-                    background: clientOrDisplay === cName ? 'rgba(168, 85, 247, 0.25)' : 'rgba(255,255,255,0.04)',
-                    color: clientOrDisplay === cName ? '#c084fc' : '#cbd5e1',
-                    border: clientOrDisplay === cName ? '1px solid rgba(168, 85, 247, 0.5)' : '1px solid transparent'
-                  }}
-                  title={`Filter bookings for ${cName}`}
-                >
-                  {cName}
-                </button>
-              ))}
+              {clientSuggestions.slice(0, 6).map(cName => {
+                const isSelected = selectedClient === cName;
+                return (
+                  <button
+                    key={cName}
+                    type="button"
+                    className="scooh-pill"
+                    onClick={() => setSelectedClient(isSelected ? 'ALL' : cName)}
+                    style={{
+                      cursor: 'pointer',
+                      padding: '2px 8px',
+                      fontSize: '11px',
+                      background: isSelected ? 'rgba(168, 85, 247, 0.25)' : 'rgba(255,255,255,0.04)',
+                      color: isSelected ? '#c084fc' : '#cbd5e1',
+                      border: isSelected ? '1px solid rgba(168, 85, 247, 0.6)' : '1px solid transparent',
+                      fontWeight: isSelected ? 800 : 500
+                    }}
+                    title={`Filter bookings for ${cName}`}
+                  >
+                    {cName}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
       </section>
 
-      {/* ── Matching Bookings Table ──────────────────────────────────────── */}
-      <div className="scooh-panel" style={{ overflow: 'hidden' }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <div>
-            <span style={{ fontSize: '14px', fontWeight: 800, color: '#f8fafc' }}>
-              Bookings Ledger ({sortedList.length})
+      {/* ── Matching Bookings: Client-Wise Grouped & Flat Views ─────────── */}
+      <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '18px', fontWeight: 900, color: '#f8fafc', letterSpacing: '-0.01em' }}>
+              Campaign Bookings
             </span>
-            {isFiltered && (
-              <span style={{ fontSize: '12px', color: '#a78bfa', marginLeft: '10px' }}>
-                Filtered by: {clientOrDisplay ? `"${clientOrDisplay}" ` : ''}{startDate ? `from ${startDate} ` : ''}{endDate ? `to ${endDate} ` : ''}
-              </span>
-            )}
+            <span style={{ fontSize: '12px', fontWeight: 800, padding: '2px 9px', borderRadius: '12px', background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.4)' }}>
+              {sortedList.length} {sortedList.length === 1 ? 'Booking' : 'Bookings'}
+            </span>
+            <span style={{ fontSize: '12px', fontWeight: 800, padding: '2px 9px', borderRadius: '12px', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
+              {clientGroups.length} {clientGroups.length === 1 ? 'Client' : 'Clients'}
+            </span>
+            <span style={{ fontSize: '12px', fontWeight: 800, padding: '2px 9px', borderRadius: '12px', background: 'rgba(148, 163, 184, 0.15)', color: '#cbd5e1', border: '1px solid rgba(148, 163, 184, 0.3)' }}>
+              {kpis.uniqueSites} Sites
+            </span>
           </div>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
-            Click column headers to sort • Click on any booking to inspect full details
-          </div>
+          {isFiltered && (
+            <div style={{ fontSize: '12px', color: '#a78bfa', marginTop: '4px' }}>
+              Filtered: {selectedClient !== 'ALL' ? `Client: "${selectedClient}" • ` : ''}{clientOrDisplay ? `Search: "${clientOrDisplay}" • ` : ''}{startDate ? `From: ${startDate} ` : ''}{endDate ? `To: ${endDate}` : ''}
+            </div>
+          )}
         </div>
 
-        <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
-          <table className="scooh-table" style={{ minWidth: '1050px' }}>
-            <thead>
-              <tr>
-                <th style={{ width: '45px', textAlign: 'center' }}>#</th>
-                <th style={{ minWidth: '105px', cursor: 'pointer' }} onClick={() => handleSort('site_code')}>
-                  Site Code {sortState.key === 'site_code' && (sortState.dir === 'asc' ? '↑' : '↓')}
-                </th>
-                <th style={{ minWidth: '220px', cursor: 'pointer' }} onClick={() => handleSort('client')}>
-                  Client / Display {sortState.key === 'client' && (sortState.dir === 'asc' ? '↑' : '↓')}
-                </th>
-                <th style={{ minWidth: '220px' }}>Location</th>
-                <th style={{ minWidth: '120px', textAlign: 'center' }}>Size & Type</th>
-                <th style={{ minWidth: '110px', textAlign: 'center', cursor: 'pointer' }} onClick={() => handleSort('start_date')}>
-                  Start Date {sortState.key === 'start_date' && (sortState.dir === 'asc' ? '↑' : '↓')}
-                </th>
-                <th style={{ minWidth: '110px', textAlign: 'center', cursor: 'pointer' }} onClick={() => handleSort('end_date')}>
-                  End Date {sortState.key === 'end_date' && (sortState.dir === 'asc' ? '↑' : '↓')}
-                </th>
-                <th style={{ minWidth: '75px', textAlign: 'center', cursor: 'pointer' }} onClick={() => handleSort('days')}>
-                  Days {sortState.key === 'days' && (sortState.dir === 'asc' ? '↑' : '↓')}
-                </th>
-                
-                <th style={{ minWidth: '110px', textAlign: 'center' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
-                    <div style={{ fontSize: '18px', marginBottom: '8px' }}>⏳ Loading campaign details…</div>
-                  </td>
-                </tr>
-              ) : sortedList.length === 0 ? (
-                <tr>
-                  <td colSpan={9} style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
-                    <div style={{ fontSize: '40px', marginBottom: '10px' }}>🔍</div>
-                    <div style={{ fontSize: '16px', fontWeight: 700, color: '#cbd5e1' }}>
-                      No campaigns found for the selected filter
+        {/* View Mode Toggle & Expand All Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {viewMode === 'grouped' && clientGroups.length > 1 && (
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              style={{ padding: '5px 10px', fontSize: '11.5px', color: '#94a3b8' }}
+              onClick={() => {
+                const allCollapsed = Object.keys(collapsedClients).length >= clientGroups.length && Object.values(collapsedClients).every(Boolean);
+                if (allCollapsed) {
+                  setCollapsedClients({});
+                } else {
+                  const next = {};
+                  clientGroups.forEach(g => { next[g.clientName] = true; });
+                  setCollapsedClients(next);
+                }
+              }}
+              title="Toggle expand/collapse on all client sections"
+            >
+              {Object.keys(collapsedClients).length >= clientGroups.length && Object.values(collapsedClients).every(Boolean) ? '▼ Expand All' : '▲ Collapse All'}
+            </button>
+          )}
+
+          <div style={{ display: 'inline-flex', background: '#0b1016', padding: '3px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+            <button
+              type="button"
+              className="scooh-pill"
+              style={{
+                cursor: 'pointer',
+                padding: '5px 12px',
+                fontSize: '12px',
+                fontWeight: 700,
+                borderRadius: '6px',
+                background: viewMode === 'grouped' ? 'rgba(168, 85, 247, 0.3)' : 'transparent',
+                color: viewMode === 'grouped' ? '#c084fc' : '#94a3b8',
+                border: viewMode === 'grouped' ? '1px solid rgba(168, 85, 247, 0.6)' : '1px solid transparent',
+                boxShadow: viewMode === 'grouped' ? '0 1px 4px rgba(0,0,0,0.3)' : 'none'
+              }}
+              onClick={() => setViewMode('grouped')}
+            >
+              🗂️ Group by Client
+            </button>
+            <button
+              type="button"
+              className="scooh-pill"
+              style={{
+                cursor: 'pointer',
+                padding: '5px 12px',
+                fontSize: '12px',
+                fontWeight: 700,
+                borderRadius: '6px',
+                background: viewMode === 'table' ? 'rgba(168, 85, 247, 0.3)' : 'transparent',
+                color: viewMode === 'table' ? '#c084fc' : '#94a3b8',
+                border: viewMode === 'table' ? '1px solid rgba(168, 85, 247, 0.6)' : '1px solid transparent',
+                boxShadow: viewMode === 'table' ? '0 1px 4px rgba(0,0,0,0.3)' : 'none'
+              }}
+              onClick={() => setViewMode('table')}
+            >
+              📋 Flat Table
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="scooh-panel" style={{ padding: '50px 20px', textAlign: 'center', color: '#94a3b8' }}>
+          <div style={{ fontSize: '24px', marginBottom: '10px' }}>⏳</div>
+          <div style={{ fontSize: '15px', fontWeight: 600 }}>Loading campaign details…</div>
+        </div>
+      ) : sortedList.length === 0 ? (
+        <div className="scooh-panel" style={{ textAlign: 'center', padding: '50px 20px', color: '#64748b' }}>
+          <div style={{ fontSize: '40px', marginBottom: '10px' }}>🔍</div>
+          <div style={{ fontSize: '16px', fontWeight: 700, color: '#cbd5e1' }}>
+            No campaigns found for the selected filter
+          </div>
+          <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '6px', maxWidth: '440px', margin: '6px auto 16px' }}>
+            {selectedClient !== 'ALL' || clientOrDisplay || startDate || endDate
+              ? `No bookings match your current filter criteria.`
+              : 'No campaign records exist yet.'}
+          </div>
+          {isFiltered && (
+            <button type="button" className="scooh-btn purple-btn" onClick={resetAllFilters}>
+              Clear All Filters
+            </button>
+          )}
+        </div>
+      ) : viewMode === 'grouped' ? (
+        /* ── Client-Wise Grouped View ─────────────────────────────────── */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {clientGroups.map((group, gIdx) => {
+            const isCollapsed = Boolean(collapsedClients[group.clientName]);
+            const initial = (group.clientName.charAt(0) || 'C').toUpperCase();
+
+            return (
+              <div
+                key={group.clientName || gIdx}
+                className="scooh-panel"
+                style={{
+                  overflow: 'hidden',
+                  border: '1px solid rgba(168, 85, 247, 0.3)',
+                  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
+                  background: 'linear-gradient(180deg, rgba(17, 24, 39, 0.95) 0%, rgba(11, 16, 22, 0.98) 100%)'
+                }}
+              >
+                {/* Client Section Header Banner */}
+                <div
+                  style={{
+                    padding: '12px 18px',
+                    background: 'linear-gradient(90deg, rgba(88, 28, 135, 0.35) 0%, rgba(30, 27, 75, 0.2) 100%)',
+                    borderBottom: isCollapsed ? 'none' : '1px solid rgba(168, 85, 247, 0.2)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: '12px'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div
+                      style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '9px',
+                        background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 900,
+                        color: '#fff',
+                        fontSize: '15px',
+                        boxShadow: '0 2px 8px rgba(168, 85, 247, 0.4)'
+                      }}
+                    >
+                      {initial}
                     </div>
-                    <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '6px', maxWidth: '420px', margin: '6px auto 16px' }}>
-                      {clientOrDisplay || startDate || endDate
-                        ? `No bookings match "${clientOrDisplay || 'any client'}" within ${startDate || 'any'} to ${endDate || 'any'}.`
-                        : 'No campaign records exist yet.'}
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '16px', fontWeight: 900, color: '#f8fafc', letterSpacing: '-0.01em' }}>
+                          {group.clientName}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            background: 'rgba(168, 85, 247, 0.2)',
+                            color: '#c084fc',
+                            border: '1px solid rgba(168, 85, 247, 0.4)'
+                          }}
+                        >
+                          {group.totalBookings} {group.totalBookings === 1 ? 'Booking' : 'Bookings'}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            background: 'rgba(56, 189, 248, 0.15)',
+                            color: '#38bdf8',
+                            border: '1px solid rgba(56, 189, 248, 0.35)'
+                          }}
+                        >
+                          {group.uniqueSites} {group.uniqueSites === 1 ? 'Site' : 'Sites'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '11.5px', color: '#94a3b8', marginTop: '2px' }}>
+                        Booked Sites: {group.bookings.map(b => b.site_code).filter(Boolean).slice(0, 8).join(', ')}{group.bookings.length > 8 ? ` +${group.bookings.length - 8} more` : ''}
+                      </div>
                     </div>
-                    {isFiltered && (
-                      <button type="button" className="scooh-btn purple-btn" onClick={resetAllFilters}>
-                        Clear All Filters
+                  </div>
+
+                  {/* Actions on Client Header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {selectedClient !== group.clientName && (
+                      <button
+                        type="button"
+                        className="scooh-btn ghost"
+                        style={{ padding: '3px 9px', fontSize: '11px', color: '#c084fc', borderColor: 'rgba(168, 85, 247, 0.4)' }}
+                        onClick={() => setSelectedClient(group.clientName)}
+                        title={`Filter view to only show ${group.clientName}`}
+                      >
+                        🎯 Focus Client
                       </button>
                     )}
-                  </td>
-                </tr>
-              ) : (
-                sortedList.map((c, idx) => {
-                  const isPending = Number(c.pending || 0) > 0;
-                  const isLive = c.computedStatus === 'live';
-                  const isUpcoming = c.computedStatus === 'upcoming';
-                  const statusColor = isLive ? '#4ade80' : (isUpcoming ? '#38bdf8' : '#94a3b8');
-                  const statusBg = isLive ? 'rgba(74, 222, 128, 0.12)' : (isUpcoming ? 'rgba(56, 189, 248, 0.12)' : 'rgba(148, 163, 184, 0.1)');
-                  const statusBorder = isLive ? 'rgba(74, 222, 128, 0.3)' : (isUpcoming ? 'rgba(56, 189, 248, 0.3)' : 'rgba(148, 163, 184, 0.2)');
-
-                  return (
-                    <tr
-                      key={c.id || `${c.site_code}-${idx}`}
-                      style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
-                      onClick={() => setSelectedCampaign(c)}
+                    {selectedClient === group.clientName && (
+                      <button
+                        type="button"
+                        className="scooh-btn ghost"
+                        style={{ padding: '3px 9px', fontSize: '11px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.4)' }}
+                        onClick={() => setSelectedClient('ALL')}
+                        title="Show all clients"
+                      >
+                        Show All
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="scooh-btn ghost"
+                      style={{ padding: '3px 9px', fontSize: '11px' }}
+                      onClick={() => setCollapsedClients(prev => ({ ...prev, [group.clientName]: !isCollapsed }))}
+                      title={isCollapsed ? 'Expand section' : 'Collapse section'}
                     >
-                      <td style={{ textAlign: 'center', color: '#64748b', fontSize: '11.5px' }}>
-                        {idx + 1}
-                      </td>
-                      <td>
+                      {isCollapsed ? '▼ Expand' : '▲ Collapse'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Bookings Table for this Client */}
+                {!isCollapsed && (
+                  <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
+                    <table className="scooh-table" style={{ minWidth: '980px' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: '45px', textAlign: 'center' }}>#</th>
+                          <th style={{ minWidth: '110px' }}>Site Code</th>
+                          <th style={{ minWidth: '200px' }}>Display / Brand</th>
+                          <th style={{ minWidth: '220px' }}>Location</th>
+                          <th style={{ minWidth: '120px', textAlign: 'center' }}>Size & Type</th>
+                          <th style={{ minWidth: '110px', textAlign: 'center' }}>Start Date</th>
+                          <th style={{ minWidth: '110px', textAlign: 'center' }}>End Date</th>
+                          <th style={{ minWidth: '75px', textAlign: 'center' }}>Days</th>
+                          <th style={{ minWidth: '105px', textAlign: 'center' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.bookings.map((c, idx) => (
+                          <tr
+                            key={c.id || `${c.site_code}-${idx}`}
+                            style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
+                            onClick={() => setSelectedCampaign(c)}
+                          >
+                            <td style={{ textAlign: 'center', color: '#64748b', fontSize: '11.5px' }}>
+                              {idx + 1}
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="scooh-plate"
+                                style={{ cursor: 'pointer', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.45)', color: '#38bdf8', padding: '3px 8px', borderRadius: '5px', fontWeight: 800 }}
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  navigate(`/sites?search=${encodeURIComponent(c.site_code)}`);
+                                }}
+                                title={`View ${c.site_code} in Sites Directory`}
+                              >
+                                {c.site_code}
+                              </button>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 700, color: '#f8fafc', fontSize: '13.5px' }}>
+                                {c.display || c.campaign_name || c.brand || '—'}
+                              </div>
+                              {c.vendor_name && (
+                                <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
+                                  Vendor: {c.vendor_name}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ fontSize: '12px', color: '#cbd5e1', maxWidth: '240px' }}>
+                              <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={c.location}>
+                                {c.location}
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>{c.city}</div>
+                            </td>
+                            <td style={{ textAlign: 'center', fontSize: '12px', color: '#94a3b8' }}>
+                              <div style={{ fontWeight: 700, color: '#f1f5f9' }}>{c.size}</div>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>{c.type}</div>
+                            </td>
+                            <td style={{ textAlign: 'center', fontSize: '12px', color: '#f1f5f9', fontWeight: 600 }}>
+                              {formatDate(c.start_date || c.booking_date) || '—'}
+                            </td>
+                            <td style={{ textAlign: 'center', fontSize: '12px', color: '#f1f5f9', fontWeight: 600 }}>
+                              {formatDate(c.end_date) || '—'}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#cbd5e1', background: '#1e293b', padding: '2px 7px', borderRadius: '4px' }}>
+                                {c.tenureDays ? `${c.tenureDays}d` : '—'}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                              <div style={{ display: 'inline-flex', gap: '5px', alignItems: 'center' }}>
+                                <button
+                                  type="button"
+                                  className="scooh-btn ghost"
+                                  style={{ padding: '3px 7px', fontSize: '11px' }}
+                                  onClick={() => setSelectedCampaign(c)}
+                                  title="Inspect complete campaign record"
+                                >
+                                  👁️
+                                </button>
+                                {canAdd && (
+                                  <button
+                                    type="button"
+                                    className="scooh-btn ghost"
+                                    style={{ padding: '3px 7px', fontSize: '11px' }}
+                                    onClick={() => openEdit(c)}
+                                    title="Edit this booking"
+                                  >
+                                    ✏️
+                                  </button>
+                                )}
+                                {canDelete && (
+                                  <button
+                                    type="button"
+                                    className="scooh-btn ghost"
+                                    style={{ padding: '3px 7px', fontSize: '11px', color: '#f87171' }}
+                                    onClick={() => handleDeleteCampaign(c.id, c.client || c.client_name)}
+                                    title="Delete booking"
+                                  >
+                                    🗑️
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* ── Flat Table View ─────────────────────────────────────────── */
+        <div className="scooh-panel" style={{ overflow: 'hidden' }}>
+          <div className="scooh-tablewrap" style={{ overflowX: 'auto' }}>
+            <table className="scooh-table" style={{ minWidth: '1050px' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: '45px', textAlign: 'center' }}>#</th>
+                  <th style={{ minWidth: '105px', cursor: 'pointer' }} onClick={() => handleSort('site_code')}>
+                    Site Code {sortState.key === 'site_code' && (sortState.dir === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th style={{ minWidth: '220px', cursor: 'pointer' }} onClick={() => handleSort('client')}>
+                    Client / Display {sortState.key === 'client' && (sortState.dir === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th style={{ minWidth: '220px' }}>Location</th>
+                  <th style={{ minWidth: '120px', textAlign: 'center' }}>Size & Type</th>
+                  <th style={{ minWidth: '110px', textAlign: 'center', cursor: 'pointer' }} onClick={() => handleSort('start_date')}>
+                    Start Date {sortState.key === 'start_date' && (sortState.dir === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th style={{ minWidth: '110px', textAlign: 'center', cursor: 'pointer' }} onClick={() => handleSort('end_date')}>
+                    End Date {sortState.key === 'end_date' && (sortState.dir === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th style={{ minWidth: '75px', textAlign: 'center', cursor: 'pointer' }} onClick={() => handleSort('days')}>
+                    Days {sortState.key === 'days' && (sortState.dir === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th style={{ minWidth: '110px', textAlign: 'center' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedList.map((c, idx) => (
+                  <tr
+                    key={c.id || `${c.site_code}-${idx}`}
+                    style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
+                    onClick={() => setSelectedCampaign(c)}
+                  >
+                    <td style={{ textAlign: 'center', color: '#64748b', fontSize: '11.5px' }}>
+                      {idx + 1}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="scooh-plate"
+                        style={{ cursor: 'pointer', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.45)', color: '#38bdf8', padding: '3px 8px', borderRadius: '5px', fontWeight: 800 }}
+                        onClick={e => {
+                          e.stopPropagation();
+                          navigate(`/sites?search=${encodeURIComponent(c.site_code)}`);
+                        }}
+                        title={`View ${c.site_code} in Sites Directory`}
+                      >
+                        {c.site_code}
+                      </button>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 800, color: '#f8fafc', fontSize: '13.5px' }}>
+                        {c.client || c.client_name || '—'}
+                      </div>
+                      {Boolean((c.display || c.campaign_name || c.brand) &&
+                        String(c.display || c.campaign_name || c.brand).trim().toLowerCase() !== String(c.client || c.client_name || '').trim().toLowerCase()) && (
+                        <div style={{ marginTop: '3px' }}>
+                          <span style={{ display: 'inline-block', padding: '2px 7px', background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.35)', color: '#c084fc', borderRadius: '4px', fontSize: '11.5px', fontWeight: 700 }}>
+                            📢 {c.display || c.campaign_name || c.brand}
+                          </span>
+                        </div>
+                      )}
+                      {c.vendor_name && (
+                        <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
+                          Vendor: {c.vendor_name}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ fontSize: '12px', color: '#cbd5e1', maxWidth: '240px' }}>
+                      <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={c.location}>
+                        {c.location}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>{c.city}</div>
+                    </td>
+                    <td style={{ textAlign: 'center', fontSize: '12px', color: '#94a3b8' }}>
+                      <div style={{ fontWeight: 700, color: '#f1f5f9' }}>{c.size}</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>{c.type}</div>
+                    </td>
+                    <td style={{ textAlign: 'center', fontSize: '12px', color: '#f1f5f9', fontWeight: 600 }}>
+                      {formatDate(c.start_date || c.booking_date) || '—'}
+                    </td>
+                    <td style={{ textAlign: 'center', fontSize: '12px', color: '#f1f5f9', fontWeight: 600 }}>
+                      {formatDate(c.end_date) || '—'}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#cbd5e1', background: '#1e293b', padding: '2px 7px', borderRadius: '4px' }}>
+                        {c.tenureDays ? `${c.tenureDays}d` : '—'}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                      <div style={{ display: 'inline-flex', gap: '5px', alignItems: 'center' }}>
                         <button
                           type="button"
-                          className="scooh-plate"
-                          style={{ cursor: 'pointer', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.45)', color: '#38bdf8', padding: '3px 8px', borderRadius: '5px', fontWeight: 800 }}
-                          onClick={e => {
-                            e.stopPropagation();
-                            navigate(`/sites?search=${encodeURIComponent(c.site_code)}`);
-                          }}
-                          title={`View ${c.site_code} in Sites Directory`}
+                          className="scooh-btn ghost"
+                          style={{ padding: '3px 7px', fontSize: '11px' }}
+                          onClick={() => setSelectedCampaign(c)}
+                          title="Inspect complete campaign record"
                         >
-                          {c.site_code}
+                          👁️
                         </button>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 800, color: '#f8fafc', fontSize: '13.5px' }}>
-                          {c.client || c.client_name || '—'}
-                        </div>
-                        {Boolean((c.display || c.campaign_name || c.brand) &&
-                          String(c.display || c.campaign_name || c.brand).trim().toLowerCase() !== String(c.client || c.client_name || '').trim().toLowerCase()) && (
-                          <div style={{ marginTop: '3px' }}>
-                            <span style={{ display: 'inline-block', padding: '2px 7px', background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.35)', color: '#c084fc', borderRadius: '4px', fontSize: '11.5px', fontWeight: 700 }}>
-                              📢 {c.display || c.campaign_name || c.brand}
-                            </span>
-                          </div>
-                        )}
-                        {c.vendor_name && (
-                          <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '2px' }}>
-                            Vendor: {c.vendor_name}
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ fontSize: '12px', color: '#cbd5e1', maxWidth: '240px' }}>
-                        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={c.location}>
-                          {c.location}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>{c.city}</div>
-                      </td>
-                      <td style={{ textAlign: 'center', fontSize: '12px', color: '#94a3b8' }}>
-                        <div style={{ fontWeight: 700, color: '#f1f5f9' }}>{c.size}</div>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>{c.type}</div>
-                      </td>
-                      <td style={{ textAlign: 'center', fontSize: '12px', color: '#f1f5f9', fontWeight: 600 }}>
-                        {formatDate(c.start_date || c.booking_date) || '—'}
-                      </td>
-                      <td style={{ textAlign: 'center', fontSize: '12px', color: '#f1f5f9', fontWeight: 600 }}>
-                        {formatDate(c.end_date) || '—'}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#cbd5e1', background: '#1e293b', padding: '2px 7px', borderRadius: '4px' }}>
-                          {c.tenureDays ? `${c.tenureDays}d` : '—'}
-                        </span>
-                      </td>
-                      
-                      <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
-                        <div style={{ display: 'inline-flex', gap: '5px', alignItems: 'center' }}>
+                        {canAdd && (
                           <button
                             type="button"
                             className="scooh-btn ghost"
                             style={{ padding: '3px 7px', fontSize: '11px' }}
-                            onClick={() => setSelectedCampaign(c)}
-                            title="Inspect complete campaign record"
+                            onClick={() => openEdit(c)}
+                            title="Edit this booking"
                           >
-                            👁️
+                            ✏️
                           </button>
-                          {canAdd && (
-                            <button
-                              type="button"
-                              className="scooh-btn ghost"
-                              style={{ padding: '3px 7px', fontSize: '11px' }}
-                              onClick={() => openEdit(c)}
-                              title="Edit this booking"
-                            >
-                              ✏️
-                            </button>
-                          )}
-                          {canDelete && (
-                            <button
-                              type="button"
-                              className="scooh-btn ghost"
-                              style={{ padding: '3px 7px', fontSize: '11px', color: '#f87171' }}
-                              onClick={() => handleDeleteCampaign(c.id, c.client || c.client_name)}
-                              title="Delete booking"
-                            >
-                              🗑️
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                        )}
+                        {canDelete && (
+                          <button
+                            type="button"
+                            className="scooh-btn ghost"
+                            style={{ padding: '3px 7px', fontSize: '11px', color: '#f87171' }}
+                            onClick={() => handleDeleteCampaign(c.id, c.client || c.client_name)}
+                            title="Delete booking"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Modal: Full Campaign Details ─────────────────────────────────── */}
       {selectedCampaign && (
