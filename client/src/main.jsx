@@ -943,29 +943,61 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
       hyperlink: { url: trackerUrl, tooltip: `Open ${siteCodeText} in Campaign Tracker` }
     });
 
-    // 4. Headline: Area (Bold White, 30pt) & Landmark (Bold Light Sky Blue, 20-24pt)
+    // 4. Headline: Area (Bold White, 17-19pt) & Landmark (Light Sky Blue, 12-13.5pt) - Single unified flow so they NEVER overlap
     const area = String(site.area || site.city || site.site_code || 'Prime Site').trim();
     let landmark = String(site.address || site.notes || '').trim();
-    if (!landmark || landmark.toLowerCase() === area.toLowerCase()) {
-      landmark = site.city ? `Near ${site.city} Hub` : '';
+
+    // Strip duplicate leading area from landmark to avoid redundant repetition & overflow
+    let cleanLandmark = landmark;
+    if (area && cleanLandmark.toLowerCase().startsWith(area.toLowerCase())) {
+      let trimmed = cleanLandmark.slice(area.length).trim();
+      trimmed = trimmed.replace(/^[\s–—\-:,|/]+/, '').trim();
+      cleanLandmark = trimmed;
+    }
+    if (!cleanLandmark || cleanLandmark.toLowerCase() === area.toLowerCase()) {
+      cleanLandmark = site.city && !area.toLowerCase().includes(site.city.toLowerCase()) ? site.city : '';
     }
 
-    s.addText(area, {
-      x: 9.03, y: 1.35, w: 4.10, h: 0.55,
-      fontFace: 'Arial', fontSize: 30, bold: true, color: 'FFFFFF', fit: 'shrink', margin: 0
-    });
+    // Balanced font sizes: clean & readable without breaking awkwardly or colliding
+    let areaFontSize = 19;
+    if (area.length > 40) areaFontSize = 15;
+    else if (area.length > 25) areaFontSize = 16.5;
 
-    let landmarkFontSize = 24;
-    if (landmark.length > 50) landmarkFontSize = 17;
-    else if (landmark.length > 30) landmarkFontSize = 20;
-    else if (landmark.length > 20) landmarkFontSize = 22;
+    let landmarkFontSize = 13;
+    if (cleanLandmark.length > 55) landmarkFontSize = 11;
+    else if (cleanLandmark.length > 35) landmarkFontSize = 12;
 
-    if (landmark) {
-      s.addText(landmark, {
-        x: 9.03, y: 1.95, w: 4.10, h: 0.50,
-        fontFace: 'Arial', fontSize: landmarkFontSize, bold: true, color: '5EB0FA', fit: 'shrink', margin: 0
+    const headlineRuns = [
+      {
+        text: area,
+        options: {
+          fontSize: areaFontSize,
+          bold: true,
+          color: 'FFFFFF',
+          fontFace: 'Arial',
+          breakLine: Boolean(cleanLandmark)
+        }
+      }
+    ];
+
+    if (cleanLandmark) {
+      headlineRuns.push({
+        text: cleanLandmark,
+        options: {
+          fontSize: landmarkFontSize,
+          bold: false,
+          color: '5EB0FA',
+          fontFace: 'Arial'
+        }
       });
     }
+
+    s.addText(headlineRuns, {
+      x: 9.03, y: 1.30, w: 4.10, h: 1.40,
+      valign: 'top',
+      margin: 0,
+      fit: 'shrink'
+    });
 
     // 5. Spec values (SIZE, TYPE, ILLUMINATION, RATE) - Big, crisp & spacious
     s.addText(getSize(site), {
@@ -3801,7 +3833,8 @@ function PptView() {
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '4px'
+                        gap: '4px',
+                        whiteSpace: 'nowrap'
                       }}
                     >
                       <span>📅 Booked till {finalEndDateText}</span>
@@ -3819,7 +3852,8 @@ function PptView() {
                         border: '1px solid rgba(56, 189, 248, 0.35)',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '4px'
+                        gap: '4px',
+                        whiteSpace: 'nowrap'
                       }}
                     >
                       <span>📅 Available: {info.manualDateFmt}</span>
@@ -3836,7 +3870,8 @@ function PptView() {
                         border: '1px solid rgba(245, 158, 11, 0.45)',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '4px'
+                        gap: '4px',
+                        whiteSpace: 'nowrap'
                       }}
                     >
                       <span>🔒 Booked</span>
@@ -3853,7 +3888,8 @@ function PptView() {
                         border: '1px solid rgba(34, 197, 94, 0.35)',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '4px'
+                        gap: '4px',
+                        whiteSpace: 'nowrap'
                       }}
                     >
                       <span>✓ Available</span>
