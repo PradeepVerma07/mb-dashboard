@@ -8317,10 +8317,21 @@ function CampaignTrackerView() {
             🔄 Refresh
           </button>
           {(canAdd || canDelete) && (
-            <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Import campaigns from Excel or CSV spreadsheet">
-              <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
-              <input type="file" accept=".xlsx,.xls,.csv,.xlsm,.ods" hidden disabled={importingExcel} onChange={handleCampaignsExcelImport} />
-            </label>
+            <>
+              <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Import campaigns from Excel or CSV spreadsheet">
+                <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+                <input type="file" accept=".xlsx,.xls,.csv,.xlsm,.ods" hidden disabled={importingExcel} onChange={handleCampaignsExcelImport} />
+              </label>
+              <a
+                href="/sample_campaign_tracker_import.xlsx"
+                download="MediaBuzz_Campaign_Tracker_Sample.xlsx"
+                className="scooh-btn ghost"
+                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                title="Download sample Excel spreadsheet template for importing campaigns"
+              >
+                <span>📄 Sample Template</span>
+              </a>
+            </>
           )}
           <button type="button" className="scooh-btn ghost" onClick={() => exportCampaignsExcel(filteredLatest, 'MediaBuzz_Campaign_Tracker.xlsx')}>
             📥 Export Excel
@@ -8615,10 +8626,21 @@ function CampaignTrackerView() {
             </button>
 
             {(canAdd || canDelete) && (
-              <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', padding: '6px 12px' }} title="Import campaigns spreadsheet">
-                <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
-                <input type="file" accept=".xlsx,.xls,.csv,.xlsm,.ods" hidden disabled={importingExcel} onChange={handleCampaignsExcelImport} />
-              </label>
+              <>
+                <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11.5px', padding: '6px 12px' }} title="Import campaigns spreadsheet">
+                  <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+                  <input type="file" accept=".xlsx,.xls,.csv,.xlsm,.ods" hidden disabled={importingExcel} onChange={handleCampaignsExcelImport} />
+                </label>
+                <a
+                  href="/sample_campaign_tracker_import.xlsx"
+                  download="MediaBuzz_Campaign_Tracker_Sample.xlsx"
+                  className="scooh-btn ghost"
+                  style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '11.5px', padding: '6px 12px' }}
+                  title="Download sample Excel spreadsheet template for importing campaigns"
+                >
+                  <span>📄 Sample Template</span>
+                </a>
+              </>
             )}
 
             <button type="button" className="scooh-btn ghost" onClick={loadData} title="Refresh data" style={{ fontSize: '11.5px', padding: '6px 10px' }}>
