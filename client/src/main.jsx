@@ -3783,258 +3783,292 @@ function PptView() {
           </div>
         </div>
 
-        {/* Sleek Compact Filter & Search Bar */}
-        <div
-          className="scooh-ppt-filter-bar"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            flexWrap: 'wrap',
-            background: 'rgba(10, 20, 38, 0.75)',
-            border: '1px solid rgba(255, 255, 255, 0.09)',
-            borderRadius: '10px',
-            padding: '8px 12px',
-            margin: '14px 0 10px'
-          }}
-        >
-          {/* Proper Search Bar */}
-          <div
-            className="scooh-ppt-search-box"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              background: '#07111e',
-              border: '1px solid #233752',
-              borderRadius: '7px',
-              padding: '0 10px',
-              minWidth: '240px',
-              maxWidth: '380px',
-              flex: '1 1 260px',
-              height: '35px',
-              boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.35)',
-              transition: 'border-color 0.15s'
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            <input
-              id="scooh-ppt-search"
-              type="text"
-              placeholder="Search site code, area, landmark, or codes…"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              style={{
-                flex: 1,
-                background: 'transparent',
-                border: 'none',
-                outline: 'none',
-                color: '#f8fafc',
-                fontSize: '12px',
-                padding: '0',
-                minWidth: 0
-              }}
-              autoComplete="off"
-            />
-            {query && (
-              <button
-                type="button"
-                onClick={() => setQuery('')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#94a3b8',
-                  cursor: 'pointer',
-                  padding: '0 2px',
-                  fontSize: '13px',
-                  lineHeight: 1,
-                  flexShrink: 0
+        {/* Sleek Compact Unified Controls Panel */}
+        <div className="scooh-ppt-controls-panel">
+          {/* Row 1: Search & Filter Controls */}
+          <div className="scooh-ppt-filter-row">
+            {/* Proper Search Bar */}
+            <div className="scooh-ppt-search-box">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input
+                id="scooh-ppt-search"
+                type="text"
+                placeholder="Search site code, area, landmark, or multiple codes…"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                autoComplete="off"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    padding: '0 2px',
+                    fontSize: '13px',
+                    lineHeight: 1,
+                    flexShrink: 0
+                  }}
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Area Filter */}
+            <div className={`scooh-ppt-filter-pill ${areaFilter ? 'active-purple' : ''}`}>
+              <span style={{ fontSize: '11px', color: areaFilter ? '#c084fc' : '#94a3b8', fontWeight: 700 }}>📍 Area:</span>
+              <select
+                id="scooh-ppt-area-filter"
+                value={areaFilter}
+                onChange={e => setAreaFilter(e.target.value)}
+              >
+                <option value="">All Areas</option>
+                {areas.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+              {areaFilter && (
+                <button
+                  type="button"
+                  onClick={() => setAreaFilter('')}
+                  style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '12px', padding: '0 2px', lineHeight: 1 }}
+                  title="Clear area filter"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Date Availability Filter */}
+            <div className={`scooh-ppt-filter-pill ${dateFilter ? 'active-sky' : ''}`}>
+              <span style={{ fontSize: '11px', color: dateFilter ? '#38bdf8' : '#94a3b8', fontWeight: 700 }}>📅 Date:</span>
+              <input
+                id="scooh-ppt-date-filter"
+                type="date"
+                value={dateFilter}
+                onChange={e => setDateFilter(e.target.value)}
+                title="Evaluate site availability as of this date"
+              />
+              {dateFilter && (
+                <button
+                  type="button"
+                  onClick={() => setDateFilter('')}
+                  style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '12px', padding: '0 2px', lineHeight: 1 }}
+                  title="Reset date"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Compact Sort Selector + Direction Toggle */}
+            <div className="scooh-ppt-filter-pill">
+              <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700 }}>⇅ Sort:</span>
+              <select
+                value={`${sortState.key}:${sortState.dir}`}
+                onChange={e => {
+                  const [k, d] = e.target.value.split(':');
+                  setSortState({ key: k, dir: d });
                 }}
-                title="Clear search"
               >
-                ✕
-              </button>
-            )}
-          </div>
-
-          {/* Small Area Filter */}
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: areaFilter ? 'rgba(168, 85, 247, 0.15)' : '#07111e',
-              border: areaFilter ? '1px solid rgba(168, 85, 247, 0.45)' : '1px solid #233752',
-              borderRadius: '7px',
-              padding: '0 9px',
-              height: '35px'
-            }}
-          >
-            <span style={{ fontSize: '11.5px', color: areaFilter ? '#c084fc' : '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap' }}>📍 Area:</span>
-            <select
-              id="scooh-ppt-area-filter"
-              value={areaFilter}
-              onChange={e => setAreaFilter(e.target.value)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: areaFilter ? '#e9d5ff' : '#cbd5e1',
-                fontSize: '12px',
-                fontWeight: 600,
-                outline: 'none',
-                cursor: 'pointer',
-                padding: '0',
-                maxWidth: '150px'
-              }}
-            >
-              <option value="" style={{ background: '#0b1329', color: '#fff' }}>All Areas</option>
-              {areas.map(a => <option key={a} value={a} style={{ background: '#0b1329', color: '#fff' }}>{a}</option>)}
-            </select>
-            {areaFilter && (
+                <option value="site_code:asc">Site Code (01 → 87)</option>
+                <option value="site_code:desc">Site Code (87 → 01)</option>
+                <option value="area:asc">Area (A–Z)</option>
+                <option value="area:desc">Area (Z–A)</option>
+                <option value="city:asc">City (A–Z)</option>
+                <option value="media_type:asc">Media Type</option>
+                <option value="monthly_rate:asc">Rate: Low to High</option>
+                <option value="monthly_rate:desc">Rate: High to Low</option>
+                <option value="availability:asc">Availability</option>
+                <option value="size:asc">Size</option>
+              </select>
               <button
                 type="button"
-                onClick={() => setAreaFilter('')}
-                style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '12px', padding: '0 2px' }}
-                title="Clear area filter"
+                onClick={() => setSortState(prev => ({ ...prev, dir: prev.dir === 'asc' ? 'desc' : 'asc' }))}
+                style={{
+                  background: 'rgba(139, 92, 246, 0.15)',
+                  border: '1px solid rgba(139, 92, 246, 0.35)',
+                  borderRadius: '5px',
+                  color: '#c4b5fd',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  padding: '2px 7px',
+                  lineHeight: 1.2
+                }}
+                title={sortState.dir === 'asc' ? 'Ascending (click for descending)' : 'Descending (click for ascending)'}
               >
-                ✕
+                {sortState.dir === 'asc' ? '↑ Asc' : '↓ Desc'}
               </button>
-            )}
-          </div>
+            </div>
 
-          {/* Small Date Availability Filter */}
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: dateFilter ? 'rgba(56, 189, 248, 0.14)' : '#07111e',
-              border: dateFilter ? '1px solid rgba(56, 189, 248, 0.45)' : '1px solid #233752',
-              borderRadius: '7px',
-              padding: '0 9px',
-              height: '35px'
-            }}
-          >
-            <span style={{ fontSize: '11.5px', color: dateFilter ? '#38bdf8' : '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap' }}>📅 Date:</span>
-            <input
-              id="scooh-ppt-date-filter"
-              type="date"
-              value={dateFilter}
-              onChange={e => setDateFilter(e.target.value)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: dateFilter ? '#38bdf8' : '#cbd5e1',
-                fontSize: '12px',
-                fontWeight: 600,
-                outline: 'none',
-                cursor: 'pointer',
-                padding: '0',
-                width: '115px'
-              }}
-              title="Evaluate site availability as of this date"
-            />
-            {dateFilter && (
+            {/* Reset Filters */}
+            {(query || areaFilter || dateFilter) && (
               <button
                 type="button"
-                onClick={() => setDateFilter('')}
-                style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: '12px', padding: '0 2px' }}
-                title="Reset date"
+                className="scooh-btn ghost"
+                onClick={() => {
+                  setQuery('');
+                  setAreaFilter('');
+                  setDateFilter('');
+                }}
+                style={{
+                  height: '36px',
+                  minHeight: '36px',
+                  padding: '0 10px',
+                  fontSize: '11.5px',
+                  color: '#f87171',
+                  borderColor: 'rgba(248, 113, 113, 0.35)',
+                  borderRadius: '8px'
+                }}
+                title="Reset search and filters"
               >
-                ✕
+                ✕ Reset
               </button>
             )}
           </div>
 
-          {/* Small Sort Selector */}
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              background: '#07111e',
-              border: '1px solid #233752',
-              borderRadius: '7px',
-              padding: '0 8px',
-              height: '35px'
-            }}
-          >
-            <span style={{ fontSize: '11.5px', color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap' }}>⇅ Sort:</span>
-            <select
-              value={`${sortState.key}:${sortState.dir}`}
-              onChange={e => {
-                const [k, d] = e.target.value.split(':');
-                setSortState({ key: k, dir: d });
-              }}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#cbd5e1',
-                fontSize: '12px',
-                fontWeight: 600,
-                outline: 'none',
-                cursor: 'pointer',
-                padding: '0'
-              }}
-            >
-              <option value="site_code:asc" style={{ background: '#0b1329', color: '#fff' }}>Site Code (01 → 87)</option>
-              <option value="site_code:desc" style={{ background: '#0b1329', color: '#fff' }}>Site Code (87 → 01)</option>
-              <option value="area:asc" style={{ background: '#0b1329', color: '#fff' }}>Area (A–Z)</option>
-              <option value="area:desc" style={{ background: '#0b1329', color: '#fff' }}>Area (Z–A)</option>
-              <option value="city:asc" style={{ background: '#0b1329', color: '#fff' }}>City (A–Z)</option>
-              <option value="media_type:asc" style={{ background: '#0b1329', color: '#fff' }}>Media Type</option>
-              <option value="monthly_rate:asc" style={{ background: '#0b1329', color: '#fff' }}>Rate: Low to High</option>
-              <option value="monthly_rate:desc" style={{ background: '#0b1329', color: '#fff' }}>Rate: High to Low</option>
-              <option value="availability:asc" style={{ background: '#0b1329', color: '#fff' }}>Availability</option>
-              <option value="size:asc" style={{ background: '#0b1329', color: '#fff' }}>Size</option>
-            </select>
-            <button
-              type="button"
-              onClick={() => setSortState(prev => ({ ...prev, dir: prev.dir === 'asc' ? 'desc' : 'asc' }))}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#a78bfa',
-                cursor: 'pointer',
-                fontSize: '11px',
-                fontWeight: 800,
-                padding: '0 3px'
-              }}
-              title={sortState.dir === 'asc' ? 'Ascending (click for descending)' : 'Descending (click for ascending)'}
-            >
-              {sortState.dir === 'asc' ? '▲' : '▼'}
-            </button>
-          </div>
+          {/* Row 2: Selection Counts & Action Buttons */}
+          <div className="scooh-ppt-action-row">
+            {/* Left: Site Count & Selected Badge */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>
+                {filtered.length} of {sites.length} sites
+              </span>
+              {selectedCount > 0 && (
+                <span style={{
+                  background: 'rgba(167, 139, 250, 0.18)',
+                  border: '1px solid rgba(167, 139, 250, 0.4)',
+                  color: '#c4b5fd',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  fontWeight: 700,
+                  fontSize: '11.5px'
+                }}>
+                  ✓ {selectedCount} site{selectedCount > 1 ? 's' : ''} selected (on top)
+                </span>
+              )}
+            </div>
 
-          {/* Reset Filters (shown if search, area, or date is active) */}
-          {(query || areaFilter || dateFilter) && (
-            <button
-              type="button"
-              className="scooh-btn ghost"
-              onClick={() => {
-                setQuery('');
-                setAreaFilter('');
-                setDateFilter('');
-              }}
-              style={{
-                height: '35px',
-                padding: '0 10px',
-                fontSize: '11.5px',
-                color: '#f87171',
-                borderColor: 'rgba(248, 113, 113, 0.35)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                borderRadius: '7px'
-              }}
-              title="Reset search and filters"
-            >
-              ✕ Reset
-            </button>
-          )}
+            {/* Right: Multi-Select & Batch Actions */}
+            <div className="scooh-ppt-select-actions">
+              <button
+                type="button"
+                className="scooh-btn primary"
+                onClick={() => setShowMultiSelectModal(true)}
+                style={{
+                  background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+                  border: 'none',
+                  boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)',
+                  fontWeight: 700,
+                  color: '#ffffff'
+                }}
+                title="Paste or enter multiple site codes (e.g. MB-01, MB-05, MB-12) to select them all together"
+              >
+                <span>⚡ Multi-Select Sites</span>
+              </button>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={selectAllVisible}
+              >
+                Select all visible
+              </button>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={deselectAll}
+              >
+                Deselect all
+              </button>
+              
+              <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.12)', margin: '0 2px' }} />
+
+              <label
+                className="scooh-btn ghost"
+                style={{ cursor: 'pointer', gap: '5px' }}
+                title="Import Excel to update PPT rates & availability"
+              >
+                <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+                <input type="file" accept=".xlsx,.xls" hidden disabled={importingExcel} onChange={handlePptExcelImport} />
+              </label>
+
+              <label
+                className="scooh-btn primary"
+                style={{
+                  cursor: folderImportStatus && !folderImportStatus.finished ? 'not-allowed' : 'pointer',
+                  gap: '6px',
+                  background: 'linear-gradient(135deg, #0284c7, #4f46e5)',
+                  color: '#fff',
+                  fontWeight: 700,
+                  border: 'none',
+                  boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)'
+                }}
+                title="Import a folder containing site photos (folders or files named by site code e.g. MB-01)"
+              >
+                <span>📂 {folderImportStatus && !folderImportStatus.finished ? 'Importing…' : 'Import Photo Folder'}</span>
+                <input
+                  type="file"
+                  {...{ webkitdirectory: '', directory: '', multiple: true }}
+                  hidden
+                  disabled={Boolean(folderImportStatus && !folderImportStatus.finished)}
+                  onChange={handleFolderPhotoImport}
+                />
+              </label>
+
+              <label
+                className="scooh-ppt-replace-toggle"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  fontSize: '11.5px',
+                  fontWeight: 600,
+                  color: replaceExistingFolderPhotos ? '#38bdf8' : '#94a3b8',
+                  background: replaceExistingFolderPhotos ? 'rgba(56, 189, 248, 0.12)' : '#08111d',
+                  padding: '0 9px',
+                  borderRadius: '7px',
+                  border: replaceExistingFolderPhotos ? '1px solid #38bdf8' : '1px solid #1c3b60',
+                  height: '35px'
+                }}
+                title="When enabled, importing photos replaces old photos for matched sites instead of appending"
+              >
+                <input
+                  type="checkbox"
+                  checked={replaceExistingFolderPhotos}
+                  onChange={e => setReplaceExistingFolderPhotos(e.target.checked)}
+                  style={{ accentColor: '#38bdf8', width: '13px', height: '13px', cursor: 'pointer' }}
+                />
+                <span>Replace old photos</span>
+              </label>
+
+              <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.12)', margin: '0 2px' }} />
+
+              <button
+                type="button"
+                className="scooh-btn danger"
+                onClick={removeAllPhotosTogether}
+                style={{
+                  gap: '5px',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  color: '#f87171',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  fontWeight: 700
+                }}
+                title="Remove all uploaded site photos together"
+              >
+                <span>🗑️ Remove All Photos</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Dynamic Date Availability Note (Small badge if active) */}
@@ -4053,180 +4087,6 @@ function PptView() {
             </button>
           </div>
         )}
-
-        {/* Compact Selection & Action Bar */}
-        <div
-          className="scooh-ppt-toolbar"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '8px',
-            flexWrap: 'wrap',
-            margin: '6px 0 12px',
-            width: '100%'
-          }}
-        >
-          {/* Left: Site Count & Selected Badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>
-              {filtered.length} of {sites.length} sites
-            </span>
-            {selectedCount > 0 && (
-              <span style={{
-                background: 'rgba(167, 139, 250, 0.18)',
-                border: '1px solid rgba(167, 139, 250, 0.4)',
-                color: '#c4b5fd',
-                padding: '2px 8px',
-                borderRadius: '12px',
-                fontWeight: 700,
-                fontSize: '11.5px'
-              }}>
-                ✓ {selectedCount} site{selectedCount > 1 ? 's' : ''} selected (on top)
-              </span>
-            )}
-          </div>
-
-          {/* Right: Multi-Select & Batch Actions (All 35px height) */}
-          <div className="scooh-ppt-select-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="scooh-btn primary"
-              onClick={() => setShowMultiSelectModal(true)}
-              style={{
-                height: '35px',
-                minHeight: '35px',
-                padding: '0 12px',
-                fontSize: '12px',
-                whiteSpace: 'nowrap',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
-                border: 'none',
-                boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)',
-                fontWeight: 700,
-                color: '#ffffff',
-                cursor: 'pointer',
-                borderRadius: '7px'
-              }}
-              title="Paste or enter multiple site codes (e.g. MB-01, MB-05, MB-12) to select them all together"
-            >
-              <span>⚡ Multi-Select Sites</span>
-            </button>
-            <button
-              type="button"
-              className="scooh-btn ghost"
-              onClick={selectAllVisible}
-              style={{ height: '35px', minHeight: '35px', padding: '0 11px', fontSize: '12px', whiteSpace: 'nowrap', borderRadius: '7px' }}
-            >
-              Select all visible
-            </button>
-            <button
-              type="button"
-              className="scooh-btn ghost"
-              onClick={deselectAll}
-              style={{ height: '35px', minHeight: '35px', padding: '0 11px', fontSize: '12px', whiteSpace: 'nowrap', borderRadius: '7px' }}
-            >
-              Deselect all
-            </button>
-            
-            <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)', margin: '0 2px' }} />
-
-            <label
-              className="scooh-btn ghost"
-              style={{ height: '35px', minHeight: '35px', padding: '0 10px', fontSize: '12px', whiteSpace: 'nowrap', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px', borderRadius: '7px' }}
-              title="Import Excel to update PPT rates & availability"
-            >
-              <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
-              <input type="file" accept=".xlsx,.xls" hidden disabled={importingExcel} onChange={handlePptExcelImport} />
-            </label>
-
-            <label
-              className="scooh-btn primary"
-              style={{
-                height: '35px',
-                minHeight: '35px',
-                padding: '0 11px',
-                fontSize: '12px',
-                whiteSpace: 'nowrap',
-                cursor: folderImportStatus && !folderImportStatus.finished ? 'not-allowed' : 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: 'linear-gradient(135deg, #0284c7, #4f46e5)',
-                color: '#fff',
-                fontWeight: 700,
-                border: 'none',
-                borderRadius: '7px',
-                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)'
-              }}
-              title="Import a folder containing site photos (folders or files named by site code e.g. MB-01)"
-            >
-              <span>📂 {folderImportStatus && !folderImportStatus.finished ? 'Importing…' : 'Import Folder'}</span>
-              <input
-                type="file"
-                {...{ webkitdirectory: '', directory: '', multiple: true }}
-                hidden
-                disabled={Boolean(folderImportStatus && !folderImportStatus.finished)}
-                onChange={handleFolderPhotoImport}
-              />
-            </label>
-
-            <label
-              className="scooh-ppt-replace-toggle"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                cursor: 'pointer',
-                userSelect: 'none',
-                fontSize: '11.5px',
-                fontWeight: 600,
-                color: replaceExistingFolderPhotos ? '#38bdf8' : '#94a3b8',
-                background: replaceExistingFolderPhotos ? 'rgba(56, 189, 248, 0.12)' : '#07111e',
-                padding: '0 9px',
-                borderRadius: '7px',
-                border: replaceExistingFolderPhotos ? '1px solid #38bdf8' : '1px solid #1c3b60',
-                height: '35px'
-              }}
-              title="When enabled, importing photos replaces old photos for matched sites instead of appending"
-            >
-              <input
-                type="checkbox"
-                checked={replaceExistingFolderPhotos}
-                onChange={e => setReplaceExistingFolderPhotos(e.target.checked)}
-                style={{ accentColor: '#38bdf8', width: '13px', height: '13px', cursor: 'pointer' }}
-              />
-              <span>Replace photos</span>
-            </label>
-
-            <button
-              type="button"
-              className="scooh-btn danger"
-              onClick={removeAllPhotosTogether}
-              style={{
-                height: '35px',
-                minHeight: '35px',
-                padding: '0 10px',
-                fontSize: '12px',
-                whiteSpace: 'nowrap',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-                background: 'rgba(239, 68, 68, 0.15)',
-                color: '#f87171',
-                border: '1px solid rgba(239, 68, 68, 0.4)',
-                cursor: 'pointer',
-                borderRadius: '7px',
-                fontWeight: 700
-              }}
-              title="Remove all uploaded site photos together"
-            >
-              <span>🗑️ Remove Photos</span>
-            </button>
-          </div>
-        </div>
 
         {/* Sites Grid */}
         <div className="scooh-ppt-grid" id="scooh-ppt-grid">
