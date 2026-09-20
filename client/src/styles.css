@@ -1068,9 +1068,14 @@ body {
 }
 .scooh-ppt-select-actions .scooh-btn {
   white-space: nowrap;
-  min-height: 44px;
-  padding: 0 16px;
-  font-size: 12.5px;
+  min-height: 35px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+.scooh-ppt-search-box:focus-within {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25) !important;
 }
 
 @media (max-width: 768px) {
