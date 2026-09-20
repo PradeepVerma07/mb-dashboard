@@ -2143,6 +2143,22 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
     });
     existingCampaigns = await q(`SELECT ${selectCols.join(', ')} FROM campaigns WHERE record_status="active"`);
 
+    const toYmd = (val) => {
+      if (!val) return '';
+      if (typeof val === 'string') {
+        const m = val.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (m) return m[1];
+      }
+      try {
+        const dt = new Date(val);
+        if (isNaN(dt.getTime())) return '';
+        const offset = dt.getTimezoneOffset() * 60000;
+        return new Date(dt.getTime() - offset).toISOString().slice(0, 10);
+      } catch (e) {
+        return '';
+      }
+    };
+
     const parseNum = (val) => {
       if (typeof val === 'number') return isNaN(val) ? 0 : val;
       if (!val) return 0;
@@ -2577,8 +2593,8 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
             if (po && c.po && String(c.po).trim().toLowerCase() === po.trim().toLowerCase()) return true;
             if (finalSiteCode && c.site_code && String(c.site_code).trim().toLowerCase() === finalSiteCode.trim().toLowerCase()) {
               if (startDate && c.start_date) {
-                return String(c.start_date).slice(0, 10) === String(startDate).slice(0, 10) &&
-                       String(c.end_date || '').slice(0, 10) === String(endDate || '').slice(0, 10) &&
+                return toYmd(c.start_date) === toYmd(startDate) &&
+                       toYmd(c.end_date) === toYmd(endDate) &&
                        String(c.client || '').trim().toLowerCase() === client.trim().toLowerCase();
               }
               if (month && c.month) {
@@ -2590,8 +2606,8 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
                 String(c.client || '').trim().toLowerCase() === client.trim().toLowerCase() &&
                 String(c.display || '').trim().toLowerCase() === display.trim().toLowerCase() &&
                 String(c.location || '').trim().toLowerCase() === location.trim().toLowerCase() &&
-                startDate && c.start_date && String(c.start_date).slice(0, 10) === String(startDate).slice(0, 10) &&
-                String(c.end_date || '').slice(0, 10) === String(endDate || '').slice(0, 10)) {
+                startDate && c.start_date && toYmd(c.start_date) === toYmd(startDate) &&
+                toYmd(c.end_date) === toYmd(endDate)) {
               return true;
             }
             return false;
