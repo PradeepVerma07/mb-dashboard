@@ -245,8 +245,30 @@ function universalCompare(valA, valB, dir = 'asc') {
   return dir === 'desc' ? -res : res;
 }
 
-// Smart site search matcher supporting site number (e.g. "01", "1", "mb-01", "87") and text search
+// Smart site search matcher supporting site number (e.g. "01", "1", "mb-01", "87"), multiple comma/space/newline site codes, and text search
 function matchSiteSearch(site, rawQuery) {
+  if (!rawQuery || !rawQuery.trim()) return true;
+  if (!site) return false;
+
+  const raw = rawQuery.trim();
+  // If query contains comma, semicolon, or newline, support multi-token search
+  if (/[,;\n]+/.test(raw)) {
+    const tokens = raw.split(/[,;\n]+/).map(t => t.trim()).filter(Boolean);
+    if (tokens.length > 1) {
+      return tokens.some(tok => matchSingleSiteSearch(site, tok));
+    }
+  }
+
+  // Also support multiple space-separated tokens if they look like site codes or numbers (e.g. "01 05 12" or "MB-01 MB-05")
+  const spaceTokens = raw.split(/\s+/).map(t => t.trim()).filter(Boolean);
+  if (spaceTokens.length > 1 && spaceTokens.every(t => /^(?:(?:mb|site)[\s-]*)?\d+$/i.test(t) || /^mb-\d+/i.test(t))) {
+    return spaceTokens.some(tok => matchSingleSiteSearch(site, tok));
+  }
+
+  return matchSingleSiteSearch(site, raw);
+}
+
+function matchSingleSiteSearch(site, rawQuery) {
   if (!rawQuery || !rawQuery.trim()) return true;
   if (!site) return false;
   const q = rawQuery.trim().toLowerCase();
@@ -2579,6 +2601,9 @@ function PptView() {
   const [pptName, setPptName] = useState('MediaBuzz_Automated-PPT');
   const [alsoGenerateExcel, setAlsoGenerateExcel] = useState(true);
   const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
+  const [showMultiSelectModal, setShowMultiSelectModal] = useState(false);
+  const [multiSelectInput, setMultiSelectInput] = useState('');
+  const lastCheckedSiteRef = useRef(null);
   // Campaign tracker map: site_code (uppercase) → latest active campaign row
   const [campaignMap, setCampaignMap] = useState({});
   const [campaignsBySiteCode, setCampaignsBySiteCode] = useState({}); // ALL campaigns per site for date overlap
@@ -3293,6 +3318,101 @@ function PptView() {
     setSel(newSel);
   }
 
+  function handleSiteCheck(site, isChecked, event) {
+    const siteKey = site.id || site.site_code;
+    const isShift = Boolean(event && (event.shiftKey || event.nativeEvent?.shiftKey));
+
+    if (isShift && lastCheckedSiteRef.current) {
+      const prevKey = lastCheckedSiteRef.current;
+      const prevIdx = filtered.findIndex(s => (s.id || s.site_code) === prevKey);
+      const currIdx = filtered.findIndex(s => (s.id || s.site_code) === siteKey);
+
+      if (prevIdx !== -1 && currIdx !== -1) {
+        const start = Math.min(prevIdx, currIdx);
+        const end = Math.max(prevIdx, currIdx);
+        const newSel = { ...sel };
+        for (let i = start; i <= end; i++) {
+          const s = filtered[i];
+          const k = s.id || s.site_code;
+          newSel[k] = { ...(newSel[k] || {}), checked: isChecked };
+        }
+        setSel(newSel);
+        lastCheckedSiteRef.current = siteKey;
+        return;
+      }
+    }
+
+    lastCheckedSiteRef.current = siteKey;
+    setSel(prev => ({
+      ...prev,
+      [siteKey]: { ...(prev[siteKey] || {}), checked: isChecked }
+    }));
+  }
+
+  const parsedMultiSites = useMemo(() => {
+    if (!multiSelectInput.trim()) return { matched: [], unmatched: [] };
+    const rawTokens = multiSelectInput
+      .split(/[\s,;\n\r\t]+/)
+      .map(t => t.trim())
+      .filter(Boolean);
+    const uniqueTokens = Array.from(new Set(rawTokens));
+    const matched = [];
+    const unmatched = [];
+
+    uniqueTokens.forEach(token => {
+      const cleanTok = token.toLowerCase();
+      const numMatch = cleanTok.match(/^(?:(?:mb|site)[\s-]*)?0*(\d+)$/);
+      const targetNum = numMatch ? parseInt(numMatch[1], 10) : null;
+
+      const found = sites.find(s => {
+        const sc = String(s.site_code || '').trim().toLowerCase();
+        if (sc === cleanTok) return true;
+        if (sc.replace(/[^a-z0-9]/g, '') === cleanTok.replace(/[^a-z0-9]/g, '')) return true;
+        if (targetNum !== null) {
+          const sNumMatch = sc.match(/(\d+)/);
+          const sNum = sNumMatch ? parseInt(sNumMatch[1], 10) : NaN;
+          if (sNum === targetNum) return true;
+        }
+        return false;
+      });
+
+      if (found) {
+        if (!matched.some(m => (m.id || m.site_code) === (found.id || found.site_code))) {
+          matched.push(found);
+        }
+      } else {
+        unmatched.push(token);
+      }
+    });
+
+    return { matched, unmatched };
+  }, [multiSelectInput, sites]);
+
+  function applyMultiSelect(mode = 'add') {
+    if (!parsedMultiSites.matched.length) {
+      alert('No matching sites found in your input. Please enter valid site codes (e.g. MB-01, MB-05, 12).');
+      return;
+    }
+    const newSel = mode === 'only' ? {} : { ...sel };
+    parsedMultiSites.matched.forEach(s => {
+      const k = s.id || s.site_code;
+      newSel[k] = { ...(newSel[k] || {}), checked: true };
+    });
+    setSel(newSel);
+    setShowMultiSelectModal(false);
+  }
+
+  function deselectMultiSites() {
+    if (!parsedMultiSites.matched.length) return;
+    const newSel = { ...sel };
+    parsedMultiSites.matched.forEach(s => {
+      const k = s.id || s.site_code;
+      if (newSel[k]) newSel[k].checked = false;
+    });
+    setSel(newSel);
+    setShowMultiSelectModal(false);
+  }
+
   async function downloadExcel() {
     try {
       const selectedList = sites.filter(s => sel[s.id || s.site_code]?.checked);
@@ -3801,6 +3921,29 @@ function PptView() {
             </label>
             <button
               type="button"
+              className="scooh-btn primary"
+              onClick={() => setShowMultiSelectModal(true)}
+              style={{
+                minHeight: '44px',
+                padding: '0 16px',
+                fontSize: '12.5px',
+                whiteSpace: 'nowrap',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '7px',
+                background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+                border: 'none',
+                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
+                fontWeight: 700,
+                color: '#ffffff',
+                cursor: 'pointer'
+              }}
+              title="Paste or enter multiple site codes (e.g. MB-01, MB-05, MB-12) to select them all together"
+            >
+              <span>⚡ Multi-Select Sites</span>
+            </button>
+            <button
+              type="button"
               className="scooh-btn ghost"
               onClick={selectAllVisible}
               style={{ minHeight: '44px', padding: '0 16px', fontSize: '12.5px', whiteSpace: 'nowrap' }}
@@ -3935,8 +4078,9 @@ function PptView() {
                     type="checkbox"
                     className="scooh-ppt-site-check"
                     checked={isChecked}
-                    onChange={e => setSel({ ...sel, [siteKey]: { ...v, checked: e.target.checked } })}
+                    onChange={e => handleSiteCheck(s, e.target.checked, e)}
                     style={{ cursor: 'pointer', width: '18px', height: '18px', accentColor: '#a78bfa', margin: 0 }}
+                    title="Click to select (Hold Shift + Click to select a range of sites)"
                   />
                   <div className="scooh-ppt-card-actions" style={{ display: 'flex', gap: '6px', margin: 0 }}>
                     <label className="scooh-btn secondary" style={{ cursor: 'pointer', fontSize: '11.5px', padding: '4px 9px', minHeight: '30px' }} onClick={e => e.stopPropagation()} title="Upload one or more photo files">
@@ -4351,6 +4495,222 @@ function PptView() {
           })}
         </div>
       </section>
+
+      {/* ── Modal for Quick Multi-Site Selection (Paste or Enter Multiple Sites) ── */}
+      {showMultiSelectModal && (
+        <div
+          className="scooh-modal-backdrop"
+          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          onClick={() => setShowMultiSelectModal(false)}
+        >
+          <div
+            className="scooh-panel"
+            style={{ width: '100%', maxWidth: '640px', maxHeight: '90vh', overflowY: 'auto', border: '1px solid #8b5cf6', boxShadow: '0 20px 50px rgba(0,0,0,0.7)', background: '#0b1329', padding: '24px', borderRadius: '12px' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #1e293b', paddingBottom: '14px', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#f1f5f9', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px', fontWeight: 800 }}>
+                  <span>⚡</span>
+                  <span>Select Multiple Sites Together</span>
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#94a3b8' }}>
+                  Paste or type multiple site codes (from Excel, email, or chat) separated by commas, spaces, or lines.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={() => setShowMultiSelectModal(false)}
+                style={{ padding: '4px 10px', fontSize: '14px', minHeight: '30px' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#c4b5fd', marginBottom: '6px' }}>
+                Paste Site Codes / Numbers:
+              </label>
+              <textarea
+                rows={4}
+                value={multiSelectInput}
+                onChange={e => setMultiSelectInput(e.target.value)}
+                placeholder={'e.g. MB-01, MB-05, MB-12, MB-18, 24, 30\nOr paste a column copied directly from Excel...'}
+                style={{
+                  width: '100%',
+                  background: '#040914',
+                  border: '1px solid #334155',
+                  borderRadius: '8px',
+                  color: '#f8fafc',
+                  padding: '10px 12px',
+                  fontSize: '13px',
+                  fontFamily: 'monospace',
+                  resize: 'vertical',
+                  boxSizing: 'border-box'
+                }}
+                autoFocus
+              />
+            </div>
+
+            {/* Quick Presets */}
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '16px' }}>
+              <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Quick Fill:</span>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                style={{ fontSize: '11px', padding: '3px 9px', minHeight: '26px', color: '#4ade80', borderColor: 'rgba(74, 222, 128, 0.3)' }}
+                onClick={() => {
+                  const vac = sites.filter(s => {
+                    const info = resolveSiteAvailability(s, sel[s.id || s.site_code] || {}, campaignsBySiteCode, campaignMap, dateFilter);
+                    return !info.isBooked;
+                  });
+                  setMultiSelectInput(vac.map(s => s.site_code).join(', '));
+                }}
+              >
+                🟢 All Vacant Sites ({sites.filter(s => !resolveSiteAvailability(s, sel[s.id || s.site_code] || {}, campaignsBySiteCode, campaignMap, dateFilter).isBooked).length})
+              </button>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                style={{ fontSize: '11px', padding: '3px 9px', minHeight: '26px', color: '#fbbf24', borderColor: 'rgba(251, 191, 36, 0.3)' }}
+                onClick={() => {
+                  const occ = sites.filter(s => {
+                    const info = resolveSiteAvailability(s, sel[s.id || s.site_code] || {}, campaignsBySiteCode, campaignMap, dateFilter);
+                    return info.isBooked;
+                  });
+                  setMultiSelectInput(occ.map(s => s.site_code).join(', '));
+                }}
+              >
+                🟡 All Occupied Sites ({sites.filter(s => resolveSiteAvailability(s, sel[s.id || s.site_code] || {}, campaignsBySiteCode, campaignMap, dateFilter).isBooked).length})
+              </button>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                style={{ fontSize: '11px', padding: '3px 9px', minHeight: '26px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.3)' }}
+                onClick={() => {
+                  const bl = sites.filter(s => String(s.lighting || '').toUpperCase().includes('BL') || String(s.media_type || '').toUpperCase().includes('BL'));
+                  setMultiSelectInput(bl.map(s => s.site_code).join(', '));
+                }}
+              >
+                💡 Backlit Only (BL)
+              </button>
+              {multiSelectInput && (
+                <button
+                  type="button"
+                  className="scooh-btn ghost"
+                  style={{ fontSize: '11px', padding: '3px 8px', minHeight: '26px', color: '#f87171' }}
+                  onClick={() => setMultiSelectInput('')}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* Realtime Matched Preview */}
+            <div style={{ background: 'rgba(15, 23, 42, 0.7)', borderRadius: '8px', padding: '12px 14px', border: '1px solid #1e293b', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: parsedMultiSites.matched.length > 0 ? '#4ade80' : '#94a3b8' }}>
+                  {parsedMultiSites.matched.length > 0
+                    ? `✓ ${parsedMultiSites.matched.length} site(s) recognized & ready to select`
+                    : 'No matching sites parsed yet'}
+                </span>
+                {parsedMultiSites.unmatched.length > 0 && (
+                  <span style={{ fontSize: '11px', color: '#f87171', fontWeight: 600 }}>
+                    ⚠️ {parsedMultiSites.unmatched.length} unrecognized code(s)
+                  </span>
+                )}
+              </div>
+
+              {parsedMultiSites.matched.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', maxHeight: '110px', overflowY: 'auto' }}>
+                  {parsedMultiSites.matched.map(s => (
+                    <span
+                      key={s.id || s.site_code}
+                      style={{
+                        background: 'rgba(168, 85, 247, 0.2)',
+                        border: '1px solid rgba(168, 85, 247, 0.45)',
+                        color: '#e9d5ff',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        fontSize: '11.5px',
+                        fontWeight: 700
+                      }}
+                    >
+                      {s.site_code}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {parsedMultiSites.unmatched.length > 0 && (
+                <div style={{ marginTop: '8px', fontSize: '11px', color: '#fca5a5' }}>
+                  Not found: {parsedMultiSites.unmatched.slice(0, 8).join(', ')}{parsedMultiSites.unmatched.length > 8 ? ` +${parsedMultiSites.unmatched.length - 8} more` : ''}
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={() => setShowMultiSelectModal(false)}
+                style={{ minHeight: '38px', padding: '0 14px', fontSize: '12.5px' }}
+              >
+                Cancel
+              </button>
+              {parsedMultiSites.matched.length > 0 && (
+                <button
+                  type="button"
+                  className="scooh-btn ghost"
+                  onClick={deselectMultiSites}
+                  style={{ minHeight: '38px', padding: '0 14px', fontSize: '12.5px', color: '#f87171', borderColor: 'rgba(248, 113, 113, 0.35)' }}
+                  title="Deselect only these matched sites"
+                >
+                  ✕ Deselect These
+                </button>
+              )}
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                disabled={parsedMultiSites.matched.length === 0}
+                onClick={() => applyMultiSelect('only')}
+                style={{
+                  minHeight: '38px',
+                  padding: '0 14px',
+                  fontSize: '12.5px',
+                  color: '#38bdf8',
+                  borderColor: 'rgba(56, 189, 248, 0.4)',
+                  cursor: parsedMultiSites.matched.length === 0 ? 'not-allowed' : 'pointer'
+                }}
+                title="Clears any other selected sites and selects ONLY these"
+              >
+                🎯 Select ONLY These ({parsedMultiSites.matched.length})
+              </button>
+              <button
+                type="button"
+                className="scooh-btn primary"
+                disabled={parsedMultiSites.matched.length === 0}
+                onClick={() => applyMultiSelect('add')}
+                style={{
+                  minHeight: '38px',
+                  padding: '0 18px',
+                  fontSize: '12.5px',
+                  background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+                  border: 'none',
+                  fontWeight: 700,
+                  cursor: parsedMultiSites.matched.length === 0 ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)'
+                }}
+                title="Adds these sites to your current selection"
+              >
+                + Add to Selection ({parsedMultiSites.matched.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Modal for Folder Photo Auto-Import Progress & Results ───────── */}
       {folderImportStatus && (
