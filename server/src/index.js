@@ -1,6 +1,9 @@
 import 'dotenv/config';
 import express from 'express';import cors from 'cors';import helmet from 'helmet';import path from 'path';import fs from 'fs';import multer from 'multer';import bcrypt from 'bcryptjs';import {fileURLToPath} from 'url';import * as xlsxModule from 'xlsx';
 const XLSX = xlsxModule.default || xlsxModule;
+try {
+  if (XLSX.set_fs) XLSX.set_fs(fs);
+} catch (e) {}
 import {pool,q} from './db.js';import {auth,admin,sign,managerOrAdmin,notViewer,requireRole} from './auth.js';
 import {computeAllOccupied, canonicalSiteCode, getConflictSummary, syncLinkedCampaigns, deleteLinkedCampaigns, batchDeleteLinkedCampaigns, syncAllLinkedCampaigns} from './siteHierarchy.js';
 process.on('uncaughtException', err => {
@@ -1761,6 +1764,20 @@ function parseFlexibleExcelDate(val) {
 }
 
 function parseSiteBlockFormat(rawRows) {
+  if (!rawRows || rawRows.length === 0) return [];
+
+  // Quick check: If the header row contains flat tabular columns (e.g. Client + MB Code + Up Date + Down Date),
+  // this is a flat tabular sheet, NOT a site-wise block schedule.
+  for (let i = 0; i < Math.min(5, rawRows.length); i++) {
+    const rowStr = (rawRows[i] || []).map(c => String(c || '').toLowerCase()).join(' ');
+    if ((rowStr.includes('client') || rowStr.includes('display')) &&
+        (rowStr.includes('mb code') || rowStr.includes('site code')) &&
+        (rowStr.includes('up date') || rowStr.includes('start date') || rowStr.includes('from date')) &&
+        (rowStr.includes('down date') || rowStr.includes('end date') || rowStr.includes('to date'))) {
+      return [];
+    }
+  }
+
   const blocks = [];
   let currentSite = null;
   let colMapping = null;
@@ -1801,7 +1818,8 @@ function parseSiteBlockFormat(rawRows) {
       const isSC = /^(?:MB|DEL|BOM|AHM|SUR|RAJ|SITE|HOARDING|H)[\s_-]*\d+[A-Z]?$/i.test(val) ||
                    /^[A-Z]{1,6}[-_ ]?\d{1,4}[A-Z]?$/i.test(val);
       const isDate = parseFlexibleExcelDate(val) !== null;
-      if (isSC && !isDate && !normRow[c].includes('date')) {
+      const rowHasDates = cells.some((cellVal, idx) => idx !== c && parseFlexibleExcelDate(cellVal) !== null);
+      if (isSC && !isDate && !normRow[c].includes('date') && !rowHasDates) {
         siteCodeFound = val;
         // The location/description is the next non-empty cell in the row
         for (let nextC = c + 1; nextC < cells.length; nextC++) {
@@ -2146,7 +2164,7 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
         return `${y}-${m}-${d}`;
       }
       if (typeof val === 'number') {
-        const parsed = XLSX.SSF.parse_date_code(val);
+        const parsed = (XLSX?.SSF?.parse_date_code) ? XLSX.SSF.parse_date_code(val) : null;
         if (parsed) {
           const m = String(parsed.m).padStart(2, '0');
           const d = String(parsed.d).padStart(2, '0');
@@ -2159,17 +2177,29 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
       // YYYY-MM-DD or YYYY/MM/DD
       const ymd = s.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})/);
       if (ymd) {
-        return `${ymd[1]}-${String(ymd[2]).padStart(2, '0')}-${String(ymd[3]).padStart(2, '0')}`;
+        const y = parseInt(ymd[1], 10);
+        const m = parseInt(ymd[2], 10);
+        let d = parseInt(ymd[3], 10);
+        if (m >= 1 && m <= 12) {
+          const maxDays = new Date(y, m, 0).getDate();
+          d = Math.min(d, maxDays);
+          return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
       }
 
       // DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
       const dmy = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
       if (dmy) {
-        const day = dmy[1].padStart(2, '0');
-        const month = dmy[2].padStart(2, '0');
+        let day = parseInt(dmy[1], 10);
+        const month = parseInt(dmy[2], 10);
         let year = dmy[3];
         if (year.length === 2) year = '20' + year;
-        return `${year}-${month}-${day}`;
+        const y = parseInt(year, 10);
+        if (month >= 1 && month <= 12) {
+          const maxDays = new Date(y, month, 0).getDate();
+          day = Math.min(day, maxDays);
+          return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        }
       }
 
       // DD-MMM-YYYY or DD MMM YYYY (e.g. 15-Jan-2024, 01-Oct-24)
@@ -2179,13 +2209,16 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
       };
       const dMmmY = s.match(/^(\d{1,2})[\s./-]+([A-Za-z]{3,9})[\s./-]+(\d{2,4})/);
       if (dMmmY) {
-        const day = dMmmY[1].padStart(2, '0');
+        let day = parseInt(dMmmY[1], 10);
         const mKey = dMmmY[2].toLowerCase().substring(0, 3);
         const month = monthNames[mKey];
         if (month) {
           let year = dMmmY[3];
           if (year.length === 2) year = '20' + year;
-          return `${year}-${month}-${day}`;
+          const y = parseInt(year, 10);
+          const maxDays = new Date(y, parseInt(month, 10), 0).getDate();
+          day = Math.min(day, maxDays);
+          return `${y}-${month}-${String(day).padStart(2, '0')}`;
         }
       }
 
@@ -2202,6 +2235,8 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
     const normKey = (s) => String(s || '').toLowerCase().replace(/[\r\n\t_./#\-–—()[\]{}:;]/g, ' ').replace(/\s+/g, ' ').trim();
     const alphaKey = (s) => normKey(s).replace(/[^a-z0-9]/g, '');
 
+    const failedRows = [];
+
     for (const cs of candidateSheets) {
       const rows = XLSX.utils.sheet_to_json(cs.sheet, { range: cs.headerIdx, defval: '', raw: true });
 
@@ -2209,145 +2244,165 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
         const r = rows[i];
         if (!r || typeof r !== 'object') continue;
 
-        const rowKeys = Object.keys(r);
+        try {
+          const rowKeys = Object.keys(r);
 
-        const getVal = (patterns) => {
-          // 1. Exact match
-          for (const p of patterns) {
-            const pNorm = normKey(p);
-            const pAlpha = alphaKey(p);
-            for (const key of rowKeys) {
-              if (normKey(key) === pNorm || alphaKey(key) === pAlpha) {
-                const val = r[key];
-                if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+          const getVal = (patterns) => {
+            // 1. Exact match
+            for (const p of patterns) {
+              const pNorm = normKey(p);
+              const pAlpha = alphaKey(p);
+              for (const key of rowKeys) {
+                if (normKey(key) === pNorm || alphaKey(key) === pAlpha) {
+                  const val = r[key];
+                  if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+                }
+              }
+            }
+            // 2. Token / word match
+            for (const p of patterns) {
+              const pNorm = normKey(p);
+              for (const key of rowKeys) {
+                const words = normKey(key).split(/\s+/);
+                if (words.includes(pNorm) || normKey(key).startsWith(pNorm + ' ') || normKey(key).endsWith(' ' + pNorm)) {
+                  const val = r[key];
+                  if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+                }
+              }
+            }
+            // 3. Substring match only for patterns > 3 chars
+            for (const p of patterns) {
+              const pAlpha = alphaKey(p);
+              if (pAlpha.length <= 3) continue;
+              for (const key of rowKeys) {
+                if (alphaKey(key).includes(pAlpha)) {
+                  const val = r[key];
+                  if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+                }
+              }
+            }
+            return '';
+          };
+
+          const siteCode = String(getVal([
+            'mb code / site code', 'mb code/site code', 'mb code', 'mbcode', 'mb_code',
+            'site code', 'sitecode', 'site_code', 'site no', 'siteno', 'site number',
+            'site id', 'siteid', 'hoarding no', 'hoarding code', 'board no', 'board code',
+            'asset id', 'media id', 'location code', 'site', 'code', 'id',
+            'sr no', 's no', 'sno', 'sl no'
+          ])).trim();
+
+          let month = String(getVal([
+            'month', 'billing month', 'billing_month', 'bill month', 'mon', 'period'
+          ])).trim();
+
+          const dateVal = parseDate(getVal([
+            'booking date', 'booking_date', 'order date', 'ro date', 'po date', 'agreement date', 'date', 'dt'
+          ]));
+
+          let client = String(getVal([
+            'client name/display', 'client name / display', 'client name', 'client_name',
+            'client / display', 'client/display', 'client_display',
+            'client/agency name', 'client / agency name', 'client / agency', 'client/agency',
+            'client', 'agency name', 'agency_name', 'agency',
+            'advertiser name', 'advertiser', 'customer name', 'customer',
+            'party name', 'party', 'account name', 'account', 'bill to'
+          ])).trim();
+
+          let display = String(getVal([
+            'display / brand', 'display/brand',
+            'display', 'campaign name', 'campaign_name', 'campaign', 'brand name', 'brand_name',
+            'brand', 'product name', 'product', 'creative name', 'creative', 'ad name', 'ad title',
+            'ad content', 'caption', 'matter', 'description'
+          ])).trim();
+
+          if (!display && client) {
+            const parenMatch = client.match(/^([^(]+)\s*\(([^)]+)\)$/);
+            if (parenMatch) {
+              client = parenMatch[1].trim();
+              display = parenMatch[2].trim();
+            } else if (client.includes(' / ')) {
+              const parts = client.split(' / ');
+              client = parts[0].trim();
+              display = parts.slice(1).join(' / ').trim();
+            }
+          }
+
+          const vendorName = String(getVal([
+            'vendor name', 'vendor_name', 'vendor', 'supplier name', 'supplier', 'media owner', 'owner', 'landlord'
+          ])).trim();
+
+          let location = String(getVal([
+            'location / specification', 'location/specification', 'location', 'specification',
+            'site location', 'site name', 'sitename', 'address', 'site address',
+            'area', 'landmark', 'place', 'city', 'locality', 'zone'
+          ])).trim();
+
+          let width = parseNum(getVal(['width', 'w', 'width (ft)', 'width(ft)', 'breadth', 'b']));
+          let height = parseNum(getVal(['height', 'h', 'height (ft)', 'height(ft)', 'length', 'l']));
+          let size = String(getVal([
+            'size', 'dimension', 'dimensions', 'size in ft', 'size(ft)', 'size (ft)', 'measurement', 'sqft', 'sq ft'
+          ])).trim();
+
+          if (!size && width > 0 && height > 0) {
+            size = `${width}x${height} ft`;
+          } else if (size && (!width || !height)) {
+            const dimMatch = size.match(/(\d+(?:\.\d+)?)\s*['"]?\s*[xX*×]\s*['"]?\s*(\d+(?:\.\d+)?)/);
+            if (dimMatch) {
+              if (!width) width = parseFloat(dimMatch[1]);
+              if (!height) height = parseFloat(dimMatch[2]);
+            }
+          }
+
+          let lighting = 'BL';
+          if (location) {
+            if (/\b(?:FL|Front\s*Lit)\b/i.test(location)) lighting = 'FL';
+            else if (/\b(?:NL|Non\s*Lit)\b/i.test(location)) lighting = 'Non Lit';
+            else if (/\b(?:BL|Back\s*Lit)\b/i.test(location)) lighting = 'BL';
+            if (!size) {
+              const dimMatch = location.match(/(\d+(?:\.\d+)?)\s*['"]?\s*[xX*×]\s*['"]?\s*(\d+(?:\.\d+)?)/);
+              if (dimMatch) {
+                width = parseFloat(dimMatch[1]);
+                height = parseFloat(dimMatch[2]);
+                size = `${width}x${height} ft`;
               }
             }
           }
-          // 2. Token / word match
-          for (const p of patterns) {
-            const pNorm = normKey(p);
-            for (const key of rowKeys) {
-              const words = normKey(key).split(/\s+/);
-              if (words.includes(pNorm) || normKey(key).startsWith(pNorm + ' ') || normKey(key).endsWith(' ' + pNorm)) {
-                const val = r[key];
-                if (val !== undefined && val !== null && String(val).trim() !== '') return val;
-              }
+
+          const type = String(getVal([
+            'type', 'media type', 'media_type', 'media', 'display type', 'nature', 'format'
+          ]) || 'Hoarding').trim();
+
+          let startDate = parseDate(getVal([
+            'up date', 'update', 'up_date', 'up dt', 'up',
+            'start date', 'start_date', 'from date', 'from_date', 'booking start',
+            'commencement date', 'period from', 'date from', 'live date', 'from', 'start', 'start dt'
+          ]));
+
+          let endDate = parseDate(getVal([
+            'down date', 'downdate', 'down_date', 'down dt', 'down',
+            'end date', 'end_date', 'to date', 'to_date', 'booking end',
+            'completion date', 'period to', 'date to', 'expiry date', 'to', 'end', 'end dt'
+          ]));
+
+          let days = parseInt(getVal([
+            'days', 'duration days', 'duration_days', 'total days', 'duration', 'no of days', 'num of days', 'tenure'
+          ]), 10);
+
+          if (isNaN(days) || days <= 0) {
+            if (startDate && endDate) {
+              const diffMs = new Date(endDate).getTime() - new Date(startDate).getTime();
+              days = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1);
+            } else {
+              days = 30;
             }
           }
-          // 3. Substring match only for patterns > 3 chars
-          for (const p of patterns) {
-            const pAlpha = alphaKey(p);
-            if (pAlpha.length <= 3) continue;
-            for (const key of rowKeys) {
-              if (alphaKey(key).includes(pAlpha)) {
-                const val = r[key];
-                if (val !== undefined && val !== null && String(val).trim() !== '') return val;
-              }
-            }
+
+          if (!startDate && dateVal) {
+            startDate = dateVal;
           }
-          return '';
-        };
 
-        const siteCode = String(getVal([
-          'site code', 'sitecode', 'site_code', 'site no', 'siteno', 'site number',
-          'site id', 'siteid', 'hoarding no', 'hoarding code', 'board no', 'board code',
-          'asset id', 'media id', 'location code', 'site', 'code', 'id',
-          'sr no', 's no', 'sno', 'sl no'
-        ])).trim();
-
-        let month = String(getVal([
-          'month', 'billing month', 'billing_month', 'bill month', 'mon', 'period'
-        ])).trim();
-
-        const dateVal = parseDate(getVal([
-          'booking date', 'booking_date', 'order date', 'ro date', 'po date', 'agreement date', 'date', 'dt'
-        ]));
-
-        let client = String(getVal([
-          'client / display', 'client/display', 'client_display',
-          'client/agency name', 'client / agency name', 'client / agency', 'client/agency',
-          'client name', 'client_name', 'client', 'agency name', 'agency_name', 'agency',
-          'advertiser name', 'advertiser', 'customer name', 'customer',
-          'party name', 'party', 'account name', 'account', 'bill to'
-        ])).trim();
-
-        let display = String(getVal([
-          'display / brand', 'display/brand',
-          'display', 'campaign name', 'campaign_name', 'campaign', 'brand name', 'brand_name',
-          'brand', 'product name', 'product', 'creative name', 'creative', 'ad name', 'ad title',
-          'ad content', 'caption', 'matter', 'description'
-        ])).trim();
-
-        if (!display && client) {
-          const parenMatch = client.match(/^([^(]+)\s*\(([^)]+)\)$/);
-          if (parenMatch) {
-            client = parenMatch[1].trim();
-            display = parenMatch[2].trim();
-          } else if (client.includes(' / ')) {
-            const parts = client.split(' / ');
-            client = parts[0].trim();
-            display = parts.slice(1).join(' / ').trim();
-          }
-        }
-
-        const vendorName = String(getVal([
-          'vendor name', 'vendor_name', 'vendor', 'supplier name', 'supplier', 'media owner', 'owner', 'landlord'
-        ])).trim();
-
-        const location = String(getVal([
-          'location', 'site location', 'site name', 'sitename', 'address', 'site address',
-          'area', 'landmark', 'place', 'city', 'locality', 'zone'
-        ])).trim();
-
-        let width = parseNum(getVal(['width', 'w', 'width (ft)', 'width(ft)', 'breadth', 'b']));
-        let height = parseNum(getVal(['height', 'h', 'height (ft)', 'height(ft)', 'length', 'l']));
-        let size = String(getVal([
-          'size', 'dimension', 'dimensions', 'size in ft', 'size(ft)', 'size (ft)', 'measurement', 'sqft', 'sq ft'
-        ])).trim();
-
-        if (!size && width > 0 && height > 0) {
-          size = `${width}x${height} ft`;
-        } else if (size && (!width || !height)) {
-          const dimMatch = size.match(/(\d+(?:\.\d+)?)\s*['"]?\s*[xX*×]\s*['"]?\s*(\d+(?:\.\d+)?)/);
-          if (dimMatch) {
-            if (!width) width = parseFloat(dimMatch[1]);
-            if (!height) height = parseFloat(dimMatch[2]);
-          }
-        }
-
-        const type = String(getVal([
-          'type', 'media type', 'media_type', 'media', 'display type', 'nature', 'format'
-        ]) || 'Hoarding').trim();
-
-        let startDate = parseDate(getVal([
-          'start date', 'start_date', 'from date', 'from_date', 'booking start',
-          'commencement date', 'period from', 'date from', 'live date', 'from', 'start', 'start dt'
-        ]));
-
-        let endDate = parseDate(getVal([
-          'end date', 'end_date', 'to date', 'to_date', 'booking end',
-          'completion date', 'period to', 'date to', 'expiry date', 'to', 'end', 'end dt'
-        ]));
-
-        let days = parseInt(getVal([
-          'days', 'duration days', 'duration_days', 'total days', 'duration', 'no of days', 'num of days', 'tenure'
-        ]), 10);
-
-        if (isNaN(days) || days <= 0) {
-          if (startDate && endDate) {
-            const diffMs = new Date(endDate).getTime() - new Date(startDate).getTime();
-            days = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1);
-          } else {
-            days = 30;
-          }
-        }
-
-        if (!startDate && dateVal) {
-          startDate = dateVal;
-        }
-
-        if (!startDate) {
-          if (month) {
+          if (!startDate && month) {
             const mMatch = month.match(/([a-zA-Z]+)[ -_]?(\d{2,4})?/);
             if (mMatch) {
               const mKey = mMatch[1].toLowerCase().substring(0, 3);
@@ -2357,247 +2412,282 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
               startDate = `${yNum}-${mNum}-01`;
             }
           }
-        }
 
-        if (!startDate) {
-          startDate = new Date().toISOString().slice(0, 10);
-        }
-
-        if (!endDate && startDate) {
-          const s = new Date(startDate);
-          s.setDate(s.getDate() + (days > 0 ? days : 30));
-          endDate = s.toISOString().slice(0, 10);
-        }
-
-        if (!month && startDate) {
-          try {
-            const sd = new Date(startDate);
-            month = sd.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-          } catch (e) {
-            month = '';
+          if (!startDate) {
+            startDate = new Date().toISOString().slice(0, 10);
           }
-        }
 
-        let advtFees = parseNum(getVal([
-          'advt fees per month', 'advt. fees per month', 'advt fees', 'advt. fees', 'advt_fees',
-          'advt rate', 'monthly rent', 'rent per month', 'rent', 'rental', 'display charges',
-          'hire charges', 'fees', 'rate', 'charges'
-        ]));
+          if (!endDate && startDate) {
+            endDate = startDate;
+          }
 
-        let printingMounting = parseNum(getVal([
-          'printing & mounting', 'printing and mounting', 'printing & mounting cost',
-          'printing_mounting_cost', 'printing mounting', 'p&m', 'p & m', 'pm cost',
-          'printing cost', 'mounting cost', 'printing', 'mounting', 'fabrication', 'installation', 'production'
-        ]));
-
-        let totalAmount = parseNum(getVal([
-          'total amount', 'total_amount', 'total', 'amount', 'revenue',
-          'gross amount', 'net amount', 'invoice amount', 'bill amount', 'value', 'cost', 'grand total', 'deal value'
-        ]));
-
-        if (totalAmount === 0 && (advtFees > 0 || printingMounting > 0)) {
-          totalAmount = advtFees + printingMounting;
-        } else if (totalAmount > 0 && advtFees === 0) {
-          advtFees = Math.max(0, totalAmount - printingMounting);
-        }
-
-        const po = String(getVal([
-          'po', 'po no', 'po number', 'po_number', 'p.o.', 'p.o. no', 'purchase order',
-          'ro', 'ro no', 'ro number', 'ro_number', 'r.o.', 'release order', 'work order', 'wo', 'order no'
-        ])).trim();
-
-        const bill = String(getVal([
-          'bill', 'bill no', 'bill_no', 'bill number', 'invoice', 'invoice no', 'invoice_no',
-          'invoice number', 'inv no', 'inv_no', 'bill status'
-        ])).trim();
-
-        const pending = parseNum(getVal([
-          'pending', 'pending amount', 'pending_amount', 'balance', 'balance amount', 'due amount', 'outstanding', 'unpaid'
-        ]));
-
-        // Skip completely empty rows
-        if (!siteCode && !client && !location && !display && totalAmount === 0 && !startDate) {
-          continue;
-        }
-
-        // Skip summary / footer rows at bottom of Excel (e.g. Total, Grand Total)
-        const lowClient = (client || '').toLowerCase().trim();
-        const lowLoc = (location || '').toLowerCase().trim();
-        const lowCode = (siteCode || '').toLowerCase().trim();
-        if (
-          lowClient === 'total' || lowClient === 'grand total' || lowClient === 'subtotal' || lowClient === 'sub total' ||
-          lowLoc === 'total' || lowLoc === 'grand total' ||
-          lowCode === 'total' || lowCode === 'grand total'
-        ) {
-          continue;
-        }
-
-        // Skip vacant / blank client rows ("Blank" in Excel means vacant site)
-        if (isVacantClient(client) && isVacantClient(display)) {
-          continue;
-        }
-
-        // Link to sites table - first check explicit site code, then auto-detect by Location & Size
-        let matchedSite = null;
-        const isExplicitMbCode = /^mb[-\s]?\d+/i.test(siteCode);
-
-        // 1. Explicit MB-XX site code
-        if (siteCode && isExplicitMbCode) {
-          const cleanC = cleanStr(siteCode);
-          matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
-        }
-
-        // 2. Automatic site detection: match site code according to location and size!
-        if (!matchedSite && (location || size || width || height)) {
-          matchedSite = matchSiteByLocationAndSize(location, size, width, height, existingSites);
-        }
-
-        // 3. Fallback direct or plain numeric row code match
-        if (!matchedSite && siteCode) {
-          const cleanC = cleanStr(siteCode);
-          matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
-          if (!matchedSite && /\d+/.test(siteCode)) {
-            const numMatch = siteCode.match(/\d+/);
-            if (numMatch) {
-              const num = parseInt(numMatch[0], 10);
-              matchedSite = existingSites.find(s => cleanStr(s.site_code) === `mb${String(num).padStart(2, '0')}` || cleanStr(s.site_code) === `mb${num}`);
+          if (!month && startDate) {
+            try {
+              const sd = new Date(startDate);
+              month = sd.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            } catch (e) {
+              month = '';
             }
           }
-        }
 
-        const finalSiteId = matchedSite?.id || 0;
-        const finalSiteCode = matchedSite?.site_code || siteCode || (location ? `MB-${cleanStr(location).slice(0, 10).toUpperCase()}` : `MB-${i + 1}`);
+          let advtFees = parseNum(getVal([
+            'advt fees per month', 'advt. fees per month', 'advt fees', 'advt. fees', 'advt_fees',
+            'advt rate', 'monthly rent', 'rent per month', 'rent', 'rental', 'display charges',
+            'hire charges', 'fees', 'rate', 'charges'
+          ]));
 
-        // Auto-fill missing specs from matched site
-        if (matchedSite) {
-          if (!location && (matchedSite.address || matchedSite.area)) {
-            location = matchedSite.address || matchedSite.area;
-          }
-          if (!size && matchedSite.size) {
-            size = matchedSite.size;
-          }
-          if (!width && matchedSite.width) {
-            width = matchedSite.width;
-          }
-          if (!height && matchedSite.height) {
-            height = matchedSite.height;
-          }
-          if ((!type || type === 'Hoarding') && matchedSite.media_type) {
-            type = matchedSite.media_type;
-          }
-        }
+          let printingMounting = parseNum(getVal([
+            'printing & mounting', 'printing and mounting', 'printing & mounting cost',
+            'printing_mounting_cost', 'printing mounting', 'p&m', 'p & m', 'pm cost',
+            'printing cost', 'mounting cost', 'printing', 'mounting', 'fabrication', 'installation', 'production'
+          ]));
 
-        // Match existing campaign - match by PO, or site+month/date, or client+display+location
-        const matched = existingCampaigns.find(c => {
-          if (po && c.po && String(c.po).trim().toLowerCase() === po.trim().toLowerCase()) return true;
-          if (finalSiteCode && c.site_code && String(c.site_code).trim().toLowerCase() === finalSiteCode.trim().toLowerCase()) {
-            if (month && c.month) {
-              if (cleanStr(c.month) === cleanStr(month)) return true;
-            } else if (startDate && c.start_date) {
-              if (String(c.start_date).slice(0, 10) === String(startDate).slice(0, 10)) return true;
-            } else {
+          let totalAmount = parseNum(getVal([
+            'total amount', 'total_amount', 'total', 'amount', 'revenue',
+            'gross amount', 'net amount', 'invoice amount', 'bill amount', 'value', 'cost', 'grand total', 'deal value'
+          ]));
+
+          if (totalAmount === 0 && (advtFees > 0 || printingMounting > 0)) {
+            totalAmount = advtFees + printingMounting;
+          } else if (totalAmount > 0 && advtFees === 0) {
+            advtFees = Math.max(0, totalAmount - printingMounting);
+          }
+
+          const po = String(getVal([
+            'po', 'po no', 'po number', 'po_number', 'p.o.', 'p.o. no', 'purchase order',
+            'ro', 'ro no', 'ro number', 'ro_number', 'r.o.', 'release order', 'work order', 'wo', 'order no'
+          ])).trim();
+
+          const bill = String(getVal([
+            'bill', 'bill no', 'bill_no', 'bill number', 'invoice', 'invoice no', 'invoice_no',
+            'invoice number', 'inv no', 'inv_no', 'bill status'
+          ])).trim();
+
+          const pending = parseNum(getVal([
+            'pending', 'pending amount', 'pending_amount', 'balance', 'balance amount', 'due amount', 'outstanding', 'unpaid'
+          ]));
+
+          const remarks = String(getVal([
+            'remarks', 'remark', 'notes', 'note', 'comment', 'comments'
+          ])).trim();
+
+          // Skip completely empty rows
+          if (!siteCode && !client && !location && !display && totalAmount === 0 && !startDate) {
+            continue;
+          }
+
+          // Skip summary / footer rows at bottom of Excel (e.g. Total, Grand Total)
+          const lowClient = (client || '').toLowerCase().trim();
+          const lowLoc = (location || '').toLowerCase().trim();
+          const lowCode = (siteCode || '').toLowerCase().trim();
+          if (
+            lowClient === 'total' || lowClient === 'grand total' || lowClient === 'subtotal' || lowClient === 'sub total' ||
+            lowLoc === 'total' || lowLoc === 'grand total' ||
+            lowCode === 'total' || lowCode === 'grand total'
+          ) {
+            continue;
+          }
+
+          // Vacant / blank client rows ("Blank" in Excel means vacant site) are preserved as records
+          // so the full occupancy timeline is retained without data loss.
+          if (isVacantClient(client) && isVacantClient(display)) {
+            client = client || 'Blank';
+            display = display || client || 'Vacant';
+          }
+          if (!client && display) client = display;
+          if (!display && client) display = client;
+          if (!client && !display) {
+            client = 'Blank';
+            display = 'Blank';
+          }
+
+          // Link to sites table - first check explicit site code, then auto-detect by Location & Size
+          let matchedSite = null;
+          const isExplicitMbCode = /^mb[-\s]?\d+/i.test(siteCode);
+
+          // 1. Explicit MB-XX site code
+          if (siteCode && isExplicitMbCode) {
+            const cleanC = cleanStr(siteCode);
+            matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
+          }
+
+          // 2. Automatic site detection: match site code according to location and size!
+          if (!matchedSite && (location || size || width || height)) {
+            matchedSite = matchSiteByLocationAndSize(location, size, width, height, existingSites);
+          }
+
+          // 3. Fallback direct or plain numeric row code match
+          if (!matchedSite && siteCode) {
+            const cleanC = cleanStr(siteCode);
+            matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
+            if (!matchedSite && /\d+/.test(siteCode)) {
+              const numMatch = siteCode.match(/\d+/);
+              if (numMatch) {
+                const num = parseInt(numMatch[0], 10);
+                matchedSite = existingSites.find(s => cleanStr(s.site_code) === `mb${String(num).padStart(2, '0')}` || cleanStr(s.site_code) === `mb${num}`);
+              }
+            }
+          }
+
+          // 4. Auto-create site in database if it doesn't exist yet (e.g. MB-86, MB-87)
+          if (!matchedSite && siteCode) {
+            const cleanC = cleanStr(siteCode);
+            matchedSite = existingSites.find(s => cleanStr(s.site_code) === cleanC);
+            if (!matchedSite) {
+              const loc = location || `Site ${siteCode}`;
+              try {
+                const ins = await q(
+                  `INSERT INTO sites (site_code, address, area, city, media_type, lighting, width, height, size, ownership, availability, record_status, created_at, updated_at)
+                   VALUES (?, ?, ?, 'Ahmedabad', ?, ?, ?, ?, ?, 'Owned', 'Available', 'active', NOW(), NOW())`,
+                  [siteCode, loc, loc, type || 'Hoarding', lighting || 'BL', width || null, height || null, size || '']
+                );
+                matchedSite = { id: ins.insertId, site_code: siteCode, address: loc, area: loc, width, height, size, media_type: type };
+                existingSites.push(matchedSite);
+              } catch (err) {
+                console.warn(`[Import] Could not auto-create site ${siteCode}:`, err.message);
+              }
+            }
+          }
+
+          const finalSiteId = matchedSite?.id || 0;
+          const finalSiteCode = matchedSite?.site_code || siteCode || (location ? `MB-${cleanStr(location).slice(0, 10).toUpperCase()}` : `MB-${i + 1}`);
+
+          // Auto-fill missing specs from matched site
+          if (matchedSite) {
+            if (!location && (matchedSite.address || matchedSite.area)) {
+              location = matchedSite.address || matchedSite.area;
+            }
+            if (!size && matchedSite.size) {
+              size = matchedSite.size;
+            }
+            if (!width && matchedSite.width) {
+              width = matchedSite.width;
+            }
+            if (!height && matchedSite.height) {
+              height = matchedSite.height;
+            }
+            if ((!type || type === 'Hoarding') && matchedSite.media_type) {
+              type = matchedSite.media_type;
+            }
+          }
+
+          // Match existing campaign - match by PO, or site+start_date+end_date+client, or client+display+location+start_date+end_date
+          // end_date & client are included so distinct bookings for the same site are never overwritten.
+          const matched = existingCampaigns.find(c => {
+            if (po && c.po && String(c.po).trim().toLowerCase() === po.trim().toLowerCase()) return true;
+            if (finalSiteCode && c.site_code && String(c.site_code).trim().toLowerCase() === finalSiteCode.trim().toLowerCase()) {
+              if (startDate && c.start_date) {
+                return String(c.start_date).slice(0, 10) === String(startDate).slice(0, 10) &&
+                       String(c.end_date || '').slice(0, 10) === String(endDate || '').slice(0, 10) &&
+                       String(c.client || '').trim().toLowerCase() === client.trim().toLowerCase();
+              }
+              if (month && c.month) {
+                return cleanStr(c.month) === cleanStr(month) &&
+                       String(c.client || '').trim().toLowerCase() === client.trim().toLowerCase();
+              }
+            }
+            if (client && display && location &&
+                String(c.client || '').trim().toLowerCase() === client.trim().toLowerCase() &&
+                String(c.display || '').trim().toLowerCase() === display.trim().toLowerCase() &&
+                String(c.location || '').trim().toLowerCase() === location.trim().toLowerCase() &&
+                startDate && c.start_date && String(c.start_date).slice(0, 10) === String(startDate).slice(0, 10) &&
+                String(c.end_date || '').slice(0, 10) === String(endDate || '').slice(0, 10)) {
               return true;
             }
-          }
-          if (client && display && location &&
-              String(c.client || '').trim().toLowerCase() === client.trim().toLowerCase() &&
-              String(c.display || '').trim().toLowerCase() === display.trim().toLowerCase() &&
-              String(c.location || '').trim().toLowerCase() === location.trim().toLowerCase()) {
-            if (month && c.month) {
-              if (cleanStr(c.month) === cleanStr(month)) return true;
-            } else {
-              return true;
-            }
-          }
-          return false;
-        });
-
-        if (matched) {
-          // Dynamic collation-proof update: NO NULLIF, NO string comparisons in SQL
-          const updateFields = [];
-          const updateVals = [];
-
-          if (finalSiteId) { updateFields.push('`site_id` = ?'); updateVals.push(finalSiteId); }
-          if (finalSiteCode) { updateFields.push('`site_code` = ?'); updateVals.push(finalSiteCode); }
-          if (campCols.has('month') && month) { updateFields.push('`month` = ?'); updateVals.push(month); }
-          if (campCols.has('booking_date') && dateVal) { updateFields.push('`booking_date` = ?'); updateVals.push(dateVal); }
-          if (campCols.has('client') && client) { updateFields.push('`client` = ?'); updateVals.push(client); }
-          if (campCols.has('display') && display) { updateFields.push('`display` = ?'); updateVals.push(display); }
-          if (campCols.has('campaign_name') && display) { updateFields.push('`campaign_name` = ?'); updateVals.push(display); }
-          if (campCols.has('brand') && (client || display)) { updateFields.push('`brand` = ?'); updateVals.push(client || display); }
-          if (campCols.has('vendor_name') && vendorName) { updateFields.push('`vendor_name` = ?'); updateVals.push(vendorName); }
-          if (campCols.has('location') && location) { updateFields.push('`location` = ?'); updateVals.push(location); }
-          if (campCols.has('width') && width > 0) { updateFields.push('`width` = ?'); updateVals.push(width); }
-          if (campCols.has('height') && height > 0) { updateFields.push('`height` = ?'); updateVals.push(height); }
-          if (campCols.has('size') && size) { updateFields.push('`size` = ?'); updateVals.push(size); }
-          if (campCols.has('type') && type) { updateFields.push('`type` = ?'); updateVals.push(type); }
-          if (campCols.has('start_date') && startDate) { updateFields.push('`start_date` = ?'); updateVals.push(startDate); }
-          if (campCols.has('end_date') && endDate) { updateFields.push('`end_date` = ?'); updateVals.push(endDate); }
-          if (campCols.has('days') && days > 0) { updateFields.push('`days` = ?'); updateVals.push(days); }
-          if (campCols.has('advt_fees') && advtFees > 0) { updateFields.push('`advt_fees` = ?'); updateVals.push(advtFees); }
-          if (campCols.has('printing_mounting_cost') && printingMounting > 0) { updateFields.push('`printing_mounting_cost` = ?'); updateVals.push(printingMounting); }
-          if (campCols.has('total_amount') && totalAmount > 0) { updateFields.push('`total_amount` = ?'); updateVals.push(totalAmount); }
-          if (campCols.has('revenue') && totalAmount > 0) { updateFields.push('`revenue` = ?'); updateVals.push(totalAmount); }
-          if (campCols.has('po') && po) { updateFields.push('`po` = ?'); updateVals.push(po); }
-          if (campCols.has('bill') && bill) { updateFields.push('`bill` = ?'); updateVals.push(bill); }
-          if (campCols.has('pending') && pending !== 0) { updateFields.push('`pending` = ?'); updateVals.push(pending); }
-
-          updateFields.push('`record_status` = "active"', '`updated_at` = NOW()');
-          updateVals.push(matched.id);
-
-          await q(`UPDATE campaigns SET ${updateFields.join(', ')} WHERE id = ?`, updateVals);
-          matched.site_code = finalSiteCode;
-          matched.start_date = startDate;
-          matched.end_date = endDate;
-          matched.month = month;
-          updatedCount++;
-        } else {
-          const bookingCode = `MB-BK-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-          const insertData = {
-            booking_code: bookingCode,
-            site_id: finalSiteId || 0,
-            site_code: finalSiteCode,
-            record_status: 'active'
-          };
-          if (campCols.has('month')) insertData.month = month;
-          if (campCols.has('booking_date')) insertData.booking_date = dateVal;
-          if (campCols.has('client')) insertData.client = client || display || 'Direct Client';
-          if (campCols.has('display')) insertData.display = display;
-          if (campCols.has('campaign_name')) insertData.campaign_name = display || client;
-          if (campCols.has('brand')) insertData.brand = client || display;
-          if (campCols.has('vendor_name')) insertData.vendor_name = vendorName;
-          if (campCols.has('location')) insertData.location = location;
-          if (campCols.has('width')) insertData.width = width || null;
-          if (campCols.has('height')) insertData.height = height || null;
-          if (campCols.has('size')) insertData.size = size;
-          if (campCols.has('type')) insertData.type = type;
-          if (campCols.has('start_date')) insertData.start_date = startDate;
-          if (campCols.has('end_date')) insertData.end_date = endDate;
-          if (campCols.has('days')) insertData.days = days;
-          if (campCols.has('advt_fees')) insertData.advt_fees = advtFees;
-          if (campCols.has('printing_mounting_cost')) insertData.printing_mounting_cost = printingMounting;
-          if (campCols.has('total_amount')) insertData.total_amount = totalAmount;
-          if (campCols.has('revenue')) insertData.revenue = totalAmount;
-          if (campCols.has('po')) insertData.po = po;
-          if (campCols.has('bill')) insertData.bill = bill;
-          if (campCols.has('pending')) insertData.pending = pending;
-
-          const cols = Object.keys(insertData);
-          const placeholders = cols.map(() => '?').join(', ');
-          const vals = cols.map(c => insertData[c]);
-          const insertRes = await q(
-            `INSERT INTO campaigns (${cols.map(c => '`' + c + '`').join(', ')}, created_at, updated_at) VALUES (${placeholders}, NOW(), NOW())`,
-            vals
-          );
-          existingCampaigns.push({
-            id: insertRes?.insertId,
-            site_code: finalSiteCode,
-            start_date: startDate,
-            end_date: endDate,
-            month,
-            po, client, display, location
+            return false;
           });
-          newCount++;
+
+          if (matched) {
+            const updateFields = [];
+            const updateVals = [];
+
+            if (finalSiteId) { updateFields.push('`site_id` = ?'); updateVals.push(finalSiteId); }
+            if (finalSiteCode) { updateFields.push('`site_code` = ?'); updateVals.push(finalSiteCode); }
+            if (campCols.has('month') && month) { updateFields.push('`month` = ?'); updateVals.push(month); }
+            if (campCols.has('booking_date') && dateVal) { updateFields.push('`booking_date` = ?'); updateVals.push(dateVal); }
+            if (campCols.has('client') && client) { updateFields.push('`client` = ?'); updateVals.push(client); }
+            if (campCols.has('display') && display) { updateFields.push('`display` = ?'); updateVals.push(display); }
+            if (campCols.has('campaign_name') && display) { updateFields.push('`campaign_name` = ?'); updateVals.push(display); }
+            if (campCols.has('brand') && (client || display)) { updateFields.push('`brand` = ?'); updateVals.push(client || display); }
+            if (campCols.has('vendor_name') && vendorName) { updateFields.push('`vendor_name` = ?'); updateVals.push(vendorName); }
+            if (campCols.has('location') && location) { updateFields.push('`location` = ?'); updateVals.push(location); }
+            if (campCols.has('width') && width > 0) { updateFields.push('`width` = ?'); updateVals.push(width); }
+            if (campCols.has('height') && height > 0) { updateFields.push('`height` = ?'); updateVals.push(height); }
+            if (campCols.has('size') && size) { updateFields.push('`size` = ?'); updateVals.push(size); }
+            if (campCols.has('type') && type) { updateFields.push('`type` = ?'); updateVals.push(type); }
+            if (campCols.has('start_date') && startDate) { updateFields.push('`start_date` = ?'); updateVals.push(startDate); }
+            if (campCols.has('end_date') && endDate) { updateFields.push('`end_date` = ?'); updateVals.push(endDate); }
+            if (campCols.has('days') && days > 0) { updateFields.push('`days` = ?'); updateVals.push(days); }
+            if (campCols.has('advt_fees') && advtFees > 0) { updateFields.push('`advt_fees` = ?'); updateVals.push(advtFees); }
+            if (campCols.has('printing_mounting_cost') && printingMounting > 0) { updateFields.push('`printing_mounting_cost` = ?'); updateVals.push(printingMounting); }
+            if (campCols.has('total_amount') && totalAmount > 0) { updateFields.push('`total_amount` = ?'); updateVals.push(totalAmount); }
+            if (campCols.has('revenue') && totalAmount > 0) { updateFields.push('`revenue` = ?'); updateVals.push(totalAmount); }
+            if (campCols.has('po') && po) { updateFields.push('`po` = ?'); updateVals.push(po); }
+            if (campCols.has('bill') && bill) { updateFields.push('`bill` = ?'); updateVals.push(bill); }
+            if (campCols.has('pending') && pending !== 0) { updateFields.push('`pending` = ?'); updateVals.push(pending); }
+            if (campCols.has('notes') && remarks) { updateFields.push('`notes` = ?'); updateVals.push(remarks); }
+
+            updateFields.push('`record_status` = "active"', '`updated_at` = NOW()');
+            updateVals.push(matched.id);
+
+            await q(`UPDATE campaigns SET ${updateFields.join(', ')} WHERE id = ?`, updateVals);
+            matched.site_code = finalSiteCode;
+            matched.start_date = startDate;
+            matched.end_date = endDate;
+            matched.month = month;
+            updatedCount++;
+          } else {
+            const bookingCode = `MB-BK-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+            const insertData = {
+              booking_code: bookingCode,
+              site_id: finalSiteId || 0,
+              site_code: finalSiteCode,
+              record_status: 'active'
+            };
+            if (campCols.has('month')) insertData.month = month;
+            if (campCols.has('booking_date')) insertData.booking_date = dateVal;
+            if (campCols.has('client')) insertData.client = client || display || 'Direct Client';
+            if (campCols.has('display')) insertData.display = display;
+            if (campCols.has('campaign_name')) insertData.campaign_name = display || client;
+            if (campCols.has('brand')) insertData.brand = client || display;
+            if (campCols.has('vendor_name')) insertData.vendor_name = vendorName;
+            if (campCols.has('location')) insertData.location = location;
+            if (campCols.has('width')) insertData.width = width || null;
+            if (campCols.has('height')) insertData.height = height || null;
+            if (campCols.has('size')) insertData.size = size;
+            if (campCols.has('type')) insertData.type = type;
+            if (campCols.has('start_date')) insertData.start_date = startDate;
+            if (campCols.has('end_date')) insertData.end_date = endDate;
+            if (campCols.has('days')) insertData.days = days;
+            if (campCols.has('advt_fees')) insertData.advt_fees = advtFees;
+            if (campCols.has('printing_mounting_cost')) insertData.printing_mounting_cost = printingMounting;
+            if (campCols.has('total_amount')) insertData.total_amount = totalAmount;
+            if (campCols.has('revenue')) insertData.revenue = totalAmount;
+            if (campCols.has('po')) insertData.po = po;
+            if (campCols.has('bill')) insertData.bill = bill;
+            if (campCols.has('pending')) insertData.pending = pending;
+            if (campCols.has('notes') && remarks) insertData.notes = remarks;
+
+            const cols = Object.keys(insertData);
+            const placeholders = cols.map(() => '?').join(', ');
+            const vals = cols.map(c => insertData[c]);
+            const insertRes = await q(
+              `INSERT INTO campaigns (${cols.map(c => '`' + c + '`').join(', ')}, created_at, updated_at) VALUES (${placeholders}, NOW(), NOW())`,
+              vals
+            );
+            existingCampaigns.push({
+              id: insertRes?.insertId,
+              site_code: finalSiteCode,
+              start_date: startDate,
+              end_date: endDate,
+              month,
+              po, client, display, location
+            });
+            newCount++;
+          }
+        } catch (rowErr) {
+          failedRows.push({ row: i + 2, reason: rowErr.message });
+          console.warn(`[Import Campaigns] Row ${i + 2} failed:`, rowErr.message);
         }
       }
     }
@@ -2606,12 +2696,19 @@ app.post('/api/import/campaigns-xlsx', auth, managerOrAdmin, upload.single('file
     await syncAllLinkedCampaigns(q);
     await syncSiteAvailability();
 
+    const distinctSites = new Set(existingCampaigns.map(c => cleanStr(c.site_code)).filter(Boolean)).size;
+    const distinctClients = new Set(existingCampaigns.map(c => String(c.client || '').trim().toLowerCase()).filter(c => c && !isVacantClient(c))).size;
+
+    const failedNote = failedRows.length > 0 ? ` (${failedRows.length} row${failedRows.length === 1 ? '' : 's'} could not be imported - see failedRows)` : '';
     res.json({
       success: true,
       updated: updatedCount,
       created: newCount,
       rows: updatedCount + newCount,
-      message: `Successfully processed ${updatedCount + newCount} campaigns (${updatedCount} updated, ${newCount} created). Combined & single linked sites auto-booked.`
+      sitesCount: distinctSites,
+      clientsCount: distinctClients,
+      failedRows,
+      message: `✓ Successfully processed ${updatedCount + newCount} campaigns across ${distinctSites} MB sites (${distinctClients} clients structured).${failedNote}`
     });
   } catch (err) {
     console.error('Import Campaigns XLSX error:', err);
