@@ -5,8 +5,9 @@ server/node_modules/
 
 # Environment and sensitive data
 .env
-.env.local
-.env.*.local
+.env.*
+*.env
+!.env.example
 
 # Build output
 /dist/
