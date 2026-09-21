@@ -6,7 +6,7 @@ import PptxGenJS from 'pptxgenjs';
 import { attachMediaBuzzExcelHeader, attachMediaBuzzTermsAndConditions, MEDIA_BUZZ_TERMS_TEXT } from './excelLogo';
 import api from './api';
 import CampaignDetailsView, { CampaignDetailsModal, SiteDetailsModal } from './CampaignDetailsView';
-import { defaultSites, defaultSettings } from './defaultSites';
+import { defaultSettings } from './defaultSites';
 import { canonicalSiteCode, isCombinedSite, getSiteTypeTag, getConflictSummary, getOverlappingSiteCodes, SITE_PANELS } from './siteHierarchy';
 import './styles.css';
 
@@ -550,6 +550,7 @@ function clearAllCachedPhotos(targetSiteCodes = null) {
   try {
     if (!targetSiteCodes || targetSiteCodes.length === 0) {
       localStorage.removeItem(SITE_PHOTOS_CACHE_KEY);
+      clearAllPhotoBlobs();
     } else {
       const map = getAllCachedSitePhotos();
       for (const code of targetSiteCodes) {
@@ -625,6 +626,15 @@ async function deleteCachedPhotoBlob(key) {
     if (!db) return;
     const tx = db.transaction(STORE_NAME, 'readwrite');
     tx.objectStore(STORE_NAME).delete(key);
+  } catch {}
+}
+
+async function clearAllPhotoBlobs() {
+  try {
+    const db = await getPhotoDb();
+    if (!db) return;
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).clear();
   } catch {}
 }
 
@@ -1999,7 +2009,7 @@ function SitesView() {
   const isReadOnly = currentRole === 'viewer';
   const canDelete = isAdmin || isManager;
 
-  const [sites, setSites] = useState(defaultSites.map(unpackSite));
+  const [sites, setSites] = useState([]);
   const [search, setSearch] = useState('');
   const [cityFilter, setCityFilter] = useState('');
   const [mediaFilter, setMediaFilter] = useState('');
@@ -2018,7 +2028,7 @@ function SitesView() {
         api.get('/sites'),
         api.get('/campaigns').catch(() => ({ data: [] }))
       ]);
-      if (Array.isArray(sRes.data) && sRes.data.length > 0) {
+      if (Array.isArray(sRes.data)) {
         setSites(sRes.data.map(unpackSite));
       }
       // Build campaign map: SITE_CODE -> campaigns[]
@@ -2243,6 +2253,23 @@ function SitesView() {
     }
   }
 
+  async function handleClearAllSites() {
+    if (!confirm('⚠️ Are you sure you want to clean ALL sites from the database?\n\nThis will permanently remove all sites and clear cached photos so you can import a fresh Excel spreadsheet.')) {
+      return;
+    }
+    try {
+      await api.post('/sites/clear-all-sites');
+      clearAllCachedPhotos();
+      setSelectedIds(new Set());
+      setSites([]);
+      await load();
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
+      alert('✓ All sites cleaned from database! Ready for fresh Excel import.');
+    } catch (err) {
+      alert('Failed to clear sites: ' + (err.response?.data?.message || err.message));
+    }
+  }
+
   return (
     <>
       <PageHead
@@ -2252,10 +2279,21 @@ function SitesView() {
           <>
             <button type="button" className="scooh-btn ghost" onClick={load}>🔄 Refresh</button>
             {canDelete && (
-              <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Upload Excel spreadsheet to import sites, rates & availability">
-                <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
-                <input type="file" accept=".xlsx,.xls" hidden disabled={importingExcel} onChange={handleDirectExcelImport} />
-              </label>
+              <>
+                <label className="scooh-btn ghost" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }} title="Upload Excel spreadsheet to import sites, rates & availability">
+                  <span>📁 {importingExcel ? 'Importing…' : 'Import Excel'}</span>
+                  <input type="file" accept=".xlsx,.xls" hidden disabled={importingExcel} onChange={handleDirectExcelImport} />
+                </label>
+                <button
+                  type="button"
+                  className="scooh-btn ghost"
+                  style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.3)' }}
+                  onClick={handleClearAllSites}
+                  title="Clean all sites from database for fresh import"
+                >
+                  🗑️ Clean All Sites
+                </button>
+              </>
             )}
             {!isReadOnly && !isStaff && (
               <button className="scooh-btn purple-btn" onClick={() => setEdit({})}>+ Add Site</button>
@@ -2770,7 +2808,7 @@ function SitesView() {
 
 function PptView() {
   const navigate = useNavigate();
-  const [sites, setSites] = useState(defaultSites.map(unpackSite));
+  const [sites, setSites] = useState([]);
   const [pages, setPages] = useState(() => {
     try {
       const saved = localStorage.getItem('mb_ppt_pages_cache');
@@ -3006,7 +3044,7 @@ function PptView() {
         api.get('/ppt-pages').catch(() => api.get('/ppt-pages/public').catch(() => ({ data: null }))),
         api.get('/campaigns').catch(() => ({ data: [] }))
       ]);
-      if (Array.isArray(sRes.data) && sRes.data.length > 0) {
+      if (Array.isArray(sRes.data)) {
         const mapped = sRes.data.map(unpackSite);
         setSites(mapped);
 
@@ -5151,7 +5189,7 @@ function PptView() {
 }
 
 function ProposalsView() {
-  const [sites, setSites] = useState(defaultSites.map(unpackSite));
+  const [sites, setSites] = useState([]);
   const [clientName, setClientName] = useState('');
   const [campaignName, setCampaignName] = useState('');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
@@ -5185,7 +5223,7 @@ function ProposalsView() {
 
   useEffect(() => {
     api.get('/sites').then(res => {
-      if (Array.isArray(res.data) && res.data.length > 0) {
+      if (Array.isArray(res.data)) {
         setSites(res.data.map(unpackSite));
       }
     }).catch(() => {});
@@ -11205,7 +11243,7 @@ function ElectricityView() {
         api.get('/electricity').catch(() => ({ data: [] })),
         api.get('/sites').catch(() => ({ data: [] }))
       ]);
-      const siteList = Array.isArray(sRes.data) && sRes.data.length > 0 ? sRes.data : defaultSites;
+      const siteList = Array.isArray(sRes.data) ? sRes.data : [];
       setSites(siteList);
 
       const siteMap = new Map();
@@ -12313,7 +12351,7 @@ function DataToolsView() {
   async function exportExcel() {
     try {
       const { data } = await api.get('/sites');
-      const source = (Array.isArray(data) && data.length > 0) ? data : defaultSites;
+      const source = Array.isArray(data) ? data : [];
       const rows = source.map(unpackSite).map((x, idx) => {
         let w = x.width || '', h = x.height || '';
         if ((!w || !h) && x.size) {
@@ -12349,7 +12387,7 @@ function DataToolsView() {
   async function exportCsv() {
     try {
       const { data } = await api.get('/sites');
-      const source = (Array.isArray(data) && data.length > 0) ? data : defaultSites;
+      const source = Array.isArray(data) ? data : [];
       const rows = source.map(unpackSite).map((x, idx) => {
         let w = x.width || '', h = x.height || '';
         if ((!w || !h) && x.size) {
@@ -12618,7 +12656,7 @@ function ReportsView() {
         api.get('/clients').catch(() => ({ data: [] }))
       ]);
       setData({
-        sites: Array.isArray(s.data) && s.data.length ? s.data : defaultSites,
+        sites: Array.isArray(s.data) ? s.data : [],
         campaigns: Array.isArray(c.data) ? c.data : [],
         electricity: Array.isArray(e.data) ? e.data : [],
         invoices: Array.isArray(i.data) ? i.data : [],

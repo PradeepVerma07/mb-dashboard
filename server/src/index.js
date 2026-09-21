@@ -630,6 +630,17 @@ app.post('/api/sites/sync-photos', auth, async (req, res) => {
   }
 });
 
+// Clear all sites from database (for fresh import)
+app.post('/api/sites/clear-all-sites', auth, async (req, res) => {
+  try {
+    await q('DELETE FROM sites');
+    await q('ALTER TABLE sites AUTO_INCREMENT = 1').catch(() => {});
+    res.json({ success: true, message: 'All sites have been deleted from the database' });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to clear sites: ' + err.message });
+  }
+});
+
 // Clear all photos together across all or selected sites
 app.post('/api/sites/clear-all-images', auth, async (req, res) => {
   try {
@@ -1137,8 +1148,9 @@ app.post('/api/import/xlsx', auth, managerOrAdmin, upload.single('file'), async 
       'rate', 'selling', 'adv fee', 'fee', 'price', 'amount', 'rent', 'cost',
       'avail', 'status',
       'sr no', 'srno', 'sno', 'serial',
-      'site id', 'site code', 'siteid', 'sitecode', 'code',
-      'latitude', 'longitude', 'gps', 'coords', 'coordinates'
+      'site id', 'site code', 'siteid', 'sitecode', 'code', 'mb code', 'mbcode', 'mb no', 'mbno',
+      'latitude', 'longitude', 'gps', 'coords', 'coordinates',
+      'city', 'town'
     ];
 
     let chosenSheet = null;
@@ -1199,6 +1211,7 @@ app.post('/api/import/xlsx', auth, managerOrAdmin, upload.single('file'), async 
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
+      let city = String(getRowValue(r, ['CITY', 'City', 'Town', 'District'], 'Ahmedabad')).trim() || 'Ahmedabad';
       let area = String(getRowValue(r, ['AREA', 'Area', 'Area / Landmark', 'Area/Landmark', 'Landmark', 'Zone', 'Locality', 'City/Area'])).trim();
       let location = String(getRowValue(r, ['LOCATION', 'Location', 'Full Address', 'Address', 'Site Location', 'Site Address', 'Location / Landmark', 'Road / Location', 'Site Name', 'Description'])).trim();
 
@@ -1208,7 +1221,7 @@ app.post('/api/import/xlsx', auth, managerOrAdmin, upload.single('file'), async 
         if (parts.length > 1 && parts[0].trim().length > 2 && parts[0].trim().length < 35) {
           area = parts[0].trim();
         } else {
-          area = 'Ahmedabad';
+          area = city;
         }
       } else if (area && !location) {
         location = area;
@@ -1262,7 +1275,11 @@ app.post('/api/import/xlsx', auth, managerOrAdmin, upload.single('file'), async 
       const formattedGps = gpsObj.gps || (lat && lng ? `${lat}, ${lng}` : '');
 
       // Site Code in row
-      const codeInRow = String(getRowValue(r, ['Site ID', 'site_code', 'SITE ID', 'Site Code', 'SiteCode', 'Code', 'ID'], '')).trim();
+      const codeInRow = String(getRowValue(r, [
+        'MB CODE', 'MB Code', 'MB_CODE', 'MB NO', 'MB No', 'MBNO', 'MB-CODE',
+        'Site ID', 'site_code', 'SITE ID', 'Site Code', 'SiteCode', 'Site No', 'SITE NO',
+        'Code', 'ID'
+      ], '')).trim();
 
       // Match existing site
       let matched = null;
@@ -1365,7 +1382,17 @@ app.post('/api/import/xlsx', auth, managerOrAdmin, upload.single('file'), async 
         updatedCount++;
       } else {
         // Generate new site code
-        let newSiteCode = codeInRow && !/^\d+$/.test(codeInRow) ? codeInRow : null;
+        let newSiteCode = null;
+        if (codeInRow) {
+          const mbMatch = codeInRow.match(/^(?:MB[-\s]?)?(\d+)$/i);
+          if (mbMatch) {
+            const num = parseInt(mbMatch[1], 10);
+            newSiteCode = `MB-${String(num).padStart(2, '0')}`;
+            if (num > maxMbNum) maxMbNum = num;
+          } else {
+            newSiteCode = codeInRow;
+          }
+        }
         if (!newSiteCode) {
           maxMbNum++;
           newSiteCode = `MB-${String(maxMbNum).padStart(2, '0')}`;
@@ -1380,8 +1407,8 @@ app.post('/api/import/xlsx', auth, managerOrAdmin, upload.single('file'), async 
         await q(`INSERT INTO sites (
           site_code, city, area, address, media_type, lighting, size, width, height,
           availability, monthly_cost, monthly_rate, latitude, longitude, gps, flags, record_status, created_at, updated_at
-        ) VALUES (?, 'Ahmedabad', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
-          newSiteCode, area, location, mediaType, lighting, dim.size, dim.w, dim.h,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`, [
+          newSiteCode, city, area, location, mediaType, lighting, dim.size, dim.w, dim.h,
           availability, monthlyRate, monthlyRate, lat, lng, formattedGps, flags
         ]);
         newCount++;
@@ -3594,46 +3621,6 @@ app.get('/api/:entity', auth, async (req, res) => {
       }
       rows = await q(`SELECT * FROM \`${e.table}\` WHERE ${where} ORDER BY ${e.order} LIMIT ${limit}`);
     }
-    
-    // Auto-seed sites if table is empty
-    if (e.table === 'sites' && (!rows || rows.length === 0)) {
-      const seedCandidates = [
-        path.resolve(__dirname, 'data/all-embedded-data.json'),
-        path.resolve(__dirname, '../data/all-embedded-data.json'),
-        path.resolve(process.cwd(), 'server/src/data/all-embedded-data.json'),
-        path.resolve(process.cwd(), 'sql/all-embedded-data.json')
-      ];
-      const seedPath = seedCandidates.find(p => fs.existsSync(p));
-      if (seedPath) {
-        try {
-          const raw = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
-          if (Array.isArray(raw.sites)) {
-            for (const s of raw.sites) {
-              const code = String(s.site_code || '').trim();
-              if (!code) continue;
-              const parts = (s.gps || '').split(',').map(x => parseFloat(x.trim()));
-              const lat = isNaN(parts[0]) ? null : parts[0];
-              const lng = isNaN(parts[1]) ? null : parts[1];
-              const flags = typeof s.flags === 'string' ? s.flags : JSON.stringify(s.flags || {});
-              await q(`INSERT INTO sites (
-                site_code, city, area, address, size, media_type, lighting, facing,
-                ownership, availability, vendor_name, meter_no, monthly_cost, monthly_rate,
-                latitude, longitude, gps, notes, flags, record_status, created_at, updated_at
-              ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'active', NOW(), NOW())
-              ON DUPLICATE KEY UPDATE site_code=VALUES(site_code)`, [
-                code, s.city || 'Ahmedabad', s.area || '', s.address || '', s.size || '',
-                s.media_type || 'Hoarding', s.lighting || 'BL', s.facing || '', s.ownership || 'Owned',
-                s.availability || 'Available', s.vendor_name || '', s.meter_no || '',
-                Number(s.monthly_cost || 0), Number(s.monthly_rate || 0), lat, lng, s.gps || '', s.notes || '', flags
-              ]);
-            }
-            rows = await q(`SELECT * FROM \`sites\` ORDER BY id DESC LIMIT ${limit}`);
-          }
-        } catch (seedErr) {
-          console.warn('Auto-seed in route notice:', seedErr.message);
-        }
-      }
-    }
 
     for (const r of rows) {
       for (const k of ['flags', 'images_json']) {
@@ -3988,58 +3975,20 @@ async function initDb() {
       console.warn('Storage archives table init notice:', storageTblErr.message);
     }
 
-    // Auto-seed initial Media Buzz sites & settings if empty
+    // Seed default settings if empty (sites are managed by user / Excel import)
     try {
-      const siteCount = await q('SELECT COUNT(*) c FROM sites WHERE record_status="active"');
-      if (!siteCount[0]?.c) {
-        const seedCandidates = [
-          path.resolve(__dirname, 'data/all-embedded-data.json'),
-          path.resolve(__dirname, '../data/all-embedded-data.json'),
-          path.resolve(process.cwd(), 'server/src/data/all-embedded-data.json'),
-          path.resolve(process.cwd(), 'sql/all-embedded-data.json')
-        ];
-        const seedPath = seedCandidates.find(p => fs.existsSync(p));
-        if (seedPath) {
-          const raw = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
-          if (Array.isArray(raw.sites)) {
-            for (const s of raw.sites) {
-              const code = String(s.site_code || '').trim();
-              if (!code) continue;
-              const parts = (s.gps || '').split(',').map(x => parseFloat(x.trim()));
-              const lat = isNaN(parts[0]) ? null : parts[0];
-              const lng = isNaN(parts[1]) ? null : parts[1];
-              const flags = typeof s.flags === 'string' ? s.flags : JSON.stringify(s.flags || {});
-              await q(`INSERT INTO sites (
-                site_code, city, area, address, size, media_type, lighting, facing,
-                ownership, availability, vendor_name, meter_no, monthly_cost, monthly_rate,
-                latitude, longitude, gps, notes, flags, record_status, created_at, updated_at
-              ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'active', NOW(), NOW())
-              ON DUPLICATE KEY UPDATE site_code=VALUES(site_code)`, [
-                code,
-                s.city || 'Ahmedabad',
-                s.area || '',
-                s.address || '',
-                s.size || '',
-                s.media_type || 'Hoarding',
-                s.lighting || 'BL',
-                s.facing || '',
-                s.ownership || 'Owned',
-                s.availability || 'Available',
-                s.vendor_name || '',
-                s.meter_no || '',
-                Number(s.monthly_cost || 0),
-                Number(s.monthly_rate || 0),
-                lat,
-                lng,
-                s.gps || '',
-                s.notes || '',
-                flags
-              ]);
-            }
-            console.log(`Seeded ${raw.sites.length} initial Media Buzz sites successfully.`);
-          }
-
-          if (raw.default_settings) {
+      const seedCandidates = [
+        path.resolve(__dirname, 'data/all-embedded-data.json'),
+        path.resolve(__dirname, '../data/all-embedded-data.json'),
+        path.resolve(process.cwd(), 'server/src/data/all-embedded-data.json'),
+        path.resolve(process.cwd(), 'sql/all-embedded-data.json')
+      ];
+      const seedPath = seedCandidates.find(p => fs.existsSync(p));
+      if (seedPath) {
+        const raw = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+        if (raw.default_settings) {
+          const settingsCount = await q('SELECT COUNT(*) c FROM settings');
+          if (!settingsCount[0]?.c) {
             for (const [k, v] of Object.entries(raw.default_settings)) {
               await q('INSERT INTO settings (setting_key, setting_value, updated_at) VALUES (?,?,NOW()) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)', [k, String(v ?? '')]);
             }
@@ -4047,6 +3996,9 @@ async function initDb() {
           }
         }
       }
+    } catch (settingsSeedErr) {
+      console.warn('Settings seed notice:', settingsSeedErr.message);
+    }
 
       // Seed Vendors if empty
       const vendorCount = await q('SELECT COUNT(*) c FROM vendors');
