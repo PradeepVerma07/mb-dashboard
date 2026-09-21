@@ -497,15 +497,163 @@ function isSiteOccupiedOnDate(campaignsBySiteCode, siteCode, dateStr) {
   return !!getActiveCampaignOnDate(campaignsBySiteCode, siteCode, dateStr);
 }
 
+// ==========================================
+// PERSISTENT PHOTO CACHE (LocalStorage + IndexedDB)
+// Ensures uploaded PPT site photos are never lost across refreshes, re-login, or network glitches
+// ==========================================
+const SITE_PHOTOS_CACHE_KEY = 'mb_site_photos_cache';
+
+function getAllCachedSitePhotos() {
+  try {
+    const raw = localStorage.getItem(SITE_PHOTOS_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function getCachedPhotosForSite(siteCode) {
+  if (!siteCode) return [];
+  const map = getAllCachedSitePhotos();
+  const cleanCode = String(siteCode).trim().toUpperCase();
+  if (Array.isArray(map[cleanCode]) && map[cleanCode].length > 0) return map[cleanCode];
+  const norm = cleanCode.replace(/[^A-Z0-9]/g, '');
+  for (const [k, v] of Object.entries(map)) {
+    if (k.replace(/[^A-Z0-9]/g, '').toUpperCase() === norm && Array.isArray(v) && v.length > 0) {
+      return v;
+    }
+  }
+  return [];
+}
+
+function saveCachedPhotosForSite(siteCode, urls) {
+  if (!siteCode) return;
+  const cleanCode = String(siteCode).trim().toUpperCase();
+  try {
+    const map = getAllCachedSitePhotos();
+    if (Array.isArray(urls) && urls.length > 0) {
+      map[cleanCode] = urls;
+    } else {
+      delete map[cleanCode];
+      const norm = cleanCode.replace(/[^A-Z0-9]/g, '');
+      for (const k of Object.keys(map)) {
+        if (k.replace(/[^A-Z0-9]/g, '').toUpperCase() === norm) delete map[k];
+      }
+    }
+    localStorage.setItem(SITE_PHOTOS_CACHE_KEY, JSON.stringify(map));
+  } catch (e) {
+    console.warn('saveCachedPhotosForSite notice:', e);
+  }
+}
+
+function clearAllCachedPhotos(targetSiteCodes = null) {
+  try {
+    if (!targetSiteCodes || targetSiteCodes.length === 0) {
+      localStorage.removeItem(SITE_PHOTOS_CACHE_KEY);
+    } else {
+      const map = getAllCachedSitePhotos();
+      for (const code of targetSiteCodes) {
+        const cleanCode = String(code).trim().toUpperCase();
+        delete map[cleanCode];
+        const norm = cleanCode.replace(/[^A-Z0-9]/g, '');
+        for (const k of Object.keys(map)) {
+          if (k.replace(/[^A-Z0-9]/g, '').toUpperCase() === norm) delete map[k];
+        }
+      }
+      localStorage.setItem(SITE_PHOTOS_CACHE_KEY, JSON.stringify(map));
+    }
+  } catch {}
+}
+
+// Persistent binary/blob image store in IndexedDB
+const DB_NAME = 'MB_Photos_DB';
+const DB_VERSION = 1;
+const STORE_NAME = 'photo_blobs';
+let photoDbPromise = null;
+
+function getPhotoDb() {
+  if (photoDbPromise) return photoDbPromise;
+  photoDbPromise = new Promise(resolve => {
+    if (typeof window === 'undefined' || !window.indexedDB) return resolve(null);
+    try {
+      const req = window.indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+  return photoDbPromise;
+}
+
+async function cachePhotoBlob(key, data) {
+  if (!key || !data) return;
+  try {
+    const db = await getPhotoDb();
+    if (!db) return;
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).put(data, key);
+  } catch {}
+}
+
+async function getCachedPhotoBlob(key) {
+  if (!key) return null;
+  try {
+    const db = await getPhotoDb();
+    if (!db) return null;
+    return await new Promise(resolve => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function deleteCachedPhotoBlob(key) {
+  if (!key) return;
+  try {
+    const db = await getPhotoDb();
+    if (!db) return;
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).delete(key);
+  } catch {}
+}
+
 function unpackSite(s) {
   let f = s.flags;
   try {
     if (typeof f === 'string') f = JSON.parse(f);
   } catch {}
   f = f && typeof f === 'object' && !Array.isArray(f) ? f : {};
+
+  const siteCode = String(s.site_code || '').trim().toUpperCase();
+  const cachedImgs = getCachedPhotosForSite(siteCode);
+
+  let serverImgs = Array.isArray(f.ppt_images) && f.ppt_images.length > 0
+    ? f.ppt_images
+    : (Array.isArray(s.ppt_images) && s.ppt_images.length > 0 ? s.ppt_images : []);
+
+  let finalImgs = serverImgs;
+  if ((!finalImgs || finalImgs.length === 0) && cachedImgs && cachedImgs.length > 0) {
+    // Retain locally cached uploaded photos if server has not returned them
+    finalImgs = cachedImgs;
+  } else if (serverImgs && serverImgs.length > 0) {
+    // Keep local cache fresh with server images
+    saveCachedPhotosForSite(siteCode, serverImgs);
+  }
+
   return {
     ...s,
-    ppt_images: Array.isArray(f.ppt_images) ? f.ppt_images : (Array.isArray(s.ppt_images) ? s.ppt_images : []),
+    ppt_images: finalImgs || [],
     ppt_availability: f.ppt_availability || s.ppt_availability || s.availability || '',
     ppt_rate: f.ppt_rate || s.ppt_rate || s.monthly_rate || ''
   };
@@ -518,6 +666,10 @@ function resolvePhotoUrl(u) {
   if (!u) return '';
   if (photoPreviewCache.has(u)) return photoPreviewCache.get(u);
   if (typeof u === 'string' && (u.startsWith('data:') || u.startsWith('blob:'))) return u;
+  // Always route /uploads/ via /api/uploads/ for bulletproof proxying across dev and production
+  if (typeof u === 'string' && u.startsWith('/uploads/')) {
+    return `/api${u}`;
+  }
   return u;
 }
 
@@ -525,47 +677,46 @@ async function imageData(url) {
   if (!url) throw new Error('Empty image URL');
   if (photoPreviewCache.has(url)) return photoPreviewCache.get(url);
   if (url.startsWith('data:')) return url;
+
+  // Check persistent IndexedDB cache first
   try {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const b = await r.blob();
-    return await new Promise((ok, ko) => {
-      const fr = new FileReader();
-      fr.onload = () => ok(fr.result);
-      fr.onerror = ko;
-      fr.readAsDataURL(b);
-    });
-  } catch (err) {
-    if (url.startsWith('/')) {
-      try {
-        const altUrl = `http://localhost:3000${url}`;
-        const r2 = await fetch(altUrl);
-        if (r2.ok) {
-          const b2 = await r2.blob();
-          return await new Promise((ok, ko) => {
-            const fr = new FileReader();
-            fr.onload = () => ok(fr.result);
-            fr.onerror = ko;
-            fr.readAsDataURL(b2);
-          });
-        }
-      } catch {}
-      try {
-        const altUrl2 = `/api${url}`;
-        const r3 = await fetch(altUrl2);
-        if (r3.ok) {
-          const b3 = await r3.blob();
-          return await new Promise((ok, ko) => {
-            const fr = new FileReader();
-            fr.onload = () => ok(fr.result);
-            fr.onerror = ko;
-            fr.readAsDataURL(b3);
-          });
-        }
-      } catch {}
+    const cached = await getCachedPhotoBlob(url);
+    if (cached) {
+      photoPreviewCache.set(url, cached);
+      return cached;
     }
-    throw err;
+  } catch {}
+
+  // Determine priority candidate URLs
+  const candidates = [];
+  if (url.startsWith('/uploads/')) {
+    candidates.push(`/api${url}`);
+    candidates.push(url);
+  } else if (url.startsWith('/api/uploads/')) {
+    candidates.push(url);
+    candidates.push(url.replace('/api', ''));
+  } else {
+    candidates.push(url);
   }
+
+  for (const targetUrl of candidates) {
+    try {
+      const r = await fetch(targetUrl);
+      if (r.ok) {
+        const b = await r.blob();
+        const dataUrl = await new Promise((ok, ko) => {
+          const fr = new FileReader();
+          fr.onload = () => ok(fr.result);
+          fr.onerror = ko;
+          fr.readAsDataURL(b);
+        });
+        photoPreviewCache.set(url, dataUrl);
+        cachePhotoBlob(url, dataUrl);
+        return dataUrl;
+      }
+    } catch {}
+  }
+  throw new Error(`Failed to load presentation image from: ${url}`);
 }
 
 const OVERLAY_SVG_STRING = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
@@ -2045,11 +2196,27 @@ function SitesView() {
     fileList.forEach(f => fd.append('files', f));
     const res = await api.post(`/sites/${siteId}/images${replace ? '?replace=true' : ''}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
     const serverImgs = res.data?.images || [];
+    const siteCode = res.data?.site_code;
     serverImgs.forEach((sUrl, idx) => {
       if (localPreviews[idx]) {
         photoPreviewCache.set(sUrl, localPreviews[idx]);
       }
+      const f = fileList[idx];
+      if (f) {
+        const r2 = new FileReader();
+        r2.onload = () => {
+          if (r2.result) {
+            photoPreviewCache.set(sUrl, r2.result);
+            cachePhotoBlob(sUrl, r2.result);
+            cachePhotoBlob(`/api${sUrl}`, r2.result);
+          }
+        };
+        r2.readAsDataURL(f);
+      }
     });
+    if (siteCode) {
+      saveCachedPhotosForSite(siteCode, serverImgs);
+    }
     await load();
     window.dispatchEvent(new CustomEvent('mb-sites-updated'));
   }
@@ -2530,19 +2697,26 @@ function SitesView() {
                       onError={e => {
                         const img = e.target;
                         const currentSrc = img.src || '';
-                        if (url && typeof url === 'string' && url.startsWith('/uploads/')) {
-                          if (!currentSrc.includes(':3000')) {
-                            img.src = `http://localhost:3000${url}`;
+                        if (url && typeof url === 'string') {
+                          if (url.startsWith('/uploads/') && currentSrc.includes('/api/uploads/')) {
+                            img.src = url;
                             return;
                           }
-                          if (!currentSrc.includes('/api/uploads/')) {
+                          if (url.startsWith('/uploads/') && !currentSrc.includes('/api/uploads/')) {
                             img.src = `/api${url}`;
                             return;
                           }
                         }
                         if (photoPreviewCache.has(url)) {
                           img.src = photoPreviewCache.get(url);
+                          return;
                         }
+                        getCachedPhotoBlob(url).then(blob => {
+                          if (blob) {
+                            img.src = blob;
+                            photoPreviewCache.set(url, blob);
+                          }
+                        }).catch(() => {});
                       }}
                     />
                   </div>
@@ -2830,7 +3004,28 @@ function PptView() {
         api.get('/campaigns').catch(() => ({ data: [] }))
       ]);
       if (Array.isArray(sRes.data) && sRes.data.length > 0) {
-        setSites(sRes.data.map(unpackSite));
+        const mapped = sRes.data.map(unpackSite);
+        setSites(mapped);
+
+        // Background sync: check if any sites have local photos that are missing on the server
+        try {
+          const photoMap = {};
+          for (const s of sRes.data) {
+            const sc = String(s.site_code || '').trim().toUpperCase();
+            const localPhotos = getCachedPhotosForSite(sc);
+            let serverPhotos = [];
+            try {
+              const f = typeof s.flags === 'string' ? JSON.parse(s.flags || '{}') : (s.flags || {});
+              serverPhotos = Array.isArray(f.ppt_images) ? f.ppt_images : [];
+            } catch {}
+            if (serverPhotos.length === 0 && localPhotos.length > 0) {
+              photoMap[sc] = localPhotos;
+            }
+          }
+          if (Object.keys(photoMap).length > 0) {
+            api.post('/sites/sync-photos', { photo_map: photoMap }).catch(() => {});
+          }
+        } catch {}
       }
       if (pRes && pRes.data) {
         setPages(prev => {
@@ -3035,7 +3230,7 @@ function PptView() {
 
     // 2. Optimistically update state so the photo renders IMMEDIATELY (0ms delay!)
     setSites(prev => prev.map(s => {
-      if (s.id === site.id || s.site_code === site.site_code) {
+      if ((s.id && s.id === site.id) || (s.site_code && s.site_code === site.site_code)) {
         const currentImgs = Array.isArray(s.ppt_images) ? s.ppt_images : [];
         return { ...s, ppt_images: replace ? localPreviews : [...currentImgs, ...localPreviews] };
       }
@@ -3043,32 +3238,45 @@ function PptView() {
     }));
 
     try {
+      let serverImgs = [];
+      const fd = new FormData();
+      fileArray.forEach(f => fd.append('files', f));
+
       if (site.id) {
-        const fd = new FormData();
-        fileArray.forEach(f => fd.append('files', f));
         const res = await api.post(`/sites/${site.id}/images${replace ? '?replace=true' : ''}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-        const serverImgs = res.data?.images || [];
-
-        // Associate server URLs with cached previews
-        serverImgs.forEach((sUrl, idx) => {
-          if (localPreviews[idx]) {
-            photoPreviewCache.set(sUrl, localPreviews[idx]);
-          }
-        });
-
-        setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: serverImgs } : s));
+        serverImgs = res.data?.images || [];
       } else {
-        const fd = new FormData();
-        fileArray.forEach(f => fd.append('files', f));
         const res = await api.post(`/sites/code/${encodeURIComponent(site.site_code)}/images${replace ? '?replace=true' : ''}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-        const serverImgs = res.data?.images || [];
-        serverImgs.forEach((sUrl, idx) => {
-          if (localPreviews[idx]) {
-            photoPreviewCache.set(sUrl, localPreviews[idx]);
-          }
-        });
-        setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: serverImgs } : s));
+        serverImgs = res.data?.images || [];
       }
+
+      // Associate server URLs with cached previews & persist to IndexedDB
+      serverImgs.forEach((sUrl, idx) => {
+        if (localPreviews[idx]) {
+          photoPreviewCache.set(sUrl, localPreviews[idx]);
+        }
+        const f = fileArray[idx];
+        if (f) {
+          const r2 = new FileReader();
+          r2.onload = () => {
+            if (r2.result) {
+              photoPreviewCache.set(sUrl, r2.result);
+              cachePhotoBlob(sUrl, r2.result);
+              cachePhotoBlob(`/api${sUrl}`, r2.result);
+            }
+          };
+          r2.readAsDataURL(f);
+        }
+      });
+
+      // Update state with permanent server URLs
+      setSites(prev => prev.map(s => ((s.id && s.id === site.id) || (s.site_code && s.site_code === site.site_code)) ? { ...s, ppt_images: serverImgs } : s));
+
+      // Persist in localStorage cache so photos ALWAYS load upon refresh
+      saveCachedPhotosForSite(site.site_code, serverImgs);
+
+      // Notify all components in the app
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
     } catch (e) {
       console.error('Failed to upload images:', e);
       alert('Failed to upload images: ' + (e.response?.data?.message || e.message));
@@ -3077,13 +3285,17 @@ function PptView() {
 
   async function removeImage(site, index) {
     try {
+      let remaining = [];
       if (site.id) {
         const res = await api.delete(`/sites/${site.id}/images/${index}`);
-        setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: res.data.images } : s));
+        remaining = res.data?.images || [];
       } else {
-        const remaining = (site.ppt_images || []).filter((_, i) => i !== index);
-        setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: remaining } : s));
+        const res = await api.delete(`/sites/code/${encodeURIComponent(site.site_code)}/images/${index}`).catch(() => null);
+        remaining = res?.data?.images || (site.ppt_images || []).filter((_, i) => i !== index);
       }
+      setSites(prev => prev.map(s => ((s.id && s.id === site.id) || (s.site_code && s.site_code === site.site_code)) ? { ...s, ppt_images: remaining } : s));
+      saveCachedPhotosForSite(site.site_code, remaining);
+      window.dispatchEvent(new CustomEvent('mb-sites-updated'));
     } catch (e) {
       alert('Failed to remove image: ' + (e.response?.data?.message || e.message));
     }
@@ -3094,8 +3306,11 @@ function PptView() {
     try {
       if (site.id) {
         await api.delete(`/sites/${site.id}/images`);
+      } else {
+        await api.delete(`/sites/code/${encodeURIComponent(site.site_code)}/images`).catch(() => null);
       }
-      setSites(prev => prev.map(s => (s.id === site.id || s.site_code === site.site_code) ? { ...s, ppt_images: [] } : s));
+      setSites(prev => prev.map(s => ((s.id && s.id === site.id) || (s.site_code && s.site_code === site.site_code)) ? { ...s, ppt_images: [] } : s));
+      saveCachedPhotosForSite(site.site_code, []);
       window.dispatchEvent(new CustomEvent('mb-sites-updated'));
     } catch (e) {
       alert('Failed to remove photos: ' + (e.response?.data?.message || e.message));
@@ -3132,9 +3347,12 @@ function PptView() {
     try {
       await api.post('/sites/clear-all-images', { site_ids: targetIds.length > 0 ? targetIds : undefined });
       if (targetIds.length > 0) {
+        const targetCodes = checkedSitesWithPhotos.map(s => s.site_code).filter(Boolean);
         setSites(prev => prev.map(s => targetIds.includes(s.id) ? { ...s, ppt_images: [] } : s));
+        clearAllCachedPhotos(targetCodes);
       } else {
         setSites(prev => prev.map(s => ({ ...s, ppt_images: [] })));
+        clearAllCachedPhotos(null);
       }
       alert('✓ All photos have been removed successfully!');
       window.dispatchEvent(new CustomEvent('mb-sites-updated'));
@@ -3263,27 +3481,42 @@ function PptView() {
         });
 
         const replaceQuery = replaceExistingFolderPhotos ? '?replace=true' : '';
+        let newImages = [];
         if (site.id) {
           const fd = new FormData();
           fileList.forEach(f => fd.append('files', f));
           const res = await api.post(`/sites/${site.id}/images${replaceQuery}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-          const newImages = res.data?.images || [];
-          newImages.forEach((sUrl, idx) => {
-            if (localPreviews[idx]) photoPreviewCache.set(sUrl, localPreviews[idx]);
-          });
+          newImages = res.data?.images || [];
           setSites(prev => prev.map(s => s.id === site.id ? { ...s, ppt_images: newImages } : s));
           siteResults.push({ site_code: site.site_code, count: fileList.length, success: true, replaced: replaceExistingFolderPhotos });
         } else {
           const fd = new FormData();
           fileList.forEach(f => fd.append('files', f));
           const res = await api.post(`/sites/code/${encodeURIComponent(site.site_code)}/images${replaceQuery}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-          const newImages = res.data?.images || [];
-          newImages.forEach((sUrl, idx) => {
-            if (localPreviews[idx]) photoPreviewCache.set(sUrl, localPreviews[idx]);
-          });
+          newImages = res.data?.images || [];
           setSites(prev => prev.map(s => s.site_code === site.site_code ? { ...s, ppt_images: newImages } : s));
           siteResults.push({ site_code: site.site_code, count: fileList.length, success: true, replaced: replaceExistingFolderPhotos });
         }
+
+        // Cache in memory and IndexedDB
+        newImages.forEach((sUrl, idx) => {
+          if (localPreviews[idx]) photoPreviewCache.set(sUrl, localPreviews[idx]);
+          const f = fileList[idx];
+          if (f) {
+            const r2 = new FileReader();
+            r2.onload = () => {
+              if (r2.result) {
+                photoPreviewCache.set(sUrl, r2.result);
+                cachePhotoBlob(sUrl, r2.result);
+                cachePhotoBlob(`/api${sUrl}`, r2.result);
+              }
+            };
+            r2.readAsDataURL(f);
+          }
+        });
+
+        // Persist in localStorage
+        saveCachedPhotosForSite(site.site_code, newImages);
       } catch (err) {
         console.error(`Error uploading photos for ${site.site_code}:`, err);
         siteResults.push({ site_code: site.site_code, count: fileList.length, success: false, error: err.message });
@@ -4192,12 +4425,12 @@ function PptView() {
                             onError={e => {
                               const img = e.target;
                               const currentSrc = img.src || '';
-                              if (u && typeof u === 'string' && u.startsWith('/uploads/')) {
-                                if (!currentSrc.includes(':3000')) {
-                                  img.src = `http://localhost:3000${u}`;
+                              if (u && typeof u === 'string') {
+                                if (u.startsWith('/uploads/') && currentSrc.includes('/api/uploads/')) {
+                                  img.src = u;
                                   return;
                                 }
-                                if (!currentSrc.includes('/api/uploads/')) {
+                                if (u.startsWith('/uploads/') && !currentSrc.includes('/api/uploads/')) {
                                   img.src = `/api${u}`;
                                   return;
                                 }
@@ -4206,8 +4439,18 @@ function PptView() {
                                 img.src = photoPreviewCache.get(u);
                                 return;
                               }
-                              img.style.display = 'none';
-                              if (img.parentElement) img.parentElement.classList.add('photo-load-error');
+                              getCachedPhotoBlob(u).then(blob => {
+                                if (blob) {
+                                  img.src = blob;
+                                  photoPreviewCache.set(u, blob);
+                                } else {
+                                  img.style.display = 'none';
+                                  if (img.parentElement) img.parentElement.classList.add('photo-load-error');
+                                }
+                              }).catch(() => {
+                                img.style.display = 'none';
+                                if (img.parentElement) img.parentElement.classList.add('photo-load-error');
+                              });
                             }}
                           />
                           <button

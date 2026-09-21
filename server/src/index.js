@@ -502,8 +502,17 @@ app.post('/api/sites/:id/images', auth, upload.array('files', 100), async (req, 
 app.post('/api/sites/code/:site_code/images', auth, upload.array('files', 100), async (req, res) => {
   try {
     const code = req.params.site_code;
-    const site = (await q('SELECT * FROM sites WHERE site_code=? OR REPLACE(LOWER(site_code),"-","")=REPLACE(LOWER(?),"-","") LIMIT 1', [code, code]))[0];
-    if (!site) return res.status(404).json({ message: `Site code "${code}" not found` });
+    let site = (await q('SELECT * FROM sites WHERE site_code=? OR REPLACE(LOWER(site_code),"-","")=REPLACE(LOWER(?),"-","") LIMIT 1', [code, code]))[0];
+    if (!site) {
+      // Auto-create site record if not found so photos are never rejected
+      const defaultFlags = JSON.stringify({ ppt_images: [] });
+      const ins = await q(
+        `INSERT INTO sites (site_code, city, area, address, size, media_type, lighting, ownership, availability, monthly_cost, monthly_rate, flags, record_status, created_at, updated_at)
+         VALUES (?, 'Ahmedabad', '', '', '30x10', 'Hoarding', 'BL', 'Owned', 'Available', 0, 0, ?, 'active', NOW(), NOW())`,
+        [code, defaultFlags]
+      );
+      site = { id: ins.insertId, site_code: code, flags: defaultFlags };
+    }
     let flags = {};
     try { flags = JSON.parse(site.flags || '{}') || {}; } catch {};
     if (Array.isArray(flags)) flags = { tags: flags };
@@ -539,6 +548,28 @@ app.delete('/api/sites/:id/images/:index', auth, async (req, res) => {
   }
 });
 
+// Delete image by site code and index
+app.delete('/api/sites/code/:site_code/images/:index', auth, async (req, res) => {
+  try {
+    const code = req.params.site_code;
+    const site = (await q('SELECT * FROM sites WHERE site_code=? OR REPLACE(LOWER(site_code),"-","")=REPLACE(LOWER(?),"-","") LIMIT 1', [code, code]))[0];
+    if (!site) return res.status(404).json({ message: 'Site not found' });
+    let flags = {};
+    try { flags = JSON.parse(site.flags || '{}') || {}; } catch {};
+    if (Array.isArray(flags)) flags = { tags: flags };
+    let existing = Array.isArray(flags.ppt_images) ? flags.ppt_images : [];
+    const idx = Number(req.params.index);
+    if (!isNaN(idx) && idx >= 0 && idx < existing.length) {
+      existing.splice(idx, 1);
+      flags.ppt_images = existing;
+      await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), site.id]);
+    }
+    res.json({ images: flags.ppt_images });
+  } catch (err) {
+    res.status(500).json({ message: 'Delete error: ' + err.message });
+  }
+});
+
 // Delete all images for a specific site
 app.delete('/api/sites/:id/images', auth, async (req, res) => {
   try {
@@ -552,6 +583,50 @@ app.delete('/api/sites/:id/images', auth, async (req, res) => {
     res.json({ site_id: site.id, site_code: site.site_code, images: [] });
   } catch (err) {
     res.status(500).json({ message: 'Delete all images error: ' + err.message });
+  }
+});
+
+// Delete all images for a specific site by code
+app.delete('/api/sites/code/:site_code/images', auth, async (req, res) => {
+  try {
+    const code = req.params.site_code;
+    const site = (await q('SELECT * FROM sites WHERE site_code=? OR REPLACE(LOWER(site_code),"-","")=REPLACE(LOWER(?),"-","") LIMIT 1', [code, code]))[0];
+    if (!site) return res.status(404).json({ message: 'Site not found' });
+    let flags = {};
+    try { flags = JSON.parse(site.flags || '{}') || {}; } catch {};
+    if (Array.isArray(flags)) flags = { tags: flags };
+    flags.ppt_images = [];
+    await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), site.id]);
+    res.json({ site_id: site.id, site_code: site.site_code, images: [] });
+  } catch (err) {
+    res.status(500).json({ message: 'Delete all images error: ' + err.message });
+  }
+});
+
+// Sync site photos from client cache to database if server missing any
+app.post('/api/sites/sync-photos', auth, async (req, res) => {
+  try {
+    const { photo_map } = req.body || {};
+    if (!photo_map || typeof photo_map !== 'object') return res.json({ updated: 0 });
+    let updated = 0;
+    for (const [code, urls] of Object.entries(photo_map)) {
+      if (!Array.isArray(urls) || urls.length === 0) continue;
+      const site = (await q('SELECT * FROM sites WHERE site_code=? OR REPLACE(LOWER(site_code),"-","")=REPLACE(LOWER(?),"-","") LIMIT 1', [code, code]))[0];
+      if (site) {
+        let flags = {};
+        try { flags = JSON.parse(site.flags || '{}') || {}; } catch {};
+        if (Array.isArray(flags)) flags = { tags: flags };
+        const existing = Array.isArray(flags.ppt_images) ? flags.ppt_images : [];
+        if (existing.length === 0) {
+          flags.ppt_images = urls;
+          await q('UPDATE sites SET flags=?, updated_at=NOW() WHERE id=?', [JSON.stringify(flags), site.id]);
+          updated++;
+        }
+      }
+    }
+    res.json({ success: true, updated });
+  } catch (err) {
+    res.status(500).json({ message: 'Sync error: ' + err.message });
   }
 });
 
