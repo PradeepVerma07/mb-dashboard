@@ -3996,9 +3996,6 @@ async function initDb() {
           }
         }
       }
-    } catch (settingsSeedErr) {
-      console.warn('Settings seed notice:', settingsSeedErr.message);
-    }
 
       // Seed Vendors if empty
       const vendorCount = await q('SELECT COUNT(*) c FROM vendors');
