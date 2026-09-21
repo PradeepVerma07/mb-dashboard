@@ -1334,6 +1334,7 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', ti
 
   const cols = [
     { key: 'sr', width: 8 },
+    { key: 'code', width: 15 },
     { key: 'area', width: 22 },
     { key: 'location', width: 55 },
     { key: 'media', width: 14 },
@@ -1351,11 +1352,11 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', ti
   attachMediaBuzzExcelHeader(workbook, worksheet, {
     title: cleanTitle,
     columns: cols,
-    totalColumns: 11
+    totalColumns: 12
   });
 
   // Populate Header Row (Row 2)
-  const headers = ['SR NO', 'AREA', 'LOCATION', 'MEDIA', 'LIGHT', 'W', 'H', 'SQ FT', 'AVAILABLITY', 'Selling Amount', 'Latitude Longitude'];
+  const headers = ['SR NO', 'MB CODE', 'AREA', 'LOCATION', 'MEDIA', 'LIGHT', 'W', 'H', 'SQ FT', 'AVAILABLITY', 'Selling Amount', 'Latitude Longitude'];
   const headerRow = worksheet.getRow(headerRowNum);
   headerRow.height = 28;
   headers.forEach((h, i) => {
@@ -1366,6 +1367,7 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', ti
   rowsData.forEach(r => {
     worksheet.addRow({
       sr: r['SR NO'],
+      code: r['MB CODE'] || r['SITE CODE'] || r['site_code'] || r['Code'] || '',
       area: r['AREA'],
       location: r['LOCATION'],
       media: r['MEDIA'],
@@ -1394,7 +1396,7 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', ti
     };
     cell.alignment = {
       vertical: 'middle',
-      horizontal: [1, 5, 6, 7, 8, 9].includes(colNumber) ? 'center' : (colNumber === 10 ? 'right' : 'left'),
+      horizontal: [1, 2, 5, 6, 7, 8, 9, 10].includes(colNumber) ? 'center' : (colNumber === 11 ? 'right' : 'left'),
       wrapText: false
     };
     cell.border = {
@@ -1412,13 +1414,14 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', ti
       row.eachCell((cell, colNumber) => {
         cell.font = {
           name: 'Calibri',
-          size: 10.5
+          size: 10.5,
+          bold: colNumber === 2 // Bold for MB CODE
         };
         cell.alignment = {
           vertical: 'middle',
-          horizontal: [1, 5, 6, 7, 8, 9].includes(colNumber) ? 'center' : (colNumber === 10 ? 'right' : 'left')
+          horizontal: [1, 2, 5, 6, 7, 8, 9, 10].includes(colNumber) ? 'center' : (colNumber === 11 ? 'right' : 'left')
         };
-        if (colNumber === 10 && typeof cell.value === 'number') {
+        if (colNumber === 11 && typeof cell.value === 'number') {
           cell.numFmt = '#,##,##0';
         }
         cell.border = {
@@ -1434,13 +1437,13 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', ti
   // Enable Auto-Filter on Row 2
   if (rowsData.length > 0) {
     const filterStart = 'A2';
-    const filterEnd = `K${rowsData.length + 2}`;
+    const filterEnd = `L${rowsData.length + 2}`;
     worksheet.autoFilter = `${filterStart}:${filterEnd}`;
   }
 
   // Official 5-Point Terms & Conditions at Bottom Center
   attachMediaBuzzTermsAndConditions(worksheet, {
-    totalColumns: 11
+    totalColumns: 12
   });
 
   let finalFileName = String(filename || 'MediaBuzz_Sites.xlsx').trim();
@@ -3676,6 +3679,7 @@ function PptView() {
 
         return {
           'SR NO': idx + 1,
+          'MB CODE': x.site_code || '',
           'SITE CODE': x.site_code || '',
           'AREA': x.area || x.city || '',
           'LOCATION': x.address || '',
@@ -3746,6 +3750,7 @@ function PptView() {
 
           return {
             'SR NO': idx + 1,
+            'MB CODE': x.site_code || '',
             'SITE CODE': x.site_code || '',
             'AREA': x.area || x.city || '',
             'LOCATION': x.address || '',
@@ -12320,6 +12325,8 @@ function DataToolsView() {
 
         return {
           'SR NO': idx + 1,
+          'MB CODE': x.site_code || '',
+          'SITE CODE': x.site_code || '',
           'AREA': x.area || x.city || '',
           'LOCATION': x.address || '',
           'MEDIA': x.media_type || 'Hoarding',
