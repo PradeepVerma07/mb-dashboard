@@ -856,91 +856,57 @@ async function createSitePhotoShowcase(imgDataUrl, boxW_px = 1500, boxH_px = 122
   canvas.height = boxH_px;
   const ctx = canvas.getContext('2d');
 
-  // Solid black canvas base matching the final presentation format
+  // Solid black base matching the presentation background
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, boxW_px, boxH_px);
 
-  // Smooth rounded corners clip for the photo
-  const radius = 24;
+  // 100% UNTOUCHED, ZERO-CUT CONTAIN
+  // The entire photo always fits inside boxW_px and boxH_px without losing a single pixel
+  const boxRatio = boxW_px / boxH_px;
+  let fitW, fitH, fitX, fitY;
+  if (imgRatio >= boxRatio) {
+    fitW = boxW_px;
+    fitH = Math.round(boxW_px / imgRatio);
+    fitX = 0;
+    fitY = Math.round((boxH_px - fitH) / 2);
+  } else {
+    fitH = boxH_px;
+    fitW = Math.round(boxH_px * imgRatio);
+    fitX = Math.round((boxW_px - fitW) / 2);
+    fitY = 0;
+  }
+
+  // Smooth rounded corners clip on the fitted photo
+  const radius = Math.min(22, Math.max(8, Math.round(Math.min(fitW, fitH) * 0.035)));
   ctx.save();
   ctx.beginPath();
   if (ctx.roundRect) {
-    ctx.roundRect(0, 0, boxW_px, boxH_px, radius);
+    ctx.roundRect(fitX, fitY, fitW, fitH, radius);
   } else {
-    ctx.moveTo(radius, 0);
-    ctx.lineTo(boxW_px - radius, 0);
-    ctx.quadraticCurveTo(boxW_px, 0, boxW_px, radius);
-    ctx.lineTo(boxW_px, boxH_px - radius);
-    ctx.quadraticCurveTo(boxW_px, boxH_px, boxW_px - radius, boxH_px);
-    ctx.lineTo(radius, boxH_px);
-    ctx.quadraticCurveTo(0, boxH_px, 0, boxH_px - radius);
-    ctx.lineTo(0, radius);
-    ctx.quadraticCurveTo(0, 0, radius, 0);
+    ctx.moveTo(fitX + radius, fitY);
+    ctx.lineTo(fitX + fitW - radius, fitY);
+    ctx.quadraticCurveTo(fitX + fitW, fitY, fitX + fitW, fitY + radius);
+    ctx.lineTo(fitX + fitW, fitY + fitH - radius);
+    ctx.quadraticCurveTo(fitX + fitW, fitY + fitH, fitX + fitW - radius, fitY + fitH);
+    ctx.lineTo(fitX + radius, fitY + fitH);
+    ctx.quadraticCurveTo(fitX, fitY + fitH, fitX, fitY + fitH - radius);
+    ctx.lineTo(fitX, fitY + radius);
+    ctx.quadraticCurveTo(fitX, fitY, fitX + radius, fitY);
     ctx.closePath();
   }
   ctx.clip();
 
-  const boxRatio = boxW_px / boxH_px;
-  const ratioDiff = Math.abs(imgRatio - boxRatio) / boxRatio;
+  // Draw 100% of photo - exactly fitted, zero crop, zero cut
+  ctx.drawImage(img, fitX, fitY, fitW, fitH);
 
-  if (ratioDiff < 0.18) {
-    let drawW, drawH, drawX, drawY;
-    if (imgRatio >= boxRatio) {
-      drawH = boxH_px;
-      drawW = drawH * imgRatio;
-    } else {
-      drawW = boxW_px;
-      drawH = drawW / imgRatio;
-    }
-    drawX = (boxW_px - drawW) / 2;
-    drawY = (boxH_px - drawH) / 2;
-    ctx.drawImage(img, drawX, drawY, drawW, drawH);
-  } else {
-    // Ambient soft blurred backdrop behind photo
-    try {
-      ctx.save();
-      ctx.filter = 'blur(28px) brightness(0.35)';
-      let bgW, bgH;
-      if (imgRatio >= boxRatio) {
-        bgH = boxH_px + 60;
-        bgW = bgH * imgRatio;
-      } else {
-        bgW = boxW_px + 60;
-        bgH = bgW / imgRatio;
-      }
-      const bgX = (boxW_px - bgW) / 2;
-      const bgY = (boxH_px - bgH) / 2;
-      ctx.drawImage(img, bgX, bgY, bgW, bgH);
-      ctx.restore();
-    } catch {}
-
-    // Sharp uncropped contained photo in center
-    let fitW, fitH, fitX, fitY;
-    if (imgRatio >= boxRatio) {
-      fitW = boxW_px;
-      fitH = Math.round(boxW_px / imgRatio);
-      fitX = 0;
-      fitY = Math.round((boxH_px - fitH) / 2);
-    } else {
-      fitH = boxH_px;
-      fitW = Math.round(boxH_px * imgRatio);
-      fitX = Math.round((boxW_px - fitW) / 2);
-      fitY = 0;
-    }
-    ctx.drawImage(img, fitX, fitY, fitW, fitH);
-  }
-
-  // Subtle clean border around photo container
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+  // Subtle clean border around the fitted photo
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
   ctx.lineWidth = 2;
   if (ctx.roundRect) {
     ctx.beginPath();
-    ctx.roundRect(1, 1, boxW_px - 2, boxH_px - 2, radius);
+    ctx.roundRect(fitX + 1, fitY + 1, fitW - 2, fitH - 2, radius);
     ctx.stroke();
-  } else {
-    ctx.strokeRect(1, 1, boxW_px - 2, boxH_px - 2);
   }
-
   ctx.restore();
 
   return canvas.toDataURL('image/jpeg', 0.94);
