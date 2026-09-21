@@ -298,6 +298,337 @@ export async function downloadSampleCampaignExcel() {
   URL.revokeObjectURL(url);
 }
 
+// ── Site Details Pop-up Modal ───────────────────────────────────────────────
+export function SiteDetailsModal({ site, onClose, onNavigateToSites }) {
+  if (!site) return null;
+  const siteCode = site.site_code || site.code || '—';
+  const area = site.area || site.location || site.address || '—';
+  const city = site.city || 'Ahmedabad';
+  const mediaType = site.media_type || site.type || 'Hoarding';
+  const lighting = site.lighting || (String(site.type || '').includes('BL') ? 'BL' : 'FL');
+  const size = site.size || (site.width && site.height ? `${site.width}×${site.height} ft` : (site.width ? `${site.width} ft` : '—'));
+  const sqft = site.width && site.height ? Math.round(Number(site.width) * Number(site.height)) : null;
+  const rate = site.monthly_rate || site.monthly_cost;
+  const images = Array.isArray(site.images) ? site.images : (site.image ? [site.image] : []);
+
+  return (
+    <div className="scooh-modalwrap" onClick={onClose} style={{ zIndex: 100000 }}>
+      <div className="scooh-modal" style={{ maxWidth: '620px', width: '92%', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+        <div className="scooh-modalhead" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
+              <span className="scooh-plate" style={{ fontSize: '15px', fontWeight: 900, background: 'rgba(56, 189, 248, 0.18)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.45)', padding: '3px 10px' }}>
+                {siteCode}
+              </span>
+              <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.45)' }}>
+                {mediaType.toUpperCase()}
+              </span>
+              <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: lighting === 'BL' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: lighting === 'BL' ? '#38bdf8' : '#fbbf24' }}>
+                {lighting === 'BL' ? '💡 BACKLIT (BL)' : lighting === 'FL' ? '💡 FRONTLIT (FL)' : 'NON-LIT'}
+              </span>
+              <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: site.availability === 'Occupied' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)', color: site.availability === 'Occupied' ? '#f87171' : '#4ade80' }}>
+                {site.availability ? site.availability.toUpperCase() : 'AVAILABLE'}
+              </span>
+            </div>
+            <h3 style={{ margin: 0, fontSize: '19px', color: '#fff', fontWeight: 800 }}>
+              📍 {area}
+            </h3>
+            <div style={{ color: '#94a3b8', fontSize: '12.5px', marginTop: '3px' }}>
+              {city} {site.address && site.address !== area ? `• ${site.address}` : ''}
+            </div>
+          </div>
+          <button type="button" className="scooh-btn ghost" onClick={onClose} style={{ padding: '4px 10px', fontSize: '15px' }}>
+            ✕
+          </button>
+        </div>
+
+        <div className="scooh-modalbody" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '20px' }}>
+          {/* Site Specs Grid */}
+          <div style={{ background: '#0b1016', padding: '14px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '10px' }}>
+              Site Specifications
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Dimensions</span>
+                <div style={{ fontSize: '15px', fontWeight: 800, color: '#f1f5f9' }}>{size}</div>
+                {sqft && <span style={{ fontSize: '10.5px', color: '#94a3b8' }}>{sqft} sq ft</span>}
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Monthly Card Rate</span>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: '#34d399' }}>
+                  {rate ? money(rate) : '—'}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Facing</span>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: '#f1f5f9' }}>
+                  {site.facing || 'Single Facing'}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Ownership</span>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: '#f1f5f9' }}>
+                  {site.ownership || 'Owned'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* GPS Coordinates & Location Details */}
+          {(site.gps || (site.latitude && site.longitude)) && (
+            <div style={{ background: '#0b1016', padding: '12px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>GPS Coordinates</div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#38bdf8', marginTop: '2px' }}>
+                  {site.gps || `${site.latitude}, ${site.longitude}`}
+                </div>
+              </div>
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(site.gps || `${site.latitude},${site.longitude}`)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="scooh-btn ghost"
+                style={{ fontSize: '11.5px', padding: '4px 10px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.4)' }}
+              >
+                🗺️ View on Maps
+              </a>
+            </div>
+          )}
+
+          {/* Photos if any */}
+          {images.length > 0 && (
+            <div style={{ background: '#0b1016', padding: '14px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>
+                Site Photos ({images.length})
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
+                {images.map((imgUrl, i) => (
+                  <a key={i} href={imgUrl} target="_blank" rel="noreferrer">
+                    <img src={imgUrl} alt={`Site ${siteCode}`} style={{ width: '100%', height: '95px', objectFit: 'cover', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }} />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="scooh-modalfoot" style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 20px' }}>
+          {onNavigateToSites ? (
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={onNavigateToSites}
+              style={{ fontSize: '12px' }}
+              title="Open full sites directory"
+            >
+              🌐 Open in Sites Directory
+            </button>
+          ) : <div />}
+          <button type="button" className="scooh-btn purple-btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Campaign Details Pop-up Modal ───────────────────────────────────────────
+export function CampaignDetailsModal({
+  campaign,
+  onClose,
+  onEdit,
+  onViewSite,
+  canAdd = true
+}) {
+  if (!campaign) return null;
+
+  // Dates parsing
+  const rawStart = campaign.start_date || campaign.booking_date;
+  const rawEnd = campaign.end_date;
+  const cStart = rawStart ? new Date(rawStart) : null;
+  const cEnd = rawEnd ? new Date(rawEnd) : null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let computedStatus = campaign.computedStatus;
+  if (!computedStatus) {
+    computedStatus = 'live';
+    if (cEnd && !isNaN(cEnd.getTime())) {
+      const endDay = new Date(cEnd);
+      endDay.setHours(23, 59, 59, 999);
+      if (endDay < today) computedStatus = 'completed';
+      else if (cStart && !isNaN(cStart.getTime())) {
+        const startDay = new Date(cStart);
+        startDay.setHours(0, 0, 0, 0);
+        if (startDay > today) computedStatus = 'upcoming';
+      }
+    }
+  }
+
+  let tenureDays = campaign.tenureDays || campaign.days || '';
+  if (!tenureDays && cStart && cEnd && !isNaN(cStart.getTime()) && !isNaN(cEnd.getTime())) {
+    tenureDays = Math.max(1, Math.round((cEnd - cStart) / 86400000) + 1);
+  }
+
+  const siteCode = campaign.site_code || '—';
+  const clientName = campaign.client || campaign.client_name || 'Client Booking';
+  const displayTitle = campaign.display || campaign.campaign_name || campaign.brand || 'Campaign';
+
+  return (
+    <div className="scooh-modalwrap" onClick={onClose} style={{ zIndex: 99999 }}>
+      <div className="scooh-modal" style={{ maxWidth: '640px', width: '90%' }} onClick={e => e.stopPropagation()}>
+        <div className="scooh-modalhead" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
+              <span className="scooh-plate" style={{ fontSize: '14px', fontWeight: 900, background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
+                {siteCode}
+              </span>
+              {campaign.isCombined && campaign.coveredPanels?.length > 0 && (
+                <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.45)' }}>
+                  COMBINED SITE (COVERS {campaign.coveredPanels.join(', ')})
+                </span>
+              )}
+              <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: computedStatus === 'live' ? 'rgba(74, 222, 128, 0.15)' : 'rgba(148, 163, 184, 0.15)', color: computedStatus === 'live' ? '#4ade80' : '#94a3b8' }}>
+                {computedStatus.toUpperCase()}
+              </span>
+            </div>
+            <h3 style={{ margin: 0, fontSize: '20px', color: '#fff', fontWeight: 800 }}>
+              {clientName}
+            </h3>
+            <div style={{ color: '#c084fc', fontSize: '13px', fontWeight: 700, marginTop: '2px' }}>
+              📢 {displayTitle}
+            </div>
+          </div>
+          <button type="button" className="scooh-btn ghost" onClick={onClose} style={{ padding: '4px 10px' }}>
+            ✕
+          </button>
+        </div>
+
+        <div className="scooh-modalbody" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px' }}>
+          {/* Financial Breakdown Card */}
+          <div style={{ background: '#0b1016', padding: '14px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>
+              Financial Summary
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Advt. Fees / Mo</span>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: '#f1f5f9' }}>
+                  {Number(campaign.advt_fees || 0) > 0 ? money(Number(campaign.advt_fees)) : '—'}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Printing & Mounting</span>
+                <div style={{ fontSize: '16px', fontWeight: 800, color: '#f1f5f9' }}>
+                  {Number(campaign.printing_mounting_cost || campaign.printing_cost || 0) > 0 ? money(Number(campaign.printing_mounting_cost || campaign.printing_cost)) : '—'}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Total Amount</span>
+                <div style={{ fontSize: '18px', fontWeight: 900, color: '#34d399' }}>
+                  {Number(campaign.total_amount || campaign.revenue || 0) > 0 ? money(Number(campaign.total_amount || campaign.revenue)) : '—'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Schedule & Dates */}
+          <div style={{ background: '#0b1016', padding: '14px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>
+              Campaign Schedule
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Start Date</span>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#f1f5f9' }}>
+                  {formatDate(campaign.start_date || campaign.booking_date) || '—'}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>End Date</span>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#f1f5f9' }}>
+                  {formatDate(campaign.end_date) || '—'}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Duration</span>
+                <div style={{ fontSize: '14px', fontWeight: 800, color: '#c084fc' }}>
+                  {tenureDays ? `${tenureDays} Days` : '—'}
+                </div>
+              </div>
+              {campaign.booking_date && (
+                <div>
+                  <span style={{ fontSize: '11px', color: '#64748b' }}>Booked On</span>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: '#f1f5f9' }}>
+                    {formatDate(campaign.booking_date)}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Site Specifications */}
+          <div style={{ background: '#0b1016', padding: '14px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>
+              Site & Hardware Details
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
+              <div>
+                <span style={{ color: '#64748b' }}>Location: </span>
+                <span style={{ color: '#f1f5f9', fontWeight: 700 }}>{campaign.location || '—'}</span>
+              </div>
+              <div>
+                <span style={{ color: '#64748b' }}>Dimensions: </span>
+                <span style={{ color: '#f1f5f9', fontWeight: 700 }}>{campaign.size || '—'} • {campaign.type || 'Hoarding'}</span>
+              </div>
+              {campaign.vendor_name && (
+                <div>
+                  <span style={{ color: '#64748b' }}>Vendor: </span>
+                  <span style={{ color: '#38bdf8', fontWeight: 700 }}>{campaign.vendor_name}</span>
+                </div>
+              )}
+              {campaign.notes && (
+                <div style={{ marginTop: '6px', padding: '8px', background: '#1e293b', borderRadius: '6px', color: '#cbd5e1', fontSize: '12px' }}>
+                  📝 <b>Notes:</b> {campaign.notes}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="scooh-modalfoot" style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 20px' }}>
+          {onViewSite && (
+            <button
+              type="button"
+              className="scooh-btn ghost"
+              onClick={() => onViewSite(siteCode)}
+            >
+              📍 View Site Details
+            </button>
+          )}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {canAdd && onEdit && (
+              <button
+                type="button"
+                className="scooh-btn ghost"
+                onClick={() => onEdit(campaign)}
+              >
+                ✏️ Edit Booking
+              </button>
+            )}
+            <button type="button" className="scooh-btn purple-btn" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CampaignDetailsView() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -311,6 +642,10 @@ export default function CampaignDetailsView() {
   const [loading, setLoading] = useState(true);
   const [importingExcel, setImportingExcel] = useState(false);
   const [importBanner, setImportBanner] = useState('');
+
+  // Modals: Inspect Campaign, Inspect Site, and Add/Edit Campaign
+  const [selectedCampaign, setSelectedCampaign] = useState(null);
+  const [selectedSiteModal, setSelectedSiteModal] = useState(null);
 
   // Filters: Client/Display text, Selected Client, Start Date, End Date, Status
   const [clientOrDisplay, setClientOrDisplay] = useState('');
@@ -351,7 +686,6 @@ export default function CampaignDetailsView() {
   }
 
   // Modals: Inspect details and Add/Edit
-  const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [editModal, setEditModal] = useState(null);
   const [modalSiteCode, setModalSiteCode] = useState('');
   const [modalClient, setModalClient] = useState('');
@@ -416,6 +750,20 @@ export default function CampaignDetailsView() {
     });
     return map;
   }, [sites]);
+
+  function handleOpenSiteModal(code) {
+    if (!code || code === '—') return;
+    const upper = String(code).trim().toUpperCase();
+    const siteObj = siteMap.get(upper) || {
+      site_code: upper,
+      location: '',
+      address: '',
+      area: upper,
+      size: '',
+      type: 'Hoarding'
+    };
+    setSelectedSiteModal(siteObj);
+  }
 
   // List of all distinct clients for the dropdown selector
   const allClientsList = useMemo(() => {
@@ -1401,9 +1749,9 @@ export default function CampaignDetailsView() {
                                   style={{ cursor: 'pointer', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.45)', color: '#38bdf8', padding: '3px 8px', borderRadius: '5px', fontWeight: 800 }}
                                   onClick={e => {
                                     e.stopPropagation();
-                                    navigate(`/sites?search=${encodeURIComponent(c.site_code)}`);
+                                    handleOpenSiteModal(c.site_code);
                                   }}
-                                  title={`View ${c.site_code} in Sites Directory`}
+                                  title={`View ${c.site_code} details`}
                                 >
                                   {c.site_code}
                                 </button>
@@ -1551,9 +1899,9 @@ export default function CampaignDetailsView() {
                           style={{ cursor: 'pointer', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.45)', color: '#38bdf8', padding: '3px 8px', borderRadius: '5px', fontWeight: 800 }}
                           onClick={e => {
                             e.stopPropagation();
-                            navigate(`/sites?search=${encodeURIComponent(c.site_code)}`);
+                            handleOpenSiteModal(c.site_code);
                           }}
-                          title={`View ${c.site_code} in Sites Directory`}
+                          title={`View ${c.site_code} details`}
                         >
                           {c.site_code}
                         </button>
@@ -1663,161 +2011,29 @@ export default function CampaignDetailsView() {
 
       {/* ── Modal: Full Campaign Details ─────────────────────────────────── */}
       {selectedCampaign && (
-        <div className="scooh-modalwrap" onClick={() => setSelectedCampaign(null)}>
-          <div className="scooh-modal" style={{ maxWidth: '640px', width: '90%' }} onClick={e => e.stopPropagation()}>
-            <div className="scooh-modalhead" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
-                  <span className="scooh-plate" style={{ fontSize: '14px', fontWeight: 900, background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
-                    {selectedCampaign.site_code}
-                  </span>
-                  {selectedCampaign.isCombined && selectedCampaign.coveredPanels?.length > 0 && (
-                    <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.45)' }}>
-                      COMBINED SITE (COVERS {selectedCampaign.coveredPanels.join(', ')})
-                    </span>
-                  )}
-                  <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: selectedCampaign.computedStatus === 'live' ? 'rgba(74, 222, 128, 0.15)' : 'rgba(148, 163, 184, 0.15)', color: selectedCampaign.computedStatus === 'live' ? '#4ade80' : '#94a3b8' }}>
-                    {selectedCampaign.computedStatus ? selectedCampaign.computedStatus.toUpperCase() : 'ACTIVE'}
-                  </span>
-                </div>
-                <h3 style={{ margin: 0, fontSize: '20px', color: '#fff', fontWeight: 800 }}>
-                  {selectedCampaign.client || selectedCampaign.client_name || 'Client Booking'}
-                </h3>
-                <div style={{ color: '#c084fc', fontSize: '13px', fontWeight: 700, marginTop: '2px' }}>
-                  📢 {selectedCampaign.display || selectedCampaign.campaign_name || selectedCampaign.brand || 'Campaign'}
-                </div>
-              </div>
-              <button type="button" className="scooh-btn ghost" onClick={() => setSelectedCampaign(null)} style={{ padding: '4px 10px' }}>
-                ✕
-              </button>
-            </div>
+        <CampaignDetailsModal
+          campaign={selectedCampaign}
+          onClose={() => setSelectedCampaign(null)}
+          onEdit={c => {
+            setSelectedCampaign(null);
+            openEdit(c);
+          }}
+          onViewSite={siteCode => handleOpenSiteModal(siteCode)}
+          canAdd={canAdd}
+        />
+      )}
 
-            <div className="scooh-modalbody" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '20px' }}>
-              
-              {/* Financial Breakdown Card */}
-              <div style={{ background: '#0b1016', padding: '14px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Financial Summary
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
-                  <div>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>Advt. Fees / Mo</span>
-                    <div style={{ fontSize: '16px', fontWeight: 800, color: '#f1f5f9' }}>
-                      {Number(selectedCampaign.advt_fees || 0) > 0 ? money(Number(selectedCampaign.advt_fees)) : '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>Printing & Mounting</span>
-                    <div style={{ fontSize: '16px', fontWeight: 800, color: '#f1f5f9' }}>
-                      {Number(selectedCampaign.printing_mounting_cost || selectedCampaign.printing_cost || 0) > 0 ? money(Number(selectedCampaign.printing_mounting_cost || selectedCampaign.printing_cost)) : '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>Total Amount</span>
-                    <div style={{ fontSize: '18px', fontWeight: 900, color: '#34d399' }}>
-                      {Number(selectedCampaign.total_amount || selectedCampaign.revenue || 0) > 0 ? money(Number(selectedCampaign.total_amount || selectedCampaign.revenue)) : '—'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Schedule & Dates */}
-              <div style={{ background: '#0b1016', padding: '14px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Campaign Schedule
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '12px' }}>
-                  <div>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>Start Date</span>
-                    <div style={{ fontSize: '14px', fontWeight: 800, color: '#f1f5f9' }}>
-                      {formatDate(selectedCampaign.start_date || selectedCampaign.booking_date) || '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>End Date</span>
-                    <div style={{ fontSize: '14px', fontWeight: 800, color: '#f1f5f9' }}>
-                      {formatDate(selectedCampaign.end_date) || '—'}
-                    </div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>Duration</span>
-                    <div style={{ fontSize: '14px', fontWeight: 800, color: '#c084fc' }}>
-                      {selectedCampaign.tenureDays ? `${selectedCampaign.tenureDays} Days` : '—'}
-                    </div>
-                  </div>
-                  {selectedCampaign.booking_date && (
-                    <div>
-                      <span style={{ fontSize: '11px', color: '#64748b' }}>Booked On</span>
-                      <div style={{ fontSize: '14px', fontWeight: 800, color: '#f1f5f9' }}>
-                        {formatDate(selectedCampaign.booking_date)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Site Specifications */}
-              <div style={{ background: '#0b1016', padding: '14px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ fontSize: '11px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Site & Hardware Details
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
-                  <div>
-                    <span style={{ color: '#64748b' }}>Location: </span>
-                    <span style={{ color: '#f1f5f9', fontWeight: 700 }}>{selectedCampaign.location}</span>
-                  </div>
-                  <div>
-                    <span style={{ color: '#64748b' }}>Dimensions: </span>
-                    <span style={{ color: '#f1f5f9', fontWeight: 700 }}>{selectedCampaign.size} • {selectedCampaign.type}</span>
-                  </div>
-                  {selectedCampaign.vendor_name && (
-                    <div>
-                      <span style={{ color: '#64748b' }}>Vendor: </span>
-                      <span style={{ color: '#38bdf8', fontWeight: 700 }}>{selectedCampaign.vendor_name}</span>
-                    </div>
-                  )}
-                  {selectedCampaign.notes && (
-                    <div style={{ marginTop: '6px', padding: '8px', background: '#1e293b', borderRadius: '6px', color: '#cbd5e1', fontSize: '12px' }}>
-                      📝 <b>Notes:</b> {selectedCampaign.notes}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="scooh-modalfoot" style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 20px' }}>
-              <button
-                type="button"
-                className="scooh-btn ghost"
-                onClick={() => {
-                  const site = selectedCampaign.site_code;
-                  setSelectedCampaign(null);
-                  navigate(`/sites?search=${encodeURIComponent(site)}`);
-                }}
-              >
-                📍 View Site Details
-              </button>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                {canAdd && (
-                  <button
-                    type="button"
-                    className="scooh-btn ghost"
-                    onClick={() => {
-                      const c = selectedCampaign;
-                      setSelectedCampaign(null);
-                      openEdit(c);
-                    }}
-                  >
-                    ✏️ Edit Booking
-                  </button>
-                )}
-                <button type="button" className="scooh-btn purple-btn" onClick={() => setSelectedCampaign(null)}>
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* ── Modal: Site Details Pop-up ────────────────────────────────────── */}
+      {selectedSiteModal && (
+        <SiteDetailsModal
+          site={selectedSiteModal}
+          onClose={() => setSelectedSiteModal(null)}
+          onNavigateToSites={() => {
+            const code = selectedSiteModal.site_code;
+            setSelectedSiteModal(null);
+            navigate(`/sites?search=${encodeURIComponent(code)}`);
+          }}
+        />
       )}
 
       {/* ── Modal: Add / Edit Campaign ───────────────────────────────────── */}

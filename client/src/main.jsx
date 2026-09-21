@@ -5,7 +5,7 @@ import ExcelJS from 'exceljs';
 import PptxGenJS from 'pptxgenjs';
 import { attachMediaBuzzExcelHeader, attachMediaBuzzTermsAndConditions, MEDIA_BUZZ_TERMS_TEXT } from './excelLogo';
 import api from './api';
-import CampaignDetailsView from './CampaignDetailsView';
+import CampaignDetailsView, { CampaignDetailsModal, SiteDetailsModal } from './CampaignDetailsView';
 import { defaultSites, defaultSettings } from './defaultSites';
 import { canonicalSiteCode, isCombinedSite, getSiteTypeTag, getConflictSummary, getOverlappingSiteCodes, SITE_PANELS } from './siteHierarchy';
 import './styles.css';
@@ -5798,6 +5798,7 @@ function OccPercentBar({ pct, days, totalDays, showText = true, height = 7, clie
 
 function OccupancyView() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [dbSites, setDbSites] = useState([]);
   const [dbOccupancy, setDbOccupancy] = useState([]); // fed from /campaigns (same as Campaign Tracker)
   const [loading, setLoading] = useState(true);
@@ -5807,6 +5808,8 @@ function OccupancyView() {
   const [siteTypeFilter, setSiteTypeFilter] = useState(new Set(['ALL', 'Combined', 'Split Face'])); // multi-select
   const [search, setSearch] = useState('');
   const [modalData, setModalData] = useState(null); // For inspecting month/site booking history details
+  const [viewCampaignDetails, setViewCampaignDetails] = useState(null);
+  const [selectedSiteModal, setSelectedSiteModal] = useState(null);
   const [dbCampaigns, setDbCampaigns] = useState([]);
   const [bookingRecordId, setBookingRecordId] = useState(null);
   const [bookingClientName, setBookingClientName] = useState('');
@@ -7504,6 +7507,21 @@ function OccupancyView() {
                           >
                             {isVac ? '🟡 Vacant (0% Occ)' : (c.month || 'Active Booking')}
                           </span>
+                          {!isVac && (
+                            <button
+                              type="button"
+                              className="scooh-btn ghost"
+                              style={{ fontSize: '11px', padding: '2px 8px', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.4)' }}
+                              onClick={() => setViewCampaignDetails({
+                                ...c,
+                                site_code: c.site_code || modalData.siteCode,
+                                location: c.location || modalData.area
+                              })}
+                              title="Open full campaign details popup"
+                            >
+                              👁 Details
+                            </button>
+                          )}
                           {isVac && canImport && !isEditingThis && (
                             <button
                               type="button"
@@ -7619,6 +7637,38 @@ function OccupancyView() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ── Modal: Full Campaign Details Pop-up ── */}
+      {viewCampaignDetails && (
+        <CampaignDetailsModal
+          campaign={viewCampaignDetails}
+          onClose={() => setViewCampaignDetails(null)}
+          onViewSite={siteCode => {
+            const upper = String(siteCode || '').trim().toUpperCase();
+            const siteObj = dbSites.find(s => String(s.site_code || '').trim().toUpperCase() === upper) || {
+              site_code: upper,
+              area: upper,
+              location: '',
+              type: 'Hoarding'
+            };
+            setSelectedSiteModal(siteObj);
+          }}
+          canAdd={false}
+        />
+      )}
+
+      {/* ── Modal: Site Details Pop-up ── */}
+      {selectedSiteModal && (
+        <SiteDetailsModal
+          site={selectedSiteModal}
+          onClose={() => setSelectedSiteModal(null)}
+          onNavigateToSites={() => {
+            const code = selectedSiteModal.site_code;
+            setSelectedSiteModal(null);
+            navigate(`/sites?search=${encodeURIComponent(code)}`);
+          }}
+        />
       )}
     </>
   );
@@ -7867,6 +7917,8 @@ function CampaignTrackerView() {
   const [banner, setBanner] = useState('');
   const [importingExcel, setImportingExcel] = useState(false);
   const [isViewingOnly, setIsViewingOnly] = useState(false);
+  const [viewCampaignDetails, setViewCampaignDetails] = useState(null);
+  const [selectedSiteModal, setSelectedSiteModal] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [expandedHistorySites, setExpandedHistorySites] = useState(new Set());
   const [modalSelectedSites, setModalSelectedSites] = useState([]);
@@ -8514,16 +8566,7 @@ function CampaignTrackerView() {
 
   function openViewCampaign(r) {
     if (!r) return;
-    setIsViewingOnly(true);
-    setModalSiteCode(r.site_code || '');
-    setModalSelectedSites(r.site_code ? [r.site_code] : []);
-    setModalLocation(r.location || '');
-    setModalWidth(r.width ?? '');
-    setModalHeight(r.height ?? '');
-    setModalSize(r.size || '');
-    setModalType(r.type || 'Hoarding');
-    setAutoMatchedSite(null);
-    setEditModal(r);
+    setViewCampaignDetails(r);
   }
 
   async function saveCampaign(e) {
@@ -9806,6 +9849,42 @@ function CampaignTrackerView() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ── Modal: Full Campaign Details Pop-up ── */}
+      {viewCampaignDetails && (
+        <CampaignDetailsModal
+          campaign={viewCampaignDetails}
+          onClose={() => setViewCampaignDetails(null)}
+          onEdit={c => {
+            setViewCampaignDetails(null);
+            openEditCampaign(c);
+          }}
+          onViewSite={siteCode => {
+            const upper = String(siteCode || '').trim().toUpperCase();
+            const siteObj = sites.find(s => String(s.site_code || '').trim().toUpperCase() === upper) || {
+              site_code: upper,
+              area: upper,
+              location: '',
+              type: 'Hoarding'
+            };
+            setSelectedSiteModal(siteObj);
+          }}
+          canAdd={canEdit && !isReadOnly}
+        />
+      )}
+
+      {/* ── Modal: Site Details Pop-up ── */}
+      {selectedSiteModal && (
+        <SiteDetailsModal
+          site={selectedSiteModal}
+          onClose={() => setSelectedSiteModal(null)}
+          onNavigateToSites={() => {
+            const code = selectedSiteModal.site_code;
+            setSelectedSiteModal(null);
+            navigate(`/sites?search=${encodeURIComponent(code)}`);
+          }}
+        />
       )}
     </>
   );
