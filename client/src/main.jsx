@@ -7431,13 +7431,13 @@ function OccupancyView() {
       {/* ── Modal for Inspecting Detailed Monthly Booking History ──────────── */}
       {modalData && (
         <div 
-          className="scooh-modal-backdrop" 
-          style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          className="scooh-modal-overlay" 
+          style={{ position: 'fixed', inset: 0, zIndex: 100000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
           onClick={() => setModalData(null)}
         >
           <div 
-            className="scooh-panel" 
-            style={{ width: '100%', maxWidth: '580px', maxHeight: '85vh', overflowY: 'auto', border: '1px solid #38bdf8', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}
+            className="scooh-modal" 
+            style={{ width: '100%', maxWidth: '600px', maxHeight: '88vh', overflowY: 'auto', margin: 'auto', border: '1px solid #38bdf8', boxShadow: '0 25px 60px rgba(0,0,0,0.75)', padding: '20px' }}
             onClick={e => e.stopPropagation()}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #1e293b', paddingBottom: '14px', marginBottom: '16px' }}>
@@ -8695,7 +8695,22 @@ function CampaignTrackerView() {
         )}
         <td>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <span className="scooh-plate" style={{ fontSize: '12px', fontWeight: 800 }}>
+            <span
+              className="scooh-plate"
+              style={{ fontSize: '12px', fontWeight: 800, cursor: 'pointer' }}
+              onClick={() => {
+                const upper = String(item.site_code || '').trim().toUpperCase();
+                const siteObj = sites.find(s => String(s.site_code || '').trim().toUpperCase() === upper) || {
+                  site_code: upper,
+                  area: item.location || upper,
+                  location: item.location || '',
+                  type: item.type || 'Hoarding',
+                  size: item.size || ''
+                };
+                setSelectedSiteModal(siteObj);
+              }}
+              title={`View ${item.site_code} details`}
+            >
               {item.site_code}
             </span>
             {String(item.parent_campaign || '').startsWith('LINKED:') ? (

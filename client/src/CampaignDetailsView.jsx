@@ -312,8 +312,29 @@ export function SiteDetailsModal({ site, onClose, onNavigateToSites }) {
   const images = Array.isArray(site.images) ? site.images : (site.image ? [site.image] : []);
 
   return (
-    <div className="scooh-modalwrap" onClick={onClose} style={{ zIndex: 100000 }}>
-      <div className="scooh-modal" style={{ maxWidth: '620px', width: '92%', maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+    <div
+      className="scooh-modal-overlay"
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 100002,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      <div
+        className="scooh-modal"
+        style={{
+          maxWidth: '620px',
+          width: '92%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          margin: 'auto'
+        }}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="scooh-modalhead" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
@@ -478,8 +499,29 @@ export function CampaignDetailsModal({
   const displayTitle = campaign.display || campaign.campaign_name || campaign.brand || 'Campaign';
 
   return (
-    <div className="scooh-modalwrap" onClick={onClose} style={{ zIndex: 99999 }}>
-      <div className="scooh-modal" style={{ maxWidth: '640px', width: '90%' }} onClick={e => e.stopPropagation()}>
+    <div
+      className="scooh-modal-overlay"
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 100001,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      <div
+        className="scooh-modal"
+        style={{
+          maxWidth: '640px',
+          width: '90%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          margin: 'auto'
+        }}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="scooh-modalhead" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
@@ -2038,8 +2080,29 @@ export default function CampaignDetailsView() {
 
       {/* ── Modal: Add / Edit Campaign ───────────────────────────────────── */}
       {editModal && (
-        <div className="scooh-modalwrap" onClick={() => setEditModal(null)}>
-          <div className="scooh-modal" style={{ maxWidth: '580px', width: '90%' }} onClick={e => e.stopPropagation()}>
+        <div
+          className="scooh-modal-overlay"
+          onClick={() => setEditModal(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100001,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div
+            className="scooh-modal"
+            style={{
+              maxWidth: '580px',
+              width: '90%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              margin: 'auto'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
             <form onSubmit={handleSaveEdit}>
               <div className="scooh-modalhead">
                 <h3 style={{ margin: 0, fontSize: '18px', color: '#fff' }}>
