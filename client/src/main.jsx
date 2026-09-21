@@ -726,14 +726,77 @@ const LOGO_SVG_STRING = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 54
   </g>
 </svg>`;
 
-const ICONS_SVG = {
-  size: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>`,
-  type: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="11" rx="1.5"/><line x1="8" y1="14" x2="8" y2="21"/><line x1="16" y1="14" x2="16" y2="21"/><line x1="5" y1="21" x2="19" y2="21"/></svg>`,
-  illum: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#8EA5C4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2v2"/><path d="M12 6a5 5 0 0 0-3.5 8.5c.9.9 1.5 1.8 1.5 2.5h4c0-.7.6-1.6 1.5-2.5A5 5 0 0 0 12 6z"/><line x1="4.93" y1="4.93" x2="6.34" y2="6.34"/><line x1="19.07" y1="4.93" x2="17.66" y2="6.34"/></svg>`,
-  rupee: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFC400" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12"/><path d="M6 8h12"/><path d="M6 13l8.5 8"/><path d="M6 13h3a4.5 4.5 0 0 0 0-9"/></svg>`,
-  check: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#FFC400" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.5"/><polyline points="7.5 12 10.5 15 16.5 9"/></svg>`,
-  pin: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#E6A200"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C7.58 2 4 5.58 4 10C4 15.5 12 22 12 22C12 22 20 15.5 20 10C20 5.58 16.42 2 12 2ZM12 13C10.34 13 9 11.66 9 10C9 8.34 10.34 7 12 7C13.66 7 15 8.34 15 10C15 11.66 13.66 13 12 13Z"/></svg>`
+const PPT_ICONS_SVG = {
+  // 1. Size: Expand square with diagonal arrows pointing to 4 corners
+  size: `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+    <circle cx="64" cy="64" r="62" fill="#FFFFFF" />
+    <rect x="44" y="44" width="40" height="40" rx="3" fill="none" stroke="#000000" stroke-width="5.5" />
+    <path d="M 44 44 L 28 28 M 28 40 L 28 28 L 40 28" fill="none" stroke="#000000" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 84 44 L 100 28 M 88 28 L 100 28 L 100 40" fill="none" stroke="#000000" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 44 84 L 28 100 M 40 100 L 28 100 L 28 88" fill="none" stroke="#000000" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 84 84 L 100 100 M 88 100 L 100 100 L 100 88" fill="none" stroke="#000000" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>`,
+
+  // 2. Type: Speech bubble with 3 dots inside
+  type: `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+    <circle cx="64" cy="64" r="62" fill="#FFFFFF" />
+    <path d="M 32 60 C 32 43 46 30 64 30 C 82 30 96 43 96 60 C 96 77 82 90 64 90 C 58 90 52 88 47 85 L 32 94 L 36 80 C 33.5 74 32 67 32 60 Z" fill="none" stroke="#000000" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" />
+    <circle cx="50" cy="60" r="4.5" fill="#000000" />
+    <circle cx="64" cy="60" r="4.5" fill="#000000" />
+    <circle cx="78" cy="60" r="4.5" fill="#000000" />
+  </svg>`,
+
+  // 3. Illumination: Light bulb with radiant rays
+  illum: `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+    <circle cx="64" cy="64" r="62" fill="#FFFFFF" />
+    <path d="M 48 64 C 44 58 42 51 42 44 C 42 32 52 22 64 22 C 76 22 86 32 86 44 C 86 51 84 58 80 64 C 76 70 74 76 74 82 L 54 82 C 54 76 52 70 48 64 Z" fill="none" stroke="#000000" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 54 89 L 74 89 M 57 96 L 71 96 M 60 102 L 68 102" fill="none" stroke="#000000" stroke-width="4.5" stroke-linecap="round" />
+    <path d="M 58 56 L 58 44 C 58 40 61 38 64 38 C 67 38 70 40 70 44 L 70 56" fill="none" stroke="#000000" stroke-width="4" stroke-linecap="round" />
+    <line x1="64" y1="12" x2="64" y2="16" stroke="#000000" stroke-width="4.5" stroke-linecap="round" />
+    <line x1="38" y1="22" x2="41" y2="25" stroke="#000000" stroke-width="4.5" stroke-linecap="round" />
+    <line x1="90" y1="22" x2="87" y2="25" stroke="#000000" stroke-width="4.5" stroke-linecap="round" />
+    <line x1="28" y1="44" x2="33" y2="44" stroke="#000000" stroke-width="4.5" stroke-linecap="round" />
+    <line x1="100" y1="44" x2="95" y2="44" stroke="#000000" stroke-width="4.5" stroke-linecap="round" />
+  </svg>`,
+
+  // 4. Adv. fee per month: Hand holding cash banknote
+  rupee: `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+    <circle cx="64" cy="64" r="62" fill="#FFFFFF" />
+    <rect x="42" y="32" width="56" height="32" rx="3" fill="none" stroke="#000000" stroke-width="5" transform="rotate(-6 70 48)" />
+    <circle cx="70" cy="48" r="7" fill="none" stroke="#000000" stroke-width="4" />
+    <path d="M 28 88 L 48 88 C 55 88 62 84 66 79 L 80 64 C 83 61 82 56 78 54 C 74 52 70 54 67 58 L 56 70 L 46 70" fill="none" stroke="#000000" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 44 80 L 44 98 M 28 98 L 48 98" fill="none" stroke="#000000" stroke-width="5" stroke-linecap="round" />
+  </svg>`,
+
+  // 5. Availability: Hand holding checkmark clock / guarantee badge
+  avail: `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+    <circle cx="64" cy="64" r="62" fill="#FFFFFF" />
+    <circle cx="66" cy="50" r="24" fill="none" stroke="#000000" stroke-width="5" />
+    <polyline points="55 50 63 58 78 43" fill="none" stroke="#000000" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M 28 88 C 42 88 52 82 60 76 L 78 76 C 84 76 88 80 84 86 L 72 96 C 66 101 58 104 50 104 L 28 104" fill="none" stroke="#000000" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>`,
+
+  // 6. Location Coordinates: Map pin with white central hole
+  pin: `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+    <circle cx="64" cy="64" r="62" fill="#FFFFFF" />
+    <path d="M 64 26 C 47.4 26 34 39.4 34 56 C 34 76 64 102 64 102 C 64 102 94 76 94 56 C 94 39.4 80.6 26 64 26 Z" fill="#000000" />
+    <circle cx="64" cy="54" r="11" fill="#FFFFFF" />
+  </svg>`
 };
+
+const PPT_LOGO_BADGE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 170" width="420" height="170">
+  <rect width="420" height="170" rx="14" fill="#FFC200" />
+  <g transform="translate(10, -5)">
+    <svg x="0" y="5" width="400" height="160" viewBox="135 170 550 195">
+      <path d="M 423.95 206.12 C 423.95 206.12 451.13 188.08 467.73 194.82 C 467.73 194.82 475.68 199.04 473.14 208.07 C 469.02 222.71 447.63 232.42 435.26 236.91 C 435.26 236.91 451.23 246.53 458.80 260.40 C 466.83 275.13 460.58 283.22 446.34 275.99 C 442.96 274.27 438.72 271.39 435.26 266.74 L 429.73 278.28 C 437.34 287.53 458.23 295.93 468.64 287.13 C 471.72 284.52 475.18 280.16 475.61 273.55 C 476.26 263.82 471.52 256.19 465.58 249.20 C 462.52 245.60 458.65 241.26 456.43 239.56 C 456.43 239.56 470.93 233.24 480.11 221.75 C 496.01 201.84 483.14 179.98 459.07 181.59 C 459.07 181.59 442.00 181.35 417.70 198.42 Z M 405.87 206.12 C 405.87 206.12 378.69 188.08 362.09 194.82 C 362.09 194.82 354.14 199.04 356.68 208.07 C 360.80 222.71 382.20 232.42 394.57 236.91 C 394.57 236.91 378.59 246.53 371.03 260.40 C 362.99 275.13 369.25 283.22 383.48 275.99 C 386.87 274.27 391.10 271.39 394.57 266.74 L 400.10 278.28 C 392.49 287.53 371.59 295.93 361.18 287.13 C 358.10 284.52 354.65 280.16 354.21 273.55 C 353.57 263.82 358.30 256.19 364.24 249.20 C 367.30 245.60 371.17 241.26 373.40 239.56 C 373.40 239.56 358.89 233.24 349.71 221.75 C 333.82 201.84 346.68 179.98 370.75 181.59 C 370.75 181.59 387.83 181.35 412.12 198.42 Z" fill="#FFFFFF" fill-rule="evenodd" />
+      <path d="M 187.21 259.17 C 187.21 265.17 200.63 265.17 200.63 265.17 L 200.63 213.69 C 200.63 207.69 189.40 207.69 186.44 207.69 L 172.08 238.34 L 160.62 212.91 C 158.20 207.61 152.35 207.69 151.88 207.69 L 143.61 207.69 L 143.61 259.17 C 143.61 265.17 157.03 265.17 157.03 265.17 L 157.03 239.04 C 157.03 235.22 156.17 230.77 156.17 230.77 L 164.52 249.65 C 168.26 255.50 176.37 255.50 176.37 255.50 L 188.23 230.30 C 188.23 230.30 187.21 235.22 187.21 239.04 Z Z M 218.47 238.18 C 218.47 233.89 219.72 231.55 223.62 231.55 C 227.05 231.55 228.38 233.43 228.38 236.23 C 228.38 239.59 225.73 240.52 222.92 240.52 C 221.28 240.52 219.64 240.21 218.47 239.90 Z Z M 225.88 265.33 C 235.79 265.33 242.11 260.88 242.11 255.19 C 242.11 253.00 241.17 250.66 239.30 248.09 C 239.22 252.14 234.38 255.81 226.27 255.81 C 221.51 255.81 218.47 253.86 218.47 249.49 L 218.47 248.24 C 218.47 248.24 220.89 249.49 224.87 249.49 C 237.89 249.49 241.41 243.10 241.41 236.23 C 241.41 227.89 236.26 222.35 224.17 222.35 C 212.08 222.35 205.37 227.89 205.37 237.01 L 205.37 250.66 C 205.37 259.87 212.54 265.33 225.88 265.33 Z M 269.54 204.02 L 269.54 220.71 C 269.54 222.27 270.09 224.77 270.09 224.77 C 270.09 224.77 266.27 222.35 261.66 222.35 C 252.46 222.35 244.50 227.81 244.50 236.78 L 244.50 250.82 C 244.50 260.10 251.52 265.33 263.61 265.33 C 266.42 265.33 270.87 264.00 275.70 264.00 C 278.36 264.00 280.38 264.08 282.65 265.33 L 282.65 210.80 C 282.65 204.10 270.87 204.02 269.54 204.02 Z M 269.54 255.97 C 269.54 255.97 266.73 256.43 264.55 256.43 C 259.24 256.43 257.61 254.02 257.61 249.65 L 257.61 237.95 C 257.61 233.50 259.71 231.55 262.68 231.55 C 266.19 231.55 269.54 233.82 269.54 237.17 Z Z M 287.38 258.93 C 287.38 264.94 300.49 264.94 300.49 264.94 L 300.49 228.74 C 300.49 222.97 288.47 222.74 287.38 222.74 Z Z M 287.61 215.41 C 287.61 216.81 289.33 218.29 291.75 218.29 L 300.10 218.29 L 300.10 210.80 C 300.10 209.64 298.38 207.84 296.04 207.84 L 287.61 207.84 Z Z M 327.77 255.66 C 327.77 255.66 324.88 256.51 322.07 256.51 C 319.42 256.51 316.77 255.73 316.77 252.07 C 316.77 247.08 325.66 248.32 327.77 245.05 Z Z M 321.06 231.63 C 326.13 231.63 327.53 233.82 327.53 235.69 C 323.94 240.91 303.66 238.26 303.66 252.53 C 303.66 262.36 312.09 265.33 320.82 265.33 C 325.42 265.33 329.80 263.92 333.93 263.92 C 336.11 263.92 338.45 264.16 340.64 265.33 L 340.64 236.31 C 340.64 227.26 333.93 222.35 321.21 222.35 C 315.83 222.35 304.75 223.91 304.75 231.79 C 304.75 234.21 305.46 237.01 308.34 240.83 C 308.34 233.43 315.05 231.63 321.06 231.63" fill="#030352" fill-rule="evenodd" />
+      <path d="M 498.73 258.07 C 498.73 264.00 508.72 264.08 508.72 264.08 L 518.31 264.08 C 531.65 264.08 540.85 259.71 540.85 248.87 L 540.85 247.15 C 540.85 242.32 538.12 237.09 533.83 235.38 C 537.50 233.97 540.07 228.51 540.07 223.99 L 540.07 222.43 C 540.07 211.04 530.95 207.37 518.31 207.37 L 498.73 207.37 Z Z M 518.93 240.21 C 524.86 240.21 527.44 242.47 527.44 247.70 C 527.44 252.77 524.71 254.64 518.31 254.64 L 512.15 254.64 L 512.15 240.21 Z Z M 518.31 216.89 C 523.93 216.89 526.66 218.37 526.66 222.82 C 526.66 227.97 524.63 230.77 518.93 230.77 L 512.15 230.77 L 512.15 216.89 Z Z M 557.91 228.43 C 557.91 222.74 544.81 222.43 544.81 222.43 L 544.81 251.21 C 544.81 262.05 554.17 265.01 562.90 265.01 C 566.88 265.01 570.55 263.38 574.53 263.38 C 579.44 263.38 582.95 265.33 582.95 265.33 L 582.95 228.43 C 582.95 222.43 569.85 222.43 569.85 222.43 L 569.85 254.95 C 569.85 254.95 566.65 255.73 564.00 255.73 C 559.47 255.73 557.91 253.71 557.91 250.04 Z Z M 604.85 232.49 C 599.86 240.52 584.88 248.01 584.88 259.79 C 584.88 260.41 584.80 260.96 585.50 264.08 L 614.60 264.08 C 621.85 264.08 621.85 254.64 621.85 254.64 L 599.78 254.64 C 606.02 246.14 617.95 238.73 620.06 231.32 C 620.92 228.43 621.07 225.70 621.93 222.97 L 593.15 222.97 C 585.74 222.97 585.74 232.49 585.74 232.49 Z Z M 640.32 232.49 C 635.32 240.52 620.35 248.01 620.35 259.79 C 620.35 260.41 620.27 260.96 620.97 264.08 L 650.07 264.08 C 657.32 264.08 657.32 254.64 657.32 254.64 L 635.25 254.64 C 641.49 246.14 653.42 238.73 655.53 231.32 C 656.39 228.43 656.54 225.70 657.40 222.97 L 628.62 222.97 C 621.21 222.97 621.21 232.49 621.21 232.49 Z" fill="#030352" fill-rule="evenodd" />
+      <path d="M 661.61 189.98 C 670.50 189.98 677.72 196.99 677.72 205.63 C 677.72 214.27 670.50 221.28 661.61 221.28 C 652.71 221.28 645.50 214.27 645.50 205.63 C 645.50 196.99 652.71 189.98 661.61 189.98" stroke="#030352" stroke-width="1.8" fill="none" />
+      <text x="661.6" y="206.5" font-family="'Arial', 'Helvetica', sans-serif" font-weight="bold" font-size="16" fill="#030352" text-anchor="middle" dominant-baseline="central">R</text>
+      <text x="412" y="352" font-family="'Arial', 'Helvetica', sans-serif" font-weight="bold" font-size="58" fill="#030352" text-anchor="middle" letter-spacing="1">Be Seen</text>
+    </svg>
+  </g>
+</svg>`;
 
 const svgPngCache = new Map();
 
@@ -763,24 +826,20 @@ async function svgToPngDataUrl(svgString, width = 128, height = 128) {
   return dataUrl;
 }
 
-let cachedOverlayPng = null;
-async function getSlideOverlayPng() {
-  if (cachedOverlayPng) return cachedOverlayPng;
-  try {
-    const res = await fetch('/assets/ppt-slide-overlay.svg?v=' + Date.now());
-    if (res.ok) {
-      const text = await res.text();
-      cachedOverlayPng = await svgToPngDataUrl(text, 1920, 1080);
-      return cachedOverlayPng;
-    }
-  } catch (e) {
-    console.warn('Overlay SVG fetch notice:', e);
-  }
-  cachedOverlayPng = await svgToPngDataUrl(OVERLAY_SVG_STRING, 1920, 1080);
-  return cachedOverlayPng;
+let cachedLogoBadgePng = null;
+async function getSlideLogoBadgePng() {
+  if (cachedLogoBadgePng) return cachedLogoBadgePng;
+  cachedLogoBadgePng = await svgToPngDataUrl(PPT_LOGO_BADGE_SVG, 500, 200);
+  return cachedLogoBadgePng;
 }
 
-async function createSitePhotoShowcase(imgDataUrl, boxW_px = 1430, boxH_px = 1220) {
+async function getSlideIconPng(key) {
+  const svg = PPT_ICONS_SVG[key];
+  if (!svg) return null;
+  return await svgToPngDataUrl(svg, 128, 128);
+}
+
+async function createSitePhotoShowcase(imgDataUrl, boxW_px = 1500, boxH_px = 1224) {
   const img = new Image();
   await new Promise((resolve, reject) => {
     img.onload = () => resolve();
@@ -797,81 +856,92 @@ async function createSitePhotoShowcase(imgDataUrl, boxW_px = 1430, boxH_px = 122
   canvas.height = boxH_px;
   const ctx = canvas.getContext('2d');
 
-  // 1. Deep luxury dark navy base matching the presentation aesthetic
-  ctx.fillStyle = '#021020';
+  // Solid black canvas base matching the final presentation format
+  ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, boxW_px, boxH_px);
 
-  // 2. Soft dimmed ambient glow backdrop (seamless luxury feel, eliminates empty voids)
-  try {
-    ctx.save();
-    ctx.filter = 'blur(30px) brightness(0.35) saturate(1.25)';
-    let bgW, bgH;
-    const boxRatio = boxW_px / boxH_px;
-    if (imgRatio >= boxRatio) {
-      bgH = boxH_px + 80;
-      bgW = bgH * imgRatio;
-    } else {
-      bgW = boxW_px + 80;
-      bgH = bgW / imgRatio;
-    }
-    const bgX = (boxW_px - bgW) / 2;
-    const bgY = (boxH_px - bgH) / 2;
-    ctx.drawImage(img, bgX, bgY, bgW, bgH);
-    ctx.restore();
-
-    // Dark smooth vignette
-    const grad = ctx.createRadialGradient(
-      boxW_px / 2, boxH_px / 2, Math.min(boxW_px, boxH_px) * 0.25,
-      boxW_px / 2, boxH_px / 2, Math.max(boxW_px, boxH_px) * 0.75
-    );
-    grad.addColorStop(0, 'rgba(2, 16, 32, 0.15)');
-    grad.addColorStop(1, 'rgba(2, 16, 32, 0.85)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, boxW_px, boxH_px);
-  } catch {
-    ctx.fillStyle = '#021020';
-    ctx.fillRect(0, 0, boxW_px, boxH_px);
-  }
-
-  // 3. 100% Uncropped, Razor-Sharp Foreground Photo (contain)
-  const PAD = 14;
-  const availW = boxW_px - (PAD * 2);
-  const availH = boxH_px - (PAD * 2);
-  const availRatio = availW / availH;
-
-  let fitW, fitH, fitX, fitY;
-  if (imgRatio >= availRatio) {
-    fitW = availW;
-    fitH = Math.round(availW / imgRatio);
-    fitX = PAD;
-    fitY = PAD + Math.round((availH - fitH) / 2);
-  } else {
-    fitH = availH;
-    fitW = Math.round(availH * imgRatio);
-    fitX = PAD + Math.round((availW - fitW) / 2);
-    fitY = PAD;
-  }
-
-  // Soft realistic drop-shadow behind sharp photo
+  // Smooth rounded corners clip for the photo
+  const radius = 24;
   ctx.save();
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
-  ctx.shadowBlur = 24;
-  ctx.shadowOffsetY = 8;
-  ctx.drawImage(img, fitX, fitY, fitW, fitH);
-  ctx.restore();
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(0, 0, boxW_px, boxH_px, radius);
+  } else {
+    ctx.moveTo(radius, 0);
+    ctx.lineTo(boxW_px - radius, 0);
+    ctx.quadraticCurveTo(boxW_px, 0, boxW_px, radius);
+    ctx.lineTo(boxW_px, boxH_px - radius);
+    ctx.quadraticCurveTo(boxW_px, boxH_px, boxW_px - radius, boxH_px);
+    ctx.lineTo(radius, boxH_px);
+    ctx.quadraticCurveTo(0, boxH_px, 0, boxH_px - radius);
+    ctx.lineTo(0, radius);
+    ctx.quadraticCurveTo(0, 0, radius, 0);
+    ctx.closePath();
+  }
+  ctx.clip();
 
-  // Draw crisp original photo on top
-  ctx.drawImage(img, fitX, fitY, fitW, fitH);
+  const boxRatio = boxW_px / boxH_px;
+  const ratioDiff = Math.abs(imgRatio - boxRatio) / boxRatio;
 
-  // Subtle architectural border around sharp photo
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(fitX + 0.75, fitY + 0.75, fitW - 1.5, fitH - 1.5);
+  if (ratioDiff < 0.18) {
+    let drawW, drawH, drawX, drawY;
+    if (imgRatio >= boxRatio) {
+      drawH = boxH_px;
+      drawW = drawH * imgRatio;
+    } else {
+      drawW = boxW_px;
+      drawH = drawW / imgRatio;
+    }
+    drawX = (boxW_px - drawW) / 2;
+    drawY = (boxH_px - drawH) / 2;
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+  } else {
+    // Ambient soft blurred backdrop behind photo
+    try {
+      ctx.save();
+      ctx.filter = 'blur(28px) brightness(0.35)';
+      let bgW, bgH;
+      if (imgRatio >= boxRatio) {
+        bgH = boxH_px + 60;
+        bgW = bgH * imgRatio;
+      } else {
+        bgW = boxW_px + 60;
+        bgH = bgW / imgRatio;
+      }
+      const bgX = (boxW_px - bgW) / 2;
+      const bgY = (boxH_px - bgH) / 2;
+      ctx.drawImage(img, bgX, bgY, bgW, bgH);
+      ctx.restore();
+    } catch {}
 
-  // Clean container border
-  ctx.strokeStyle = '#0F355C';
+    // Sharp uncropped contained photo in center
+    let fitW, fitH, fitX, fitY;
+    if (imgRatio >= boxRatio) {
+      fitW = boxW_px;
+      fitH = Math.round(boxW_px / imgRatio);
+      fitX = 0;
+      fitY = Math.round((boxH_px - fitH) / 2);
+    } else {
+      fitH = boxH_px;
+      fitW = Math.round(boxH_px * imgRatio);
+      fitX = Math.round((boxW_px - fitW) / 2);
+      fitY = 0;
+    }
+    ctx.drawImage(img, fitX, fitY, fitW, fitH);
+  }
+
+  // Subtle clean border around photo container
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
   ctx.lineWidth = 2;
-  ctx.strokeRect(1, 1, boxW_px - 2, boxH_px - 2);
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(1, 1, boxW_px - 2, boxH_px - 2, radius);
+    ctx.stroke();
+  } else {
+    ctx.strokeRect(1, 1, boxW_px - 2, boxH_px - 2);
+  }
+
+  ctx.restore();
 
   return canvas.toDataURL('image/jpeg', 0.94);
 }
@@ -882,7 +952,15 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
   pptx.author = 'Media Buzz Outdoor';
   const SW = 13.333, SH = 7.5;
 
-  const overlayData = await getSlideOverlayPng();
+  const [logoBadgePng, iconSizePng, iconTypePng, iconIllumPng, iconRupeePng, iconAvailPng, iconPinPng] = await Promise.all([
+    getSlideLogoBadgePng(),
+    getSlideIconPng('size'),
+    getSlideIconPng('type'),
+    getSlideIconPng('illum'),
+    getSlideIconPng('rupee'),
+    getSlideIconPng('avail'),
+    getSlideIconPng('pin')
+  ]);
 
   async function covered(slide, url, x, y, w, h) {
     try {
@@ -892,10 +970,10 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
   }
 
   async function addSitePhoto(slide, url) {
-    const BOX_X = 0.20, BOX_Y = 0.20, BOX_W = 7.15, BOX_H = 6.10;
+    const BOX_X = 0.70, BOX_Y = 0.70, BOX_W = 6.25, BOX_H = 5.10;
     try {
       const data = await imageData(url);
-      const cardDataUrl = await createSitePhotoShowcase(data, 1430, 1220);
+      const cardDataUrl = await createSitePhotoShowcase(data, 1500, 1224);
       slide.addImage({ data: cardDataUrl, x: BOX_X, y: BOX_Y, w: BOX_W, h: BOX_H });
     } catch (err) {
       console.warn('Site photo showcase notice:', err);
@@ -932,182 +1010,143 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
       }
     }
     return {
-      lat: lat ? String(lat) : '22.962323',
-      lng: lng ? String(lng) : '72.962323'
+      lat: lat ? String(lat) : '',
+      lng: lng ? String(lng) : ''
     };
   }
 
   function getSize(st) {
     if (st.size && String(st.size).trim()) {
-      const clean = String(st.size).trim();
-      return clean.toLowerCase().includes('ft') ? clean : `${clean} ft`;
+      return String(st.size).trim();
     }
-    if (st.width && st.height) return `${st.width} ft x ${st.height} ft`;
-    return '45 ft x 10 ft';
+    if (st.width && st.height) return `${st.width} x ${st.height}`;
+    return '30 x 32';
   }
 
-  async function siteSlide(site, photoUrl) {
+  async function siteSlide(site, photoUrl, siteIndex = 1) {
     const s = pptx.addSlide();
-    s.background = { color: '02142B' };
+    // Solid pitch black background matching final reference format
+    s.background = { color: '000000' };
 
-    // 1. Left site photo showcase: 100% visible, zero crop, zero cut
+    // 1. Left site photo showcase with smooth rounded corners
     if (photoUrl) {
       await addSitePhoto(s, photoUrl);
     } else {
       s.addShape(pptx.ShapeType.roundRect, {
-        x: 0.20, y: 0.20, w: 7.15, h: 6.10,
-        fill: { color: '021020' }, line: { color: '0F355C', width: 1.5 }, rectRadius: 0.08
+        x: 0.70, y: 0.70, w: 6.25, h: 5.10,
+        fill: { color: '111111' }, line: { color: '2A2A2A', width: 1.5 }, rectRadius: 0.12
       });
       s.addText('NO SITE PHOTO UPLOADED', {
-        x: 0.35, y: 2.95, w: 6.85, h: 0.6,
-        fontFace: 'Arial', fontSize: 18, bold: true, color: '4B6A92', align: 'center'
+        x: 0.85, y: 3.00, w: 5.95, h: 0.6,
+        fontFace: 'Arial', fontSize: 18, bold: true, color: '555555', align: 'center'
       });
     }
 
-    // 2. Exact Side Dashboard Overlay (facet, navy panel, logo, icons, dividers, yellow accent bars)
-    if (overlayData) {
-      s.addImage({ data: overlayData, x: 0, y: 0, w: SW, h: SH });
+    // 2. Official Media Buzz brand logo badge at bottom-left directly under photo
+    if (logoBadgePng) {
+      s.addImage({ data: logoBadgePng, x: 0.70, y: 6.05, w: 1.85, h: 0.75 });
     }
 
-    // 3. Dynamic Site Code Pill (Spacious & prominent at top)
-    const siteCodeText = String(site.site_code || 'MB-AHD-001').toUpperCase();
+    // 3. Right column: Site Counter ("Site 1", "Site 2", etc.)
+    s.addText(`Site ${siteIndex}`, {
+      x: 7.45, y: 0.70, w: 3.50, h: 0.30,
+      fontFace: 'Arial', fontSize: 13, color: 'FFFFFF', bold: false, margin: 0
+    });
+
+    // 4. Prominent Yellow Site Code Pill ("MB - 01")
+    let rawCode = String(site.site_code || 'MB-01').trim();
+    let displayCode = rawCode.toUpperCase();
+    if (/^[A-Za-z]+-\d+$/.test(displayCode)) {
+      displayCode = displayCode.replace('-', ' - ');
+    }
     s.addShape(pptx.ShapeType.roundRect, {
-      x: 9.03, y: 0.70, w: 2.10, h: 0.44,
-      fill: { color: 'FFC200' }, line: { color: 'FFC200' }, rectRadius: 0.22
+      x: 7.45, y: 1.05, w: 2.65, h: 0.72,
+      fill: { color: 'FFC200' }, line: { color: 'FFC200' }, rectRadius: 0.18
     });
-    const trackerUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/campaigns?site=${encodeURIComponent(siteCodeText)}`;
-    s.addText(siteCodeText, {
-      x: 9.03, y: 0.70, w: 2.10, h: 0.44,
-      fontFace: 'Arial', fontSize: 13.5, bold: true, color: '000000', align: 'center', valign: 'middle', margin: 0,
-      hyperlink: { url: trackerUrl, tooltip: `Open ${siteCodeText} in Latest Booking` }
+    const trackerUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/campaigns?site=${encodeURIComponent(rawCode)}`;
+    s.addText(displayCode, {
+      x: 7.45, y: 1.05, w: 2.65, h: 0.72,
+      fontFace: 'Arial', fontSize: 26, bold: true, color: '000000', align: 'center', valign: 'middle', margin: 0,
+      hyperlink: { url: trackerUrl, tooltip: `Open ${rawCode} in Latest Booking` }
     });
 
-    // 4. Headline: Area (Bold White, 20-22pt) & Landmark (Bold Sky Blue, 13.5-14.5pt) - Unified flow matching final format
+    // 5. Area / Location Title (Bold pure white)
     const area = String(site.area || site.city || site.site_code || 'Prime Site').trim();
-    const landmark = String(site.address || site.notes || (site.city ? `Near ${site.city} Hub` : '')).trim();
-
-    let areaFontSize = 21;
-    if (area.length > 40) areaFontSize = 16;
-    else if (area.length > 25) areaFontSize = 18.5;
-
-    let landmarkFontSize = 14;
-    if (landmark.length > 60) landmarkFontSize = 11.5;
-    else if (landmark.length > 40) landmarkFontSize = 12.5;
-
-    const headlineRuns = [
-      {
-        text: area,
-        options: {
-          fontSize: areaFontSize,
-          bold: true,
-          color: 'FFFFFF',
-          fontFace: 'Arial',
-          breakLine: Boolean(landmark)
-        }
-      }
-    ];
-
-    if (landmark) {
-      headlineRuns.push({
-        text: landmark,
-        options: {
-          fontSize: landmarkFontSize,
-          bold: true,
-          color: '38BDF8',
-          fontFace: 'Arial'
-        }
-      });
-    }
-
-    s.addText(headlineRuns, {
-      x: 9.03, y: 1.25, w: 4.10, h: 1.45,
-      valign: 'top',
-      margin: 0,
-      fit: 'shrink'
+    s.addText(area, {
+      x: 7.45, y: 1.98, w: 5.30, h: 0.45,
+      fontFace: 'Arial', fontSize: 24, bold: true, color: 'FFFFFF', valign: 'middle', margin: 0
     });
 
-    // 5. Spec Rows: Inline (Icon + Label in #8EA5C4 + Value in Bold #FFFFFF) matching final format
+    // 6. Address / Landmark Subtitle (Bold white)
+    const address = String(site.address || site.notes || (site.city ? `Near ${site.city} Hub` : '') || 'Full Address').trim();
+    s.addText(address, {
+      x: 7.45, y: 2.48, w: 5.30, h: 0.42,
+      fontFace: 'Arial', fontSize: 16, bold: true, color: 'FFFFFF', valign: 'middle', margin: 0
+    });
+
+    // 7. Specifications Rows (6 rows total)
     // Row 1: Size
+    const row1Y = 3.12;
+    if (iconSizePng) s.addImage({ data: iconSizePng, x: 7.45, y: row1Y, w: 0.42, h: 0.42 });
     s.addText([
-      { text: 'Size:  ', options: { color: '8EA5C4', bold: false, fontSize: 13.5, fontFace: 'Arial' } },
-      { text: getSize(site), options: { color: 'FFFFFF', bold: true, fontSize: 14, fontFace: 'Arial' } }
-    ], {
-      x: 9.70, y: 2.88, w: 3.40, h: 0.36,
-      valign: 'middle', margin: 0
-    });
+      { text: 'Size:  ', options: { color: 'FFC200', bold: true, fontSize: 14.5, fontFace: 'Arial' } },
+      { text: getSize(site), options: { color: 'FFFFFF', bold: true, fontSize: 14.5, fontFace: 'Arial' } }
+    ], { x: 8.12, y: row1Y - 0.02, w: 4.80, h: 0.44, valign: 'middle', margin: 0 });
+    s.addShape(pptx.ShapeType.line, { x: 8.12, y: row1Y + 0.46, w: 4.80, h: 0, line: { color: '333333', width: 0.8 } });
 
     // Row 2: Type
+    const row2Y = 3.74;
+    if (iconTypePng) s.addImage({ data: iconTypePng, x: 7.45, y: row2Y, w: 0.42, h: 0.42 });
     s.addText([
-      { text: 'Type:  ', options: { color: '8EA5C4', bold: false, fontSize: 13.5, fontFace: 'Arial' } },
-      { text: String(site.media_type || 'Hoarding'), options: { color: 'FFFFFF', bold: true, fontSize: 14, fontFace: 'Arial' } }
-    ], {
-      x: 9.70, y: 3.54, w: 3.40, h: 0.36,
-      valign: 'middle', margin: 0
-    });
+      { text: 'Type:  ', options: { color: 'FFC200', bold: true, fontSize: 14.5, fontFace: 'Arial' } },
+      { text: String(site.media_type || 'Hoarding'), options: { color: 'FFFFFF', bold: true, fontSize: 14.5, fontFace: 'Arial' } }
+    ], { x: 8.12, y: row2Y - 0.02, w: 4.80, h: 0.44, valign: 'middle', margin: 0 });
+    s.addShape(pptx.ShapeType.line, { x: 8.12, y: row2Y + 0.46, w: 4.80, h: 0, line: { color: '333333', width: 0.8 } });
 
     // Row 3: Illumination
+    const row3Y = 4.36;
+    if (iconIllumPng) s.addImage({ data: iconIllumPng, x: 7.45, y: row3Y, w: 0.42, h: 0.42 });
     s.addText([
-      { text: 'Illumination:  ', options: { color: '8EA5C4', bold: false, fontSize: 13.5, fontFace: 'Arial' } },
-      { text: String(site.lighting || 'BL').toUpperCase(), options: { color: 'FFFFFF', bold: true, fontSize: 14, fontFace: 'Arial' } }
-    ], {
-      x: 9.70, y: 4.20, w: 3.40, h: 0.36,
-      valign: 'middle', margin: 0
-    });
+      { text: 'Illumination:  ', options: { color: 'FFC200', bold: true, fontSize: 14.5, fontFace: 'Arial' } },
+      { text: String(site.lighting || 'Lit').toUpperCase(), options: { color: 'FFFFFF', bold: true, fontSize: 14.5, fontFace: 'Arial' } }
+    ], { x: 8.12, y: row3Y - 0.02, w: 4.80, h: 0.44, valign: 'middle', margin: 0 });
+    s.addShape(pptx.ShapeType.line, { x: 8.12, y: row3Y + 0.46, w: 4.80, h: 0, line: { color: '333333', width: 0.8 } });
 
-    // Row 4: Adv. Fee Per Month
+    // Row 4: Adv.fee per month
+    const row4Y = 4.98;
     let rateText = 'On Request';
     if (site._showRate && site._rate) {
       rateText = `₹ ${Number(site._rate).toLocaleString('en-IN')}/-`;
+    } else if (site.ppt_rate || site.monthly_rate) {
+      const r = site.ppt_rate || site.monthly_rate;
+      rateText = isNaN(Number(r)) ? String(r) : `₹ ${Number(r).toLocaleString('en-IN')}/-`;
     }
+    if (iconRupeePng) s.addImage({ data: iconRupeePng, x: 7.45, y: row4Y, w: 0.42, h: 0.42 });
     s.addText([
-      { text: 'Adv. Fee Per Month:  ', options: { color: '8EA5C4', bold: false, fontSize: 13.5, fontFace: 'Arial' } },
-      { text: rateText, options: { color: 'FFFFFF', bold: true, fontSize: 14, fontFace: 'Arial' } }
-    ], {
-      x: 9.70, y: 4.86, w: 3.40, h: 0.36,
-      valign: 'middle', margin: 0
-    });
+      { text: 'Adv.fee per month:  ', options: { color: 'FFC200', bold: true, fontSize: 14.5, fontFace: 'Arial' } },
+      { text: rateText, options: { color: 'FFFFFF', bold: true, fontSize: 14.5, fontFace: 'Arial' } }
+    ], { x: 8.12, y: row4Y - 0.02, w: 4.80, h: 0.44, valign: 'middle', margin: 0 });
+    s.addShape(pptx.ShapeType.line, { x: 8.12, y: row4Y + 0.46, w: 4.80, h: 0, line: { color: '333333', width: 0.8 } });
 
-    // Row 5: Availability (Inline Label + Rounded Pill Badge)
+    // Row 5: Availability
+    const row5Y = 5.60;
     const availText = String(site._availability || site.ppt_availability || site.availability || 'Available').trim();
-    const isBooked = availText.toLowerCase().startsWith('booked') || availText.toLowerCase().startsWith('occupied');
-    const pillColor = isBooked ? 'E07B00' : '00A859';
-    const pillH = 0.35;
-    const pillY = 5.52;
-    const pillX = 10.90;
-    const pillW = Math.max(1.30, Math.min(2.35, (availText.length * 0.10) + 0.45));
-    const pillRadius = pillH / 2;
-
-    s.addText('Availability: ', {
-      x: 9.70, y: 5.52, w: 1.15, h: 0.35,
-      fontFace: 'Arial', fontSize: 13.5, color: '8EA5C4', valign: 'middle', margin: 0
-    });
-
-    s.addShape(pptx.ShapeType.roundRect, {
-      x: pillX, y: pillY, w: pillW, h: pillH,
-      fill: { color: pillColor }, line: { color: pillColor }, rectRadius: pillRadius
-    });
-    s.addText(availText, {
-      x: pillX, y: pillY, w: pillW, h: pillH,
-      fontFace: 'Arial',
-      fontSize: availText.length > 18 ? 9.5 : (availText.length > 12 ? 10.5 : 11.5),
-      bold: true,
-      color: 'FFFFFF',
-      align: 'center',
-      valign: 'middle',
-      margin: 0,
-      wrap: false,
-      fit: 'shrink'
-    });
-
-    // Row 6: Location Coordinates (Pin Icon + Two Lines)
-    const { lat, lng } = getCoords(site);
+    if (iconAvailPng) s.addImage({ data: iconAvailPng, x: 7.45, y: row5Y, w: 0.42, h: 0.42 });
     s.addText([
-      { text: 'Location Coordinates:\n', options: { color: '8EA5C4', bold: false, fontSize: 11.5, fontFace: 'Arial', breakLine: true } },
-      { text: `Latitude ${lat}  |  Longitude ${lng}`, options: { color: 'FFFFFF', bold: true, fontSize: 12, fontFace: 'Arial' } }
-    ], {
-      x: 9.70, y: 6.18, w: 3.40, h: 0.60,
-      valign: 'middle', margin: 0
-    });
+      { text: 'Availability:  ', options: { color: 'FFC200', bold: true, fontSize: 14.5, fontFace: 'Arial' } },
+      { text: availText, options: { color: 'FFFFFF', bold: true, fontSize: 14.5, fontFace: 'Arial' } }
+    ], { x: 8.12, y: row5Y - 0.02, w: 4.80, h: 0.44, valign: 'middle', margin: 0 });
+    s.addShape(pptx.ShapeType.line, { x: 8.12, y: row5Y + 0.46, w: 4.80, h: 0, line: { color: '333333', width: 0.8 } });
+
+    // Row 6: Location Coordinates
+    const row6Y = 6.22;
+    const { lat, lng } = getCoords(site);
+    const coordsText = (lat && lng) ? `${lat}, ${lng}` : '23.012345, 72.567890';
+    if (iconPinPng) s.addImage({ data: iconPinPng, x: 7.45, y: row6Y, w: 0.42, h: 0.42 });
+    s.addText([
+      { text: 'Location Coordinates:  ', options: { color: 'FFC200', bold: true, fontSize: 14.5, fontFace: 'Arial' } },
+      { text: coordsText, options: { color: 'FFFFFF', bold: true, fontSize: 14.5, fontFace: 'Arial' } }
+    ], { x: 8.12, y: row6Y - 0.02, w: 4.80, h: 0.44, valign: 'middle', margin: 0 });
   }
 
   // Helper to get effective page url with localStorage fallback
@@ -1129,11 +1168,16 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
   if (secondCover) await fixed(secondCover);
 
   // Generate slides for all chosen sites
+  let siteCounter = 1;
   for (const st of sites) {
     if (st.ppt_images && st.ppt_images.length) {
-      for (const u of st.ppt_images) await siteSlide(st, u);
+      for (const u of st.ppt_images) {
+        await siteSlide(st, u, siteCounter);
+        siteCounter++;
+      }
     } else {
-      await siteSlide(st, '');
+      await siteSlide(st, '', siteCounter);
+      siteCounter++;
     }
   }
 
