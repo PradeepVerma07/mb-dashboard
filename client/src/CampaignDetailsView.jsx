@@ -17,6 +17,17 @@ export function formatDate(val) {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+export function isLinkedCampaign(c) {
+  if (!c) return false;
+  const parent = String(c.parent_campaign || '').trim();
+  if (parent.startsWith('LINKED:')) return true;
+  const bCode = String(c.booking_code || '').trim();
+  if (bCode.startsWith('MB-BK-LNK-')) return true;
+  const notes = String(c.notes || '').trim();
+  if (notes.startsWith('Auto-booked: Linked to')) return true;
+  return false;
+}
+
 function isVacantClient(clientName) {
   if (!clientName) return true;
   const s = String(clientName).trim().toLowerCase();
@@ -46,6 +57,7 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
   const cols = [
     { key: 'sr_no', width: 8 },
     { key: 'site_code', width: 14 },
+    { key: 'booking_type', width: 16 },
     { key: 'client_display', width: 36 },
     { key: 'location', width: 38 },
     { key: 'size', width: 14 },
@@ -75,7 +87,7 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
 
   // Header Row (Row 2)
   const headers = [
-    '#', 'Site Code', 'Client / Display',
+    '#', 'Site Code', 'Status Type', 'Client / Display',
     'Location', 'Size', 'Type', 'Start Date', 'End Date', 'Days'
   ];
   const headerRow = worksheet.getRow(2);
@@ -87,7 +99,7 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
     cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
     cell.alignment = {
       vertical: 'middle',
-      horizontal: [1, 2, 5, 6, 7, 8, 9].includes(i + 1) ? 'center' : 'left',
+      horizontal: [1, 2, 3, 6, 7, 8, 9, 10].includes(i + 1) ? 'center' : 'left',
       wrapText: false
     };
     cell.border = {
@@ -103,10 +115,12 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
     const clientName = r.client || r.client_name || '';
     const disp = r.display || r.campaign_name || r.brand || '';
     const combinedClientDisplay = clientName && disp && clientName !== disp ? `${clientName} (${disp})` : (clientName || disp || '—');
+    const isLinked = isLinkedCampaign(r);
 
     const row = worksheet.addRow({
       sr_no: idx + 1,
       site_code: r.site_code || '—',
+      booking_type: isLinked ? '🔗 Linked' : '🟢 Occupied',
       client_display: combinedClientDisplay,
       location: r.location || '—',
       size: r.size || (r.width && r.height ? `${r.width}x${r.height} ft` : '—'),
@@ -122,7 +136,7 @@ async function exportCampaignDetailsExcel(rowsData, filters = {}) {
       cell.font = { name: 'Calibri', size: 10.5 };
       cell.alignment = {
         vertical: 'middle',
-        horizontal: [1, 2, 5, 6, 7, 8, 9].includes(colNumber) ? 'center' : 'left'
+        horizontal: [1, 2, 3, 6, 7, 8, 9, 10].includes(colNumber) ? 'center' : 'left'
       };
       cell.border = {
         top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
@@ -300,7 +314,7 @@ export default function CampaignDetailsView() {
   const [importingExcel, setImportingExcel] = useState(false);
   const [importBanner, setImportBanner] = useState('');
 
-  // Filters: Client/Display text, Selected Client, Start Date, End Date, Status
+  // Filters: Client/Display text, Selected Client, Start Date, End Date, Status, Booking Type (Occupied vs Linked)
   const [clientOrDisplay, setClientOrDisplay] = useState('');
   const [selectedClient, setSelectedClient] = useState('ALL');
   const [viewMode, setViewMode] = useState('grouped'); // 'grouped' | 'table'
@@ -308,6 +322,7 @@ export default function CampaignDetailsView() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'live' | 'upcoming' | 'completed'
+  const [bookingTypeFilter, setBookingTypeFilter] = useState('ALL'); // 'ALL' | 'OCCUPIED' | 'LINKED'
   const [siteFilter, setSiteFilter] = useState('');
   const [sortState, setSortState] = useState({ key: 'start_date', dir: 'desc' });
 
@@ -465,8 +480,15 @@ export default function CampaignDetailsView() {
         tenureDays = Math.max(1, Math.round((cEnd - cStart) / 86400000) + 1);
       }
 
+      const isLinked = isLinkedCampaign(c);
+      const linkedParentMatch = String(c.notes || '').match(/Linked to ([A-Z0-9_-]+)/i);
+      const linkedToSite = linkedParentMatch ? linkedParentMatch[1] : '';
+
       return {
         ...c,
+        isLinked,
+        linkedToSite,
+        bookingType: isLinked ? 'Linked' : 'Occupied',
         site_code: c.site_code || site?.site_code || '—',
         location: c.location || site?.address || site?.area || '—',
         city: site?.city || 'Ahmedabad',
@@ -481,6 +503,15 @@ export default function CampaignDetailsView() {
       };
     });
   }, [campaigns, siteMap]);
+
+  // Direct Occupied vs Auto-Linked Counts
+  const occupiedCount = useMemo(() => {
+    return enrichedCampaigns.filter(c => !c.isLinked).length;
+  }, [enrichedCampaigns]);
+
+  const linkedCount = useMemo(() => {
+    return enrichedCampaigns.filter(c => c.isLinked).length;
+  }, [enrichedCampaigns]);
 
   // Filtered dataset matching user criteria
   const filteredList = useMemo(() => {
@@ -539,9 +570,13 @@ export default function CampaignDetailsView() {
         if (c.computedStatus !== statusFilter) return false;
       }
 
+      // 5. Booking Type Filter (ALL | OCCUPIED only | LINKED only)
+      if (bookingTypeFilter === 'OCCUPIED' && c.isLinked) return false;
+      if (bookingTypeFilter === 'LINKED' && !c.isLinked) return false;
+
       return true;
     });
-  }, [enrichedCampaigns, clientOrDisplay, selectedClient, siteFilter, startDate, endDate, statusFilter]);
+  }, [enrichedCampaigns, clientOrDisplay, selectedClient, siteFilter, startDate, endDate, statusFilter, bookingTypeFilter]);
 
   // Sorted list
   const sortedList = useMemo(() => {
@@ -647,6 +682,7 @@ export default function CampaignDetailsView() {
     setEndDate('');
     setStatusFilter('ALL');
     setSiteFilter('');
+    setBookingTypeFilter('ALL');
   }
 
   function handleSort(key) {
@@ -818,7 +854,14 @@ export default function CampaignDetailsView() {
     }
   }
 
-  const isFiltered = Boolean(clientOrDisplay || (selectedClient && selectedClient !== 'ALL') || startDate || endDate || siteFilter);
+  const isFiltered = Boolean(
+    clientOrDisplay ||
+    (selectedClient && selectedClient !== 'ALL') ||
+    startDate ||
+    endDate ||
+    siteFilter ||
+    bookingTypeFilter !== 'ALL'
+  );
 
   return (
     <>
@@ -1029,8 +1072,8 @@ export default function CampaignDetailsView() {
           )}
         </div>
 
-        {/* Date Presets Toolbar & Quick Client Chips */}
-        <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+        {/* Date Presets Toolbar, Booking Type Filter & Quick Client Chips */}
+        <div style={{ marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
           
           {/* Quick Date Presets */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
@@ -1052,6 +1095,69 @@ export default function CampaignDetailsView() {
             <button type="button" className="scooh-pill" onClick={() => applyDatePreset('year2026')} style={{ cursor: 'pointer', padding: '3px 9px', fontSize: '11px', background: 'rgba(255,255,255,0.04)', color: '#94a3b8' }}>
               Year 2026
             </button>
+          </div>
+
+          {/* Quick Filter: Occupied vs Linked Sites */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '11.5px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Show:
+            </span>
+            <div style={{ display: 'inline-flex', background: '#0b1016', padding: '3px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.12)' }}>
+              <button
+                type="button"
+                className="scooh-pill"
+                onClick={() => setBookingTypeFilter('ALL')}
+                style={{
+                  cursor: 'pointer',
+                  padding: '4px 11px',
+                  fontSize: '11.5px',
+                  fontWeight: bookingTypeFilter === 'ALL' ? 800 : 600,
+                  borderRadius: '6px',
+                  background: bookingTypeFilter === 'ALL' ? 'rgba(168, 85, 247, 0.3)' : 'transparent',
+                  color: bookingTypeFilter === 'ALL' ? '#c084fc' : '#94a3b8',
+                  border: bookingTypeFilter === 'ALL' ? '1px solid rgba(168, 85, 247, 0.6)' : '1px solid transparent'
+                }}
+                title="Show all bookings (occupied and linked)"
+              >
+                All ({enrichedCampaigns.length})
+              </button>
+              <button
+                type="button"
+                className="scooh-pill"
+                onClick={() => setBookingTypeFilter('OCCUPIED')}
+                style={{
+                  cursor: 'pointer',
+                  padding: '4px 11px',
+                  fontSize: '11.5px',
+                  fontWeight: bookingTypeFilter === 'OCCUPIED' ? 800 : 600,
+                  borderRadius: '6px',
+                  background: bookingTypeFilter === 'OCCUPIED' ? 'rgba(34, 197, 94, 0.25)' : 'transparent',
+                  color: bookingTypeFilter === 'OCCUPIED' ? '#4ade80' : '#94a3b8',
+                  border: bookingTypeFilter === 'OCCUPIED' ? '1px solid rgba(34, 197, 94, 0.6)' : '1px solid transparent'
+                }}
+                title="Show only primary occupied sites"
+              >
+                🟢 Occupied ({occupiedCount})
+              </button>
+              <button
+                type="button"
+                className="scooh-pill"
+                onClick={() => setBookingTypeFilter('LINKED')}
+                style={{
+                  cursor: 'pointer',
+                  padding: '4px 11px',
+                  fontSize: '11.5px',
+                  fontWeight: bookingTypeFilter === 'LINKED' ? 800 : 600,
+                  borderRadius: '6px',
+                  background: bookingTypeFilter === 'LINKED' ? 'rgba(245, 158, 11, 0.25)' : 'transparent',
+                  color: bookingTypeFilter === 'LINKED' ? '#fbbf24' : '#94a3b8',
+                  border: bookingTypeFilter === 'LINKED' ? '1px solid rgba(245, 158, 11, 0.6)' : '1px solid transparent'
+                }}
+                title="Show only auto-occupied linked sites"
+              >
+                🔗 Linked ({linkedCount})
+              </button>
+            </div>
           </div>
 
           {/* Quick Filter by Client Chips */}
@@ -1098,6 +1204,12 @@ export default function CampaignDetailsView() {
             <span style={{ fontSize: '12px', fontWeight: 800, padding: '2px 9px', borderRadius: '12px', background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.4)' }}>
               {sortedList.length} {sortedList.length === 1 ? 'Booking' : 'Bookings'}
             </span>
+            <span style={{ fontSize: '12px', fontWeight: 800, padding: '2px 9px', borderRadius: '12px', background: 'rgba(34, 197, 94, 0.16)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.35)' }}>
+              🟢 {filteredList.filter(c => !c.isLinked).length} Occupied
+            </span>
+            <span style={{ fontSize: '12px', fontWeight: 800, padding: '2px 9px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.16)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.35)' }}>
+              🔗 {filteredList.filter(c => c.isLinked).length} Linked
+            </span>
             <span style={{ fontSize: '12px', fontWeight: 800, padding: '2px 9px', borderRadius: '12px', background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
               {clientGroups.length} {clientGroups.length === 1 ? 'Client' : 'Clients'}
             </span>
@@ -1107,7 +1219,7 @@ export default function CampaignDetailsView() {
           </div>
           {isFiltered && (
             <div style={{ fontSize: '12px', color: '#a78bfa', marginTop: '4px' }}>
-              Filtered: {selectedClient !== 'ALL' ? `Client: "${selectedClient}" • ` : ''}{clientOrDisplay ? `Search: "${clientOrDisplay}" • ` : ''}{startDate ? `From: ${startDate} ` : ''}{endDate ? `To: ${endDate}` : ''}
+              Filtered: {bookingTypeFilter !== 'ALL' ? (bookingTypeFilter === 'OCCUPIED' ? '🟢 Occupied Sites Only • ' : '🔗 Linked Sites Only • ') : ''}{selectedClient !== 'ALL' ? `Client: "${selectedClient}" • ` : ''}{clientOrDisplay ? `Search: "${clientOrDisplay}" • ` : ''}{startDate ? `From: ${startDate} ` : ''}{endDate ? `To: ${endDate}` : ''}
             </div>
           )}
         </div>
@@ -1366,18 +1478,59 @@ export default function CampaignDetailsView() {
                               {idx + 1}
                             </td>
                             <td>
-                              <button
-                                type="button"
-                                className="scooh-plate"
-                                style={{ cursor: 'pointer', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.45)', color: '#38bdf8', padding: '3px 8px', borderRadius: '5px', fontWeight: 800 }}
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  navigate(`/sites?search=${encodeURIComponent(c.site_code)}`);
-                                }}
-                                title={`View ${c.site_code} in Sites Directory`}
-                              >
-                                {c.site_code}
-                              </button>
+                              <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                                <button
+                                  type="button"
+                                  className="scooh-plate"
+                                  style={{ cursor: 'pointer', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.45)', color: '#38bdf8', padding: '3px 8px', borderRadius: '5px', fontWeight: 800 }}
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    navigate(`/sites?search=${encodeURIComponent(c.site_code)}`);
+                                  }}
+                                  title={`View ${c.site_code} in Sites Directory`}
+                                >
+                                  {c.site_code}
+                                </button>
+                                {c.isLinked ? (
+                                  <span
+                                    style={{
+                                      fontSize: '10.5px',
+                                      fontWeight: 800,
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      background: 'rgba(245, 158, 11, 0.18)',
+                                      color: '#fbbf24',
+                                      border: '1px solid rgba(245, 158, 11, 0.45)',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                      whiteSpace: 'nowrap'
+                                    }}
+                                    title={c.notes || 'Auto-occupied linked site'}
+                                  >
+                                    🔗 Linked {c.linkedToSite ? `(${c.linkedToSite})` : ''}
+                                  </span>
+                                ) : (
+                                  <span
+                                    style={{
+                                      fontSize: '10.5px',
+                                      fontWeight: 800,
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      background: 'rgba(34, 197, 94, 0.18)',
+                                      color: '#4ade80',
+                                      border: '1px solid rgba(34, 197, 94, 0.45)',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px',
+                                      whiteSpace: 'nowrap'
+                                    }}
+                                    title="Direct occupied site booking"
+                                  >
+                                    🟢 Occupied
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td>
                               <div style={{ fontWeight: 700, color: '#f8fafc', fontSize: '13.5px' }}>
@@ -1494,18 +1647,59 @@ export default function CampaignDetailsView() {
                       {idx + 1}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="scooh-plate"
-                        style={{ cursor: 'pointer', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.45)', color: '#38bdf8', padding: '3px 8px', borderRadius: '5px', fontWeight: 800 }}
-                        onClick={e => {
-                          e.stopPropagation();
-                          navigate(`/sites?search=${encodeURIComponent(c.site_code)}`);
-                        }}
-                        title={`View ${c.site_code} in Sites Directory`}
-                      >
-                        {c.site_code}
-                      </button>
+                      <div style={{ display: 'inline-flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                        <button
+                          type="button"
+                          className="scooh-plate"
+                          style={{ cursor: 'pointer', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.45)', color: '#38bdf8', padding: '3px 8px', borderRadius: '5px', fontWeight: 800 }}
+                          onClick={e => {
+                            e.stopPropagation();
+                            navigate(`/sites?search=${encodeURIComponent(c.site_code)}`);
+                          }}
+                          title={`View ${c.site_code} in Sites Directory`}
+                        >
+                          {c.site_code}
+                        </button>
+                        {c.isLinked ? (
+                          <span
+                            style={{
+                              fontSize: '10.5px',
+                              fontWeight: 800,
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              background: 'rgba(245, 158, 11, 0.18)',
+                              color: '#fbbf24',
+                              border: '1px solid rgba(245, 158, 11, 0.45)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title={c.notes || 'Auto-occupied linked site'}
+                          >
+                            🔗 Linked {c.linkedToSite ? `(${c.linkedToSite})` : ''}
+                          </span>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: '10.5px',
+                              fontWeight: 800,
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              background: 'rgba(34, 197, 94, 0.18)',
+                              color: '#4ade80',
+                              border: '1px solid rgba(34, 197, 94, 0.45)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title="Direct occupied site booking"
+                          >
+                            🟢 Occupied
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <div style={{ fontWeight: 800, color: '#f8fafc', fontSize: '13.5px' }}>
@@ -1595,10 +1789,19 @@ export default function CampaignDetailsView() {
           <div className="scooh-modal" style={{ maxWidth: '640px', width: '90%' }} onClick={e => e.stopPropagation()}>
             <div className="scooh-modalhead" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
                   <span className="scooh-plate" style={{ fontSize: '14px', fontWeight: 900, background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }}>
                     {selectedCampaign.site_code}
                   </span>
+                  {selectedCampaign.isLinked ? (
+                    <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(245, 158, 11, 0.2)', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.45)' }}>
+                      🔗 LINKED SITE {selectedCampaign.linkedToSite ? `(LINKED TO ${selectedCampaign.linkedToSite})` : ''}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(34, 197, 94, 0.2)', color: '#4ade80', border: '1px solid rgba(34, 197, 94, 0.45)' }}>
+                      🟢 DIRECT OCCUPIED
+                    </span>
+                  )}
                   <span style={{ fontSize: '11px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: selectedCampaign.computedStatus === 'live' ? 'rgba(74, 222, 128, 0.15)' : 'rgba(148, 163, 184, 0.15)', color: selectedCampaign.computedStatus === 'live' ? '#4ade80' : '#94a3b8' }}>
                     {selectedCampaign.computedStatus ? selectedCampaign.computedStatus.toUpperCase() : 'ACTIVE'}
                   </span>
@@ -1641,8 +1844,12 @@ export default function CampaignDetailsView() {
                       {Number(selectedCampaign.total_amount || selectedCampaign.revenue || 0) > 0 ? money(Number(selectedCampaign.total_amount || selectedCampaign.revenue)) : '—'}
                     </div>
                   </div>
-
                 </div>
+                {selectedCampaign.isLinked && (
+                  <div style={{ marginTop: '12px', padding: '8px 12px', borderRadius: '6px', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.35)', color: '#fbbf24', fontSize: '12px', fontWeight: 600 }}>
+                    ℹ️ This is an auto-occupied linked site. Billing and revenue are covered under the primary booking {selectedCampaign.linkedToSite ? `for site ${selectedCampaign.linkedToSite}` : ''}.
+                  </div>
+                )}
               </div>
 
               {/* Schedule & Dates */}
