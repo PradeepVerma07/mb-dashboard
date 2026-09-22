@@ -1342,8 +1342,7 @@ async function makePpt(sites, pages = {}, fileName = `${getTodayPptDateStr()}.pp
 
 async function exportStyledExcel(rowsData, filename = `${getTodayPptDateStr()}.xlsx`, title = null) {
   const workbook = new ExcelJS.Workbook();
-  const isDateOnly = /^\d{2,4}[-._/]\d{1,2}[-._/]\d{2,4}$/.test(String(title || '').trim());
-  const cleanTitle = (title && !isDateOnly) ? String(title).trim() : 'MEDIA BUZZ — SITES & MEDIA PORTFOLIO';
+  const cleanTitle = title ? String(title).trim() : getTodayPptDateStr();
   const headerRowNum = 2;
   const dataStartRowNum = 3;
 
@@ -1371,7 +1370,8 @@ async function exportStyledExcel(rowsData, filename = `${getTodayPptDateStr()}.x
   attachMediaBuzzExcelHeader(workbook, worksheet, {
     title: cleanTitle,
     columns: cols,
-    totalColumns: 12
+    totalColumns: 12,
+    align: 'center'
   });
 
   // Populate Header Row (Row 2)

@@ -61,7 +61,8 @@ export function attachMediaBuzzExcelHeader(workbook, worksheet, {
   totalColumns = 11,
   rowHeight = 46,
   logoWidth = 118,
-  logoHeight = 44
+  logoHeight = 44,
+  align = 'center'
 } = {}) {
   const colCount = Math.max(1, totalColumns || (Array.isArray(columns) ? columns.length : 11));
   const lastColLetter = getExcelColLetter(colCount);
@@ -98,8 +99,7 @@ export function attachMediaBuzzExcelHeader(workbook, worksheet, {
   };
   titleCell.alignment = {
     vertical: 'middle',
-    horizontal: 'left',
-    indent: 1
+    horizontal: align || 'center'
   };
 
   // 4. Add official Media Buzz brand logo to workbook & anchor on the top right
@@ -127,7 +127,7 @@ export const MEDIA_BUZZ_TERMS_TEXT = [
   '3. Printing charges will be charged extra, as actual.',
   '4. Mounting charges will be charged extra at ₹4 per sq. ft.',
   '5. Payment Terms: Advance / within 30 days from the date of invoice.',
-  '6. Artwork/Flex must be provided within 7 days of site confirmation, otherwise the site may be released.',
+  '6. Artwork/Flex must be provided within 2 days of site confirmation, otherwise the site may be released.',
   "7. Cancellations require a minimum 10 days' notice; immediate cancellations are not accepted."
 ].join('\n');
 
@@ -171,7 +171,7 @@ export const MEDIA_BUZZ_TERMS_CONFIG = [
   {
     richText: [
       { font: { bold: false, name: 'Calibri', size: 10, color: { argb: 'FF1E293B' } }, text: '6. ' },
-      { font: { bold: true, name: 'Calibri', size: 10, color: { argb: 'FF071C35' } }, text: 'Artwork/Flex must be provided within 7 days of site confirmation, otherwise the site may be released.' }
+      { font: { bold: true, name: 'Calibri', size: 10, color: { argb: 'FF071C35' } }, text: 'Artwork/Flex must be provided within 2 days of site confirmation, otherwise the site may be released.' }
     ]
   },
   {
