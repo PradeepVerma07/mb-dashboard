@@ -1073,7 +1073,15 @@ async function createSitePhotoShowcase(imgDataUrl, boxW_px = 1500, boxH_px = 122
   return canvas.toDataURL('image/jpeg', 0.94);
 }
 
-async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pptx') {
+function getTodayPptDateStr() {
+  const d = new Date();
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+}
+
+async function makePpt(sites, pages = {}, fileName = `${getTodayPptDateStr()}.pptx`) {
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_WIDE';
   pptx.author = 'Media Buzz Outdoor';
@@ -1197,16 +1205,16 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
       hyperlink: { url: trackerUrl, tooltip: `Open ${rawCode} in Latest Booking` }
     });
 
-    // 5. Area / Location Title (Bold pure white)
-    const area = String(site.area || site.city || site.site_code || 'Prime Site').trim();
-    s.addText(area, {
+    // 5. City Heading (Bold pure white)
+    const city = String(site.city || site.area || site.site_code || 'City').trim();
+    s.addText(city, {
       x: 7.45, y: 1.98, w: 5.30, h: 0.45,
       fontFace: 'Arial', fontSize: 24, bold: true, color: 'FFFFFF', valign: 'middle', margin: 0
     });
 
-    // 6. Address / Landmark Subtitle (Bold white)
-    const address = String(site.address || site.notes || (site.city ? `Near ${site.city} Hub` : '') || 'Full Address').trim();
-    s.addText(address, {
+    // 6. Location / Address Subtitle (Bold white)
+    const location = String(site.location || site.address || site.area || site.notes || (site.city ? `Near ${site.city} Hub` : '') || 'Full Address').trim();
+    s.addText(location, {
       x: 7.45, y: 2.48, w: 5.30, h: 0.42,
       fontFace: 'Arial', fontSize: 16, bold: true, color: 'FFFFFF', valign: 'middle', margin: 0
     });
@@ -1311,7 +1319,7 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
   // Include optional closing page if uploaded
   if (lastCover) await fixed(lastCover);
 
-  let finalFileName = String(fileName || 'MediaBuzz_Automated-PPT.pptx').trim();
+  let finalFileName = String(fileName || `${getTodayPptDateStr()}.pptx`).trim();
   if (!finalFileName.toLowerCase().endsWith('.pptx')) finalFileName += '.pptx';
   await pptx.writeFile({ fileName: finalFileName });
 
@@ -1332,9 +1340,10 @@ async function makePpt(sites, pages = {}, fileName = 'MediaBuzz_Automated-PPT.pp
   } catch {}
 }
 
-async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', title = null) {
+async function exportStyledExcel(rowsData, filename = `${getTodayPptDateStr()}.xlsx`, title = null) {
   const workbook = new ExcelJS.Workbook();
-  const cleanTitle = title ? String(title).trim() : 'MEDIA BUZZ — SITES & MEDIA PORTFOLIO';
+  const isDateOnly = /^\d{2,4}[-._/]\d{1,2}[-._/]\d{2,4}$/.test(String(title || '').trim());
+  const cleanTitle = (title && !isDateOnly) ? String(title).trim() : 'MEDIA BUZZ — SITES & MEDIA PORTFOLIO';
   const headerRowNum = 2;
   const dataStartRowNum = 3;
 
@@ -1456,7 +1465,7 @@ async function exportStyledExcel(rowsData, filename = 'MediaBuzz_Sites.xlsx', ti
     totalColumns: 12
   });
 
-  let finalFileName = String(filename || 'MediaBuzz_Sites.xlsx').trim();
+  let finalFileName = String(filename || `${getTodayPptDateStr()}.xlsx`).trim();
   if (!finalFileName.toLowerCase().endsWith('.xlsx')) finalFileName += '.xlsx';
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -2823,7 +2832,7 @@ function PptView() {
   const [areaFilter, setAreaFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [pptName, setPptName] = useState('MediaBuzz_Automated-PPT');
+  const [pptName, setPptName] = useState(() => getTodayPptDateStr());
   const [alsoGenerateExcel, setAlsoGenerateExcel] = useState(true);
   const [sortState, setSortState] = useState({ key: 'site_code', dir: 'asc' });
   const [showMultiSelectModal, setShowMultiSelectModal] = useState(false);
@@ -2835,7 +2844,7 @@ function PptView() {
 
   function getCleanPptName() {
     let clean = (pptName || '').trim();
-    if (!clean) clean = `MediaBuzz_Presentation_${new Date().toISOString().slice(0, 10)}`;
+    if (!clean) clean = getTodayPptDateStr();
     clean = clean.replace(/\.(pptx|xlsx)$/i, '');
     return clean.replace(/[\\/:*?"<>|]/g, '_');
   }
@@ -3832,7 +3841,7 @@ function PptView() {
                 style={{ flex: '1 1 180px', minWidth: 0, padding: '5px 10px', fontSize: '13px', background: '#071526', border: '1px solid #234d7d', color: '#fff', borderRadius: '5px' }}
                 value={pptName}
                 onChange={e => setPptName(e.target.value)}
-                placeholder="MediaBuzz_Automated-PPT"
+                placeholder={getTodayPptDateStr()}
               />
               <span className="scooh-ppt-name-ext" style={{ fontSize: '12px', color: '#8fa4bd', fontWeight: 600 }}>
                 {alsoGenerateExcel ? '.pptx & .xlsx' : '.pptx'}
