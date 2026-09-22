@@ -1135,6 +1135,66 @@ async function makePpt(sites, pages = {}, fileName = `${getTodayPptDateStr()}.pp
     await covered(s, u, 0, 0, SW, SH);
   }
 
+  async function closingSlide(u) {
+    if (!u) return;
+    const s = pptx.addSlide();
+    s.background = { color: '000000' };
+    await covered(s, u, 0, 0, SW, SH);
+
+    // 1. Clickable hyperlink shape over website link "mediabuzzoutdoor.com" (bottom-right)
+    s.addShape(pptx.ShapeType.rect, {
+      x: 9.60,
+      y: 6.30,
+      w: 3.10,
+      h: 0.45,
+      fill: { color: '000000', transparency: 99 },
+      line: { color: '000000', transparency: 100 },
+      hyperlink: { url: 'https://mediabuzzoutdoor.com', tooltip: 'https://mediabuzzoutdoor.com' }
+    });
+
+    // 2. Semantic text hyperlink for accessibility, PDF conversion & text search
+    s.addText([
+      {
+        text: 'mediabuzzoutdoor.com',
+        options: {
+          hyperlink: { url: 'https://mediabuzzoutdoor.com', tooltip: 'https://mediabuzzoutdoor.com' },
+          color: '000000',
+          transparency: 100
+        }
+      }
+    ], {
+      x: 9.60,
+      y: 6.30,
+      w: 3.10,
+      h: 0.45,
+      align: 'right',
+      valign: 'middle',
+      margin: 0
+    });
+
+    // 3. Clickable email link for "sales@mediabuzzoutdoor.com"
+    s.addShape(pptx.ShapeType.rect, {
+      x: 8.85,
+      y: 5.30,
+      w: 3.85,
+      h: 0.40,
+      fill: { color: '000000', transparency: 99 },
+      line: { color: '000000', transparency: 100 },
+      hyperlink: { url: 'mailto:sales@mediabuzzoutdoor.com', tooltip: 'mailto:sales@mediabuzzoutdoor.com' }
+    });
+
+    // 4. Clickable billboard website link "www.mediabuzzoutdoor.com"
+    s.addShape(pptx.ShapeType.rect, {
+      x: 2.60,
+      y: 3.80,
+      w: 2.65,
+      h: 0.40,
+      fill: { color: '000000', transparency: 99 },
+      line: { color: '000000', transparency: 100 },
+      hyperlink: { url: 'https://mediabuzzoutdoor.com', tooltip: 'https://mediabuzzoutdoor.com' }
+    });
+  }
+
   function getCoords(st) {
     let lat = st.latitude, lng = st.longitude;
     if ((!lat || !lng) && st.gps) {
@@ -1288,10 +1348,13 @@ async function makePpt(sites, pages = {}, fileName = `${getTodayPptDateStr()}.pp
   function getEffectivePageUrl(key) {
     if (pages && pages[key]) return pages[key];
     try {
-      return localStorage.getItem(`mb_ppt_raw_${key}`) || '';
+      const cached = localStorage.getItem(`mb_ppt_raw_${key}`);
+      if (cached) return cached;
     } catch {
       return '';
     }
+    if (key === 'last') return '/assets/ppt_contact_last_page.png';
+    return '';
   }
 
   // Include optional cover pages if uploaded
@@ -1316,8 +1379,8 @@ async function makePpt(sites, pages = {}, fileName = `${getTodayPptDateStr()}.pp
     }
   }
 
-  // Include optional closing page if uploaded
-  if (lastCover) await fixed(lastCover);
+  // Include closing page (with clickable links on mediabuzzoutdoor.com, sales email, and billboard)
+  if (lastCover) await closingSlide(lastCover);
 
   let finalFileName = String(fileName || `${getTodayPptDateStr()}.pptx`).trim();
   if (!finalFileName.toLowerCase().endsWith('.pptx')) finalFileName += '.pptx';
@@ -3907,7 +3970,7 @@ function PptView() {
             const rawFallback = (() => {
               try { return localStorage.getItem(`mb_ppt_raw_${k}`) || ''; } catch { return ''; }
             })();
-            const activeUrl = pageUrl || rawFallback;
+            const activeUrl = pageUrl || rawFallback || (k === 'last' ? '/assets/ppt_contact_last_page.png' : '');
 
             return (
               <div
